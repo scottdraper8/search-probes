@@ -1,0 +1,173 @@
+import ctypes
+
+PREFERRED_IMAGE_BASE = 0x140000000
+PLAYER_COMMUNICATOR_UPDATE = 0x1413E6930
+SCAN_EVENT_LOOKUP = 0x1404E3DA0
+SPATIAL_NEAREST = 0x1403A87F0
+COORDINATE_TO_GRAPH = 0x141356E60
+NEAREST_SYSTEM_RESOLVER = 0x1412D12E0
+CANDIDATE_EVALUATOR = 0x1412D5300
+SOLAR_QUERY_CONSTRUCTOR = 0x140464EA0
+SOLAR_QUERY_RUN = 0x141648F50
+SOLAR_QUERY_DESTRUCTOR = 0x140317400
+PLANET_DATA_DESTRUCTOR = 0x1401CE9B0
+SYSTEM_NAME_GENERATOR = 0x140E7BC30
+PUBLISH_SCAN_EVENT = 0x1412D4DF0
+REMOVE_SCAN_EVENT = 0x1412DEFE0
+OBJECT_LIST_RESOLVER = 0x14168C3C0
+OBJECT_LIST_ELEMENT_DESTROY_RANGE = 0x140317270
+ALLOCATOR_DEALLOCATE = 0x142BEA300
+PLANET_DIFFICULTY_OFFSET = 0x145209510
+APPLICATION_SINGLETON = 0x146E81828
+# The current singleton points at cGcApplication::Data itself.  NMS.py's exported
+# cGcApplication.mpData +0x38 member describes an older outer-object layout and
+# resolves to packed state in the current executable, not a pointer.
+APPLICATION_REALITY_MANAGER_OFFSET = 0x60
+APPLICATION_SCAN_EVENT_MANAGER_OFFSET = 0x4DE440
+APPLICATION_GALAXY_GRAPH_OFFSET = 0x94EE88
+APPLICATION_CURRENT_GALACTIC_POSITION_OFFSET = 0xC1A0
+APPLICATION_PROCEDURAL_ROOT_OFFSET = 0x71AF60
+REALITY_MANAGER_WIKI_MISSION_TABLE_OFFSET = 0xD8
+# Current 7.01 adds three pointer fields before mpWiki relative to the available
+# NMS.py layout.  The live target contains the expected nine-category Wiki at
+# +0x248 (eight vanilla categories plus the staged System Search category).
+REALITY_MANAGER_WIKI_OFFSET = 0x248
+WIKI_CATEGORY_SIZE = 0xA0
+WIKI_CATEGORY_ITEMS_OFFSET = 0x70
+WIKI_CATEGORY_TOPICS_OFFSET = 0x80
+WIKI_TOPIC_SIZE = 0xB8
+MAX_WIKI_CATEGORIES = 128
+MAX_WIKI_TOPICS_PER_CATEGORY = 1024
+MAX_USER_POINTER = 0x00007FFFFFFFFFFF
+PROCEDURAL_PLANET_GENERATOR_OFFSET = 0x520550
+PROCEDURAL_RNG_OFFSET = 0xBA4
+PROCEDURAL_RESOURCE_KEY_CACHE_OFFSET = 0x4D8
+PROCEDURAL_RESOURCE_CACHE_OFFSET = 0x4E8
+EVENT_NAME = b"SE_SQN_SS_LUSH_R08"
+FORM_NAVIGATION_TARGET_EVENT_NAME = b"SE_SQN_SS11_TGT"
+FORM_NAVIGATION_TARGET_MISSION_ID = b"SQN_SS11_NAV"
+LEGACY_FORM_NAVIGATION_ROUTES = (
+    (b"SE_SQN_SS2_FORM", b"SQN_SS2_FORM"),
+    (b"SE_SQN_SS3_FORM", b"SQN_SS3_FORM"),
+    (b"SE_SQN_SS4_FORM", b"SQN_SS4_FORM"),
+    (b"SE_SQN_SS5_FORM", b"SQN_SS5_FORM"),
+    (b"SE_SQN_SS6_FORM", b"SQN_SS6_FORM"),
+    (b"SE_SQN_SS7_FORM_REQ", b"SQN_SS7_FORM"),
+    (b"SE_SQN_SS7_FORM_RDY", b"SQN_SS7_FORM"),
+    (b"SE_SQN_SS7_FORM_TGT", b"SQN_SS7_FORM"),
+    (b"SE_SQN_SS8_FORM_REQ", b"SQN_SS8_FORM"),
+    (b"SE_SQN_SS8_FORM_RDY", b"SQN_SS8_FORM"),
+    (b"SE_SQN_SS8_FORM_TGT", b"SQN_SS8_FORM"),
+    (b"SE_SQN_SS9_FORM_REQ", b"SQN_SS9_FORM"),
+    (b"SE_SQN_SS9_FORM_RDY", b"SQN_SS9_FORM"),
+    (b"SE_SQN_SS9_FORM_TGT", b"SQN_SS9_FORM"),
+    (b"SE_SQN_SS10_FORM_REQ", b"SQN_SS10_FORM"),
+    (b"SE_SQN_SS10_FORM_RDY", b"SQN_SS10_FORM"),
+    (b"SE_SQN_SS10_FORM_TGT", b"SQN_SS10_FORM"),
+)
+LEGACY_GUIDE_ROUTE_PREFIXES = (
+    (b"SE_SQN_SS2_P", b"SQN_SS2_P"),
+    (b"SE_SQN_SS3_P", b"SQN_SS3_P"),
+    (b"SE_SQN_SS4_P", b"SQN_SS4_P"),
+    (b"SE_SQN_SS5_P", b"SQN_SS5_P"),
+    (b"SE_SQN_SS6_P", b"SQN_SS6_P"),
+    (b"SE_SQN_SS7_P", b"SQN_SS7_P"),
+    (b"SE_SQN_SS7_R", b"SQN_SS7_P"),
+    (b"SE_SQN_SS7_T", b"SQN_SS7_P"),
+    (b"SE_SQN_SS8_P", b"SQN_SS8_P"),
+    (b"SE_SQN_SS8_R", b"SQN_SS8_P"),
+    (b"SE_SQN_SS8_T", b"SQN_SS8_P"),
+)
+EVENT_TABLE = 3
+EVENT_UAS_LIST_OFFSET = 0x418
+EVENT_SOLAR_SYSTEM_LOCATION_OFFSET = 0x47C
+EVENT_REPLACE_IF_ACTIVE_OFFSET = 0x4AD
+SOLAR_SYSTEM_LOCATION_FROM_LIST = 4
+# cGcScanEventManager::AddEvent copies three qwords from the caller's mission context into the
+# active-event record (the destination address occupies the adjacent qword between them).  A
+# deferred Guide publication must therefore own this exact input instead of publishing a detached
+# event with a null context.
+SCAN_EVENT_CONTEXT_SIZE = 0x18
+WARMUP_TICKS = 120
+POLL_SECONDS = 0.05
+MAX_CANDIDATES_PER_SLICE = 4
+MAX_SEARCH_SLICE_NS = 2_000_000
+NAVIGATION_MONITOR_INTERVAL_TICKS = 15
+PLANET_INDEX_OFFSET = 0x353C
+PLANET_STORM_FREQUENCY_OFFSET = 0x1E48
+PLANET_WEATHER_INTENSITY_OFFSET = 0x1E50
+PLANET_WEATHER_TYPE_OFFSET = 0x1E54
+PLANET_OBJECT_LIST_SOURCE_OFFSET = 0x3210
+PLANET_SPAWN_DATA_OFFSET = 0x32D8
+PLANET_BUILDING_LEVEL_OFFSET = 0x3528
+PLANET_CREATURE_LIFE_OFFSET = 0x352C
+PLANET_INHABITING_RACE_OFFSET = 0x3534
+PLANET_LIFE_OFFSET = 0x3538
+PLANET_RESOURCE_LEVEL_OFFSET = 0x3540
+PLANET_INFO_OFFSET = 0x3548
+PLANET_NAME_OFFSET = 0x3A4E
+PLANET_HAS_SCRAP_OFFSET = 0x3ACE
+PLANET_IN_ABANDONED_SYSTEM_OFFSET = 0x3ACF
+PLANET_IN_EMPTY_SYSTEM_OFFSET = 0x3AD0
+PLANET_IN_GAS_GIANT_SYSTEM_OFFSET = 0x3AD1
+PLANET_SENTINEL_LEVEL_BASE_OFFSET = 0x34CC
+PLANET_GROUND_COMBAT_STRIDE = 0x18
+OBJECT_SPAWN_SIZE = 0x168
+CREATURE_SPAWN_SIZE = 0x148
+SELECTABLE_LIST_SIZE = 0x20
+SELECTABLE_SPAWN_SIZE = 0x48
+OBJECT_LIST_SOURCE_SIZE = 0x58
+OBJECT_LIST_FILENAME_SIZE = 0x10
+RESOLVED_OBJECT_LIST_ELEMENT_SIZE = 0x70
+MAX_DYNAMIC_ARRAY_ITEMS = 100_000
+MAX_DYNAMIC_STRING_BYTES = 4096
+MAX_SURVEY_UNIQUE_VALUES = 4096
+SPAWN_COLLECTIONS = {
+    "creatures": (0x00, CREATURE_SPAWN_SIZE),
+    "detail_objects": (0x10, OBJECT_SPAWN_SIZE),
+    "distant_objects": (0x20, OBJECT_SPAWN_SIZE),
+    "landmarks": (0x30, OBJECT_SPAWN_SIZE),
+    "objects": (0x40, OBJECT_SPAWN_SIZE),
+    "selectable_objects": (0x50, SELECTABLE_LIST_SIZE),
+}
+COLOUR_PALETTES = {
+    "Grass": 0,
+    "Plant": 1,
+    "Leaf": 2,
+    "Water": 15,
+    "Cloud": 16,
+    "Sky": 17,
+    "SkyHorizon": 22,
+    "SkyFog": 23,
+    "SkyHeightFog": 24,
+    "SkySunset": 25,
+    "SkyNight": 26,
+    "WaterNear": 27,
+}
+
+
+class ResolverResult(ctypes.Structure):
+    _fields_ = (
+        ("fallback_used", ctypes.c_uint8),
+        ("padding", ctypes.c_uint8 * 7),
+        ("address", ctypes.c_uint64),
+    )
+
+
+class SpatialOutput(ctypes.Structure):
+    _fields_ = (
+        ("ids", ctypes.c_void_p),
+        ("distances", ctypes.c_void_p),
+        ("capacity", ctypes.c_uint64),
+        ("count", ctypes.c_uint64),
+    )
+
+
+class InternalVector(ctypes.Structure):
+    """Current non-template vector header used by the isolated object-list resolver."""
+
+    _fields_ = (
+        ("capacity", ctypes.c_uint32),
+        ("size", ctypes.c_uint32),
+        ("pointer", ctypes.c_void_p),
+    )
