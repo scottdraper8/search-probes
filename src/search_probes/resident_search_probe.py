@@ -620,8 +620,10 @@ class ResidentSearchProbe(Mod):
                 if self._ticks - started_tick < 600:
                     return
                 raise RuntimeError(
-                    "NMS did not publish the target route. Return to gameplay and retry."
+                    "NMS did not retain the target route. Abandon Search Probe Target "
+                    "in the Log before retrying."
                 )
+            self._missions.select(FORM_NAVIGATION_TARGET_MISSION_ID)
             self._pending_navigation = None
             self._emit("form_navigation_active", **native)
             self._respond(

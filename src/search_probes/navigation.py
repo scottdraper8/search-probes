@@ -433,6 +433,7 @@ class Navigation:
         result = {
             "mission_id": FORM_NAVIGATION_TARGET_MISSION_ID.decode("ascii"),
             "seed": "0x0000000000000000",
+            "seed_valid": True,
             "restart": False,
             "selected": True,
             "target": target,
