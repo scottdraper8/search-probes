@@ -912,8 +912,6 @@ class ResidentSearchOverlay:
                 return False
 
             dpg.render_dearpygui_frame()
-            win32gui.ShowWindow(overlay_hwnd, win32con.SW_HIDE)
-            win32gui.SetForegroundWindow(nms_hwnd)
             self._client.emit("overlay_window_ready")
             guide_status_revision = -1
 
