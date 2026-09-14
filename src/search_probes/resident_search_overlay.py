@@ -7,15 +7,15 @@ call NMS.
 
 from __future__ import annotations
 
-import json
 import threading
 import time
 import uuid
 from collections.abc import Mapping
 from contextlib import suppress
 from pathlib import Path
-from typing import TYPE_CHECKING
 
+from search_probes import resident_search_protocol as protocol
+from search_probes.overlay_client import OverlayClient
 from search_probes.overlay_form import (
     FORM_WIDGET_FIELDS,
     MAX_PRESETS,
@@ -31,15 +31,12 @@ from search_probes.overlay_platform import (
 )
 from search_probes.overlay_results import format_result_details, format_result_label
 
-if TYPE_CHECKING:
-    from resident_search_probe import ResidentSearchProbe
-
 
 class ResidentSearchOverlay:
     """Own a hotkey-toggled UI that communicates only through the resident mailbox."""
 
-    def __init__(self, probe: ResidentSearchProbe) -> None:
-        self._probe = probe
+    def __init__(self, client: OverlayClient) -> None:
+        self._client = client
         self._thread = threading.Thread(
             target=self._run,
             name="SQNResidentSearchOverlay",
@@ -52,7 +49,7 @@ class ResidentSearchOverlay:
         self._active_result: Path | None = None
         self._active_progress: Path | None = None
         self._navigation_result: Path | None = None
-        self._generation = int(probe._generation)
+        self._generation = int(client._generation_getter())
         self._visible = False
         self._passive = False
         self._error: str | None = None
@@ -73,30 +70,16 @@ class ResidentSearchOverlay:
         self._toggle.set()
 
     def _next_generation(self) -> int:
-        self._generation = max(self._generation + 1, int(self._probe._generation) + 1)
+        self._generation = self._client.next_generation()
         return self._generation
 
     def _write_command(self, command: dict[str, object]) -> None:
-        command = self._probe._event_copy.__func__.__globals__[
-            "_PROTOCOL"
-        ].normalize_command(command)
-        temporary = self._probe._command_dir / (
-            f".{command['id']}.{uuid.uuid4().hex}.tmp"
-        )
-        temporary.write_text(
-            json.dumps(command, sort_keys=True, separators=(",", ":")) + "\n",
-            encoding="utf-8",
-        )
-        temporary.replace(self._probe._command_dir / f"{command['id']}.json")
+        self._client.write_command(command)
 
     def _read_result(self, path: Path) -> dict[str, object]:
         """Read a result without racing the Wine-side atomic replacement."""
 
-        with self._probe._result_io_lock:
-            value = json.loads(path.read_text(encoding="utf-8"))
-        if not isinstance(value, dict):
-            raise TypeError(f"expected JSON object in {path}")
-        return value
+        return self._client.read_result(path)
 
     def _run(self) -> None:
         dpg = None
@@ -107,7 +90,6 @@ class ResidentSearchOverlay:
             import win32con
             import win32gui
 
-            protocol = self._probe._event_copy.__func__.__globals__["_PROTOCOL"]
             nms_hwnd = win32gui.FindWindow(None, "No Man's Sky")
             if not nms_hwnd:
                 raise RuntimeError("No Man's Sky window was not found")
@@ -159,7 +141,7 @@ class ResidentSearchOverlay:
             }
             resource_ids_to_labels = dict(protocol.RESOURCE_LABELS)
             population_labels = dict(POPULATION_LABELS)
-            preset_store = self._probe._preset_store
+            preset_store = self._client.preset_store
             no_preset = "Choose a preset..."
             delete_pending: dict[str, str | None] = {"name": None}
 
@@ -760,10 +742,8 @@ class ResidentSearchOverlay:
                     }
                     self._write_command(command)
                     self._active_id = command_id
-                    self._active_result = self._probe._result_dir / f"{command_id}.json"
-                    self._active_progress = (
-                        self._probe._result_dir / f"{command_id}.progress.json"
-                    )
+                    self._active_result = self._client.result_path(command_id)
+                    self._active_progress = self._client.progress_path(command_id)
                     set_status("Searching...")
                     show_passive_progress()
 
@@ -800,9 +780,7 @@ class ResidentSearchOverlay:
                             "address": address,
                         }
                     )
-                    self._navigation_result = (
-                        self._probe._result_dir / f"{command_id}.json"
-                    )
+                    self._navigation_result = self._client.result_path(command_id)
                     set_status("Publishing the selected target to NMS...")
                     if self._visible:
                         self.request_toggle()
@@ -908,7 +886,7 @@ class ResidentSearchOverlay:
                 win32gui.ShowWindow(overlay_hwnd, win32con.SW_HIDE)
                 set_overlay_passive(False)
                 self._visible = False
-                self._probe._emit(
+                self._client.emit(
                     "overlay_passive_focus_fallback",
                     expected_nms_hwnd=int(nms_hwnd),
                     foreground_hwnd=int(win32gui.GetForegroundWindow() or 0),
@@ -933,7 +911,7 @@ class ResidentSearchOverlay:
                     self._visible = not self._visible
                     progress_active = progress_requires_passive_window(
                         self._active_id,
-                        self._probe.guide_status_snapshot(),
+                        self._client.guide_status(),
                     )
                     if self._visible and progress_active:
                         show_passive_progress()
@@ -945,7 +923,7 @@ class ResidentSearchOverlay:
                         set_overlay_passive(False)
                         win32gui.ShowWindow(overlay_hwnd, win32con.SW_HIDE)
                         win32gui.SetForegroundWindow(nms_hwnd)
-                guide_status = self._probe.guide_status_snapshot()
+                guide_status = self._client.guide_status()
                 revision = int(guide_status.get("revision", 0))
                 if revision != guide_status_revision:
                     guide_status_revision = revision
@@ -990,8 +968,7 @@ class ResidentSearchOverlay:
                     self._active_progress = None
                     if self._visible:
                         guide_searching = (
-                            self._probe.guide_status_snapshot().get("state")
-                            == "searching"
+                            self._client.guide_status().get("state") == "searching"
                         )
                         set_overlay_passive(guide_searching)
                 progress_path = self._active_progress
@@ -1021,7 +998,7 @@ class ResidentSearchOverlay:
         except Exception as exc:  # noqa: BLE001
             self._error = f"{type(exc).__name__}: {exc}"
             with suppress(Exception):
-                self._probe._emit("overlay_error", error=self._error)
+                self._client.emit("overlay_error", error=self._error)
             self._ready.set()
         finally:
             if dpg is not None:

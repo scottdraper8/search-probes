@@ -138,7 +138,17 @@ class ResidentSearchProbe(Mod):
         self._overlay = None
         if self._overlay_enabled:
             try:
-                self._overlay = _OVERLAY.ResidentSearchOverlay(self)
+                self._overlay = _OVERLAY.ResidentSearchOverlay(
+                    _OVERLAY.OverlayClient(
+                        self._command_dir,
+                        self._result_dir,
+                        self._result_io_lock,
+                        lambda: self._generation,
+                        self.guide_status_snapshot,
+                        self._preset_store,
+                        self._emit,
+                    )
+                )
                 self._overlay.start()
             except Exception:
                 self._stop_worker.set()
