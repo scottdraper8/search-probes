@@ -548,11 +548,16 @@ class ResidentSearchProbe(Mod):
         dispatch = self._guide_dispatches.get(str(command["id"]))
         if dispatch is None:
             raise RuntimeError("Guide search completion has no matching dispatch")
+        mission_id = _PRESETS.guide_slot_mission(int(dispatch["slot"])).encode("ascii")
+        if not self._missions.active(mission_id):
+            raise RuntimeError(
+                "The Guide probe was abandoned before its search completed"
+            )
         if not matches:
             self._guide_dispatches.pop(str(command["id"]), None)
             self._set_guide_status(
                 "no_match",
-                f"No exact match found for preset: {dispatch['name']}",
+                f"No exact match for {dispatch['name']}. Abandon this probe in the Log.",
                 command_id=command["id"],
                 slot=dispatch["slot"],
             )

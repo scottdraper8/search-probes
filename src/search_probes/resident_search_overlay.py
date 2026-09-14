@@ -268,14 +268,14 @@ class ResidentSearchOverlay:
                 no_collapse=True,
             ):
                 with dpg.group(horizontal=True):
-                    dpg.add_text("SYSTEM SEARCH")
+                    dpg.add_text("SEARCH PROBES")
                     dpg.add_spacer(width=scaled(390))
                     dpg.add_button(
                         label="Hide  [F7]", callback=lambda: self.request_toggle()
                     )
                 dpg.add_separator()
                 dpg.add_text(
-                    "Every listed filter is backed by a current generated-system field."
+                    "Find nearby systems and planets matching all selected filters."
                 )
                 with dpg.table(
                     header_row=False,
@@ -350,7 +350,7 @@ class ResidentSearchOverlay:
                 with dpg.tab_bar():
                     with (
                         dpg.tab(label="Target planet"),
-                        dpg.child_window(height=scaled(390)),
+                        dpg.child_window(height=scaled(260)),
                     ):
                         dpg.add_text("Planet identity, terrain, and required resources")
                         with dpg.table(
@@ -425,7 +425,7 @@ class ResidentSearchOverlay:
                                 )
                     with (
                         dpg.tab(label="Target planet · environment"),
-                        dpg.child_window(height=scaled(390)),
+                        dpg.child_window(height=scaled(260)),
                     ):
                         dpg.add_text("Target-planet flags")
                         with dpg.table(
@@ -564,7 +564,7 @@ class ResidentSearchOverlay:
                         )
                     with (
                         dpg.tab(label="System filters"),
-                        dpg.child_window(height=scaled(390)),
+                        dpg.child_window(height=scaled(260)),
                     ):
                         dpg.add_text(
                             "System-wide filters can match different planets from the target."
