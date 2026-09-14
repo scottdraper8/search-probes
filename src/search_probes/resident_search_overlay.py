@@ -57,6 +57,7 @@ class ResidentSearchOverlay:
     def start(self, timeout: float = 10.0) -> None:
         self._thread.start()
         if not self._ready.wait(timeout):
+            self.close()
             raise TimeoutError("resident search overlay did not become ready")
         if self._error is not None:
             raise RuntimeError(self._error)
@@ -81,11 +82,31 @@ class ResidentSearchOverlay:
 
         return self._client.read_result(path)
 
+    def _wait_for_open(self, key_state) -> bool:
+        was_down = False
+        self._ready.set()
+        while not self._stop.is_set():
+            pressed, was_down = key_press_transition(int(key_state(0x76)), was_down)
+            if pressed:
+                self.request_toggle()
+            if self._toggle.is_set():
+                return was_down
+            self._stop.wait(0.02)
+        return was_down
+
     def _run(self) -> None:
         dpg = None
         try:
             import ctypes
 
+            get_async_key_state = ctypes.windll.user32.GetAsyncKeyState
+            get_async_key_state.argtypes = [ctypes.c_int]
+            get_async_key_state.restype = ctypes.c_short
+            self._client.emit("overlay_waiting_for_open")
+            f7_was_down = self._wait_for_open(get_async_key_state)
+            if self._stop.is_set():
+                return
+            self._client.emit("overlay_initializing")
             import dearpygui.dearpygui as dpg
             import win32con
             import win32gui
@@ -855,9 +876,6 @@ class ResidentSearchOverlay:
             get_window_long = ctypes.windll.user32.GetWindowLongPtrW
             get_window_long.argtypes = [ctypes.c_void_p, ctypes.c_int]
             get_window_long.restype = ctypes.c_ssize_t
-            get_async_key_state = ctypes.windll.user32.GetAsyncKeyState
-            get_async_key_state.argtypes = [ctypes.c_int]
-            get_async_key_state.restype = ctypes.c_short
 
             def set_overlay_passive(passive: bool) -> None:
                 """Let a visible progress form render without taking NMS activation."""
@@ -896,9 +914,8 @@ class ResidentSearchOverlay:
             dpg.render_dearpygui_frame()
             win32gui.ShowWindow(overlay_hwnd, win32con.SW_HIDE)
             win32gui.SetForegroundWindow(nms_hwnd)
-            self._ready.set()
+            self._client.emit("overlay_window_ready")
             guide_status_revision = -1
-            f7_was_down = False
 
             while dpg.is_dearpygui_running() and not self._stop.is_set():
                 f7_pressed, f7_was_down = key_press_transition(
