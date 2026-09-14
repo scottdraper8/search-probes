@@ -9,6 +9,8 @@ in the Log. Abandon that mission before selecting a different target.
 Saved presets also appear in the Catalogue & Guide after the next launch. The mod does not
 replace Quick Actions or multiplayer interactions. Presets are stored under
 `Binaries/SearchProbes/app/.resident-search` in the game installation.
+If a Guide search finds no exact match, abandon its probe in the Log before retrying; the form
+shows the search status. The Guide snapshot updates on the next game launch.
 
 Terrain families and generated objects are separate filters. For example, floating-island
 terrain does not imply that the generated object lists contain floating-island objects.
