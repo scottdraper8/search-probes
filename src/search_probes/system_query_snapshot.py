@@ -8,6 +8,7 @@ and can therefore be tested without NMS or Windows.
 
 from __future__ import annotations
 
+import math
 import struct
 from collections.abc import Mapping
 from colorsys import rgb_to_hsv
@@ -73,11 +74,13 @@ def is_paradise_planet(
 
 
 def classify_hue(colour: object) -> str:
-    """Classify one linear RGB palette value into a documented broad hue family."""
+    """Classify base RGB; yellow-green and olive belong to the green family."""
 
     if not isinstance(colour, (list, tuple)) or len(colour) < 3:
         raise ValueError("colour must contain at least three RGB components")
     red, green, blue = (float(colour[index]) for index in range(3))
+    if not all(math.isfinite(value) and value >= 0 for value in (red, green, blue)):
+        raise ValueError("colour components must be finite and non-negative")
     hue, saturation, _value = rgb_to_hsv(red, green, blue)
     if saturation < 0.12:
         return "Neutral"
@@ -86,7 +89,7 @@ def classify_hue(colour: object) -> str:
         return "Red"
     if degrees < 45.0:
         return "Orange"
-    if degrees < 75.0:
+    if degrees <= 60.0:
         return "Yellow"
     if degrees < 165.0:
         return "Green"
@@ -200,7 +203,7 @@ def decode_query(raw: bytes, *, difficulty_offset: int = 0) -> dict[str, object]
                 "is_prime": bool(raw[query + 0x132]),
                 "terrain_setting_index": terrain_setting_index,
                 "terrain_setting": terrain_setting,
-                "has_floating_islands": terrain_setting
+                "has_floating_island_terrain": terrain_setting
                 in FLOATING_ISLAND_TERRAIN_SETTINGS,
                 "is_infested": _u32(raw, query + 0x84) == 24,
                 "is_relic": (
@@ -315,6 +318,10 @@ def _first_match(
 ) -> tuple[bool, int | None]:
     """Return whether a snapshot matches and the first matching target-planet index."""
 
+    unsupported = set(criteria) - SNAPSHOT_CRITERIA
+    if unsupported:
+        raise ValueError(f"unsupported snapshot criteria: {', '.join(sorted(unsupported))}")
+
     if criteria.get("star_type") not in {None, "Any"} and snapshot[
         "star_type"
     ] != STAR_TYPES.index(criteria["star_type"]):
@@ -411,16 +418,12 @@ def _first_match(
             criteria.get("paradise_planet"), bool(planet.get("is_paradise"))
         ):
             continue
-        if not _tristate_matches(
-            criteria.get("floating_islands"), bool(planet["has_floating_islands"])
-        ):
-            continue
-        object_islands = criteria.get("floating_island_objects")
+        object_islands = criteria.get("floating_islands")
         if object_islands not in {None, "Any"}:
-            if "has_floating_island_objects" not in planet:
+            if "has_floating_islands" not in planet:
                 continue
             if not _tristate_matches(
-                object_islands, bool(planet["has_floating_island_objects"])
+                object_islands, bool(planet["has_floating_islands"])
             ):
                 continue
         if not _tristate_matches(
@@ -466,6 +469,18 @@ def _first_match(
         weather = planet.get("weather", {})
         if not isinstance(weather, Mapping):
             weather = {}
+        conditions = criteria.get("weather_conditions")
+        if conditions not in {None, "Any"}:
+            frequency = weather.get("storm_frequency")
+            if frequency not in range(len(STORM_FREQUENCIES)):
+                continue
+            actual = (
+                "None" if frequency == 0
+                else "Extreme" if planet["has_extreme_weather"]
+                else "Non-extreme"
+            )
+            if conditions != actual:
+                continue
         if any(
             criteria.get(criterion) not in {None, "Any"}
             and weather.get(field) != values.index(criteria[criterion])
@@ -479,6 +494,8 @@ def _first_match(
         primary_hues = planet.get("primary_hues", {})
         if not isinstance(primary_hues, Mapping):
             primary_hues = {}
+        if criteria.get("water_primary_hue") not in {None, "Any"} and not planet["has_water"]:
+            continue
         if any(
             criteria.get(criterion) not in {None, "Any"}
             and primary_hues.get(palette) != criteria[criterion]
@@ -625,14 +642,14 @@ def summarize_match(
             "size": label(PLANET_SIZES, planet["size"]),
             "terrain_setting": planet["terrain_setting"]
             or f"Unknown ({planet['terrain_setting_index']})",
-            "has_floating_islands": bool(planet["has_floating_islands"]),
+            "has_floating_island_terrain": bool(planet["has_floating_island_terrain"]),
             **(
                 {
-                    "has_floating_island_objects": bool(
-                        planet["has_floating_island_objects"]
+                    "has_floating_islands": bool(
+                        planet["has_floating_islands"]
                     )
                 }
-                if "has_floating_island_objects" in planet
+                if "has_floating_islands" in planet
                 else {}
             ),
             "has_rings": bool(planet["has_rings"]),
@@ -691,6 +708,7 @@ def summarize_match(
                 {
                     "primary_colours": dict(planet["primary_colours"]),
                     "primary_hues": dict(planet["primary_hues"]),
+                    "colour_selection": dict(planet.get("colour_selection", {})),
                 }
                 if isinstance(planet.get("primary_colours"), Mapping)
                 and isinstance(planet.get("primary_hues"), Mapping)
@@ -748,7 +766,6 @@ SNAPSHOT_CRITERIA = frozenset(
         "resource_level",
         "paradise_planet",
         "floating_islands",
-        "floating_island_objects",
         "non_gas_giant_planet",
         "planet_rings",
         "planet_has_moons",
@@ -774,6 +791,7 @@ SNAPSHOT_CRITERIA = frozenset(
         "storm_frequency",
         "weather_intensity",
         "weather_type",
+        "weather_conditions",
         *PRIMARY_COLOUR_CRITERIA,
     }
 )

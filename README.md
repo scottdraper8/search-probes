@@ -12,10 +12,18 @@ replace Quick Actions or multiplayer interactions. Presets are stored under
 If a Guide search finds no exact match, abandon its probe in the Log before retrying; the form
 shows the search status. The Guide snapshot updates on the next game launch.
 
-Terrain families and generated objects are separate filters. For example, floating-island
-terrain does not imply that the generated object lists contain floating-island objects.
-Required resource selections are combined with AND. Target-planet filters apply to the same
-planet; system filters can describe other planets in the system.
+The Floating islands filter is the canonical `floating_islands` criterion: it reads the resolved
+object-list `IsFloatingIsland` result. Terrain families remain available as an exact diagnostic,
+but the three `FloatingIslands*` values are not offered as a second island selector.
+Required resource selections are combined with AND across three survey-resource slots. Target-
+planet filters apply to the same planet; system filters can describe other planets in the system.
+
+The form exposes base vegetation colours (Grass, Plant, and Leaf), water base colour, and the
+daytime sky and atmosphere colours. These are generated inputs, not guarantees about rendered
+pixels: lighting and colour grading are excluded, vegetation can contain multiple colours, and
+water reflects the sky. Weather type remains available, with Storms grouped as None,
+Non-extreme, or Extreme. Older protocol fields that are not form controls remain visible as
+additional saved filters so presets retain their exact criteria.
 
 ## Source layout
 

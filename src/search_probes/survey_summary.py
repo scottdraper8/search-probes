@@ -89,7 +89,7 @@ def record_survey_snapshot(
             "size",
             "terrain_setting_index",
             "terrain_setting",
-            "has_floating_islands",
+            "has_floating_island_terrain",
             "has_final_spawn_floating_island_objects",
             "has_rings",
             "has_water",
@@ -117,7 +117,7 @@ def record_survey_snapshot(
         )
         record(
             "terrain_and_object_floating_islands",
-            f"terrain={bool(planet['has_floating_islands'])};"
+            f"terrain={bool(planet['has_floating_island_terrain'])};"
             f"objects={bool(planet['has_final_spawn_floating_island_objects'])}",
             planet_index,
         )
@@ -327,7 +327,7 @@ def record_survey_snapshot(
             )
         record(
             "terrain_and_spawn_floating",
-            f"terrain={bool(planet['has_floating_islands'])};spawn="
+            f"terrain={bool(planet['has_floating_island_terrain'])};spawn="
             f"{has_floating_island_spawn}",
             planet_index,
         )

@@ -27,6 +27,7 @@ from search_probes.criteria import (
     TERRAIN_SETTINGS,
     TRADING_CLASSES,
     WEALTH_CLASSES,
+    WEATHER_CONDITIONS,
     WEATHER_INTENSITIES,
     WEATHER_TYPES,
 )
@@ -181,35 +182,18 @@ PROVEN_PRIMARY_HUES = {
     "grass_primary_hue": HUE_FAMILIES,
     "plant_primary_hue": ("Red", "Orange", "Yellow", "Green", "Cyan", "Blue", "Purple"),
     "leaf_primary_hue": HUE_FAMILIES,
-    "water_primary_hue": ("Red", "Orange", "Green", "Cyan", "Blue"),
-    "near_water_primary_hue": ("Orange", "Green", "Cyan", "Blue", "Magenta"),
-    "cloud_primary_hue": ("Neutral",),
-    "sky_primary_hue": ("Red", "Orange", "Yellow", "Green", "Cyan", "Blue", "Magenta"),
-    "horizon_primary_hue": ("Orange", "Green", "Cyan", "Blue", "Purple", "Neutral"),
-    "sky_fog_primary_hue": (
-        "Red",
-        "Orange",
-        "Yellow",
-        "Green",
-        "Cyan",
-        "Blue",
-        "Purple",
-    ),
-    "sky_height_fog_primary_hue": ("Orange", "Yellow", "Green", "Cyan", "Blue"),
-    "sky_sunset_primary_hue": HUE_FAMILIES,
-    "sky_night_primary_hue": (
-        "Red",
-        "Orange",
-        "Yellow",
-        "Green",
-        "Blue",
-        "Purple",
-        "Magenta",
-    ),
+    "water_primary_hue": ("Red", "Orange", "Green", "Cyan", "Blue", "Purple"),
+    "cloud_primary_hue": HUE_FAMILIES,
+    "sky_primary_hue": HUE_FAMILIES,
+    "horizon_primary_hue": HUE_FAMILIES,
+    "sky_fog_primary_hue": HUE_FAMILIES,
+    "sky_height_fog_primary_hue": ("Orange", "Yellow", "Green", "Cyan", "Blue", "Magenta", "Neutral"),
+    "sky_sunset_primary_hue": ("Orange",),
+    "sky_night_primary_hue": ("Blue",),
 }
 PROVEN_STORM_FREQUENCIES = STORM_FREQUENCIES[:3]
 PROVEN_WEATHER_TYPES = WEATHER_TYPES[:7] + WEATHER_TYPES[10:]
-WEATHER_FIELDS = ("storm_frequency", "weather_intensity", "weather_type")
+WEATHER_FIELDS = ("storm_frequency", "weather_intensity", "weather_type", "weather_conditions")
 PLANET_METADATA_FIELDS = (
     "life_level",
     "creature_life_level",
@@ -218,7 +202,7 @@ PLANET_METADATA_FIELDS = (
     "paradise_planet",
     "has_scrap",
 )
-PLANET_SPAWN_FLAG_FIELDS = ("floating_island_objects",)
+PLANET_SPAWN_FLAG_FIELDS = ("floating_islands",)
 PRIMARY_COLOUR_FIELDS = tuple(PRIMARY_COLOUR_CRITERIA)
 if set(PROVEN_PRIMARY_HUES) != set(PRIMARY_COLOUR_FIELDS):
     raise RuntimeError(
@@ -294,7 +278,6 @@ SNAPSHOT_TRISTATE_FIELDS = (
     "deep_water_planet",
     "extreme_hazard_planet",
     "floating_islands",
-    "floating_island_objects",
     "infested_planet",
     "relic_planet",
     "has_scrap",
@@ -495,6 +478,19 @@ def normalize_command(raw: object) -> dict[str, object]:
 def normalize_criteria(raw: Mapping[object, object]) -> dict[str, object]:
     """Admit only criteria already exercised by the fixed-field runtime matrix."""
 
+    raw = dict(raw)
+    for old, current in (
+        ("floating_island_objects", "floating_islands"),
+        ("near_water_primary_hue", "water_primary_hue"),
+    ):
+        if old not in raw:
+            continue
+        value = raw.pop(old)
+        if value == "Any":
+            continue
+        if raw.get(current, "Any") not in ("Any", value):
+            raise ValueError(f"conflicting {old} and {current} filters; keep one setting")
+        raw[current] = value
     allowed = {
         "target_biome",
         "star_type",
@@ -645,6 +641,7 @@ def normalize_criteria(raw: Mapping[object, object]) -> dict[str, object]:
         ("storm_frequency", STORM_FREQUENCIES),
         ("weather_intensity", WEATHER_INTENSITIES),
         ("weather_type", WEATHER_TYPES),
+        ("weather_conditions", WEATHER_CONDITIONS),
     ):
         if field not in raw:
             continue

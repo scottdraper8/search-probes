@@ -20,8 +20,8 @@ from search_probes.overlay_form import (
     FORM_WIDGET_FIELDS,
     MAX_PRESETS,
     POPULATION_LABELS,
-    build_criteria,
-    criteria_form_values,
+    merge_criteria,
+    split_criteria,
 )
 from search_probes.overlay_platform import (
     compute_ui_layout,
@@ -165,6 +165,26 @@ class ResidentSearchOverlay:
             preset_store = self._client.preset_store
             no_preset = "Choose a preset..."
             delete_pending: dict[str, str | None] = {"name": None}
+            additional_filters: dict[str, object] = {}
+
+            def refresh_additional_filters() -> None:
+                visible = bool(additional_filters)
+                if dpg.does_item_exist("additional_filters"):
+                    dpg.configure_item(
+                        "additional_filters",
+                        show=visible,
+                        default_value=(
+                            "Additional saved filters: "
+                            + ", ".join(
+                                f"{key}={additional_filters[key]}"
+                                for key in sorted(additional_filters)
+                            )
+                            if visible
+                            else ""
+                        ),
+                    )
+                if dpg.does_item_exist("clear_additional_filters"):
+                    dpg.configure_item("clear_additional_filters", show=visible)
 
             def reset_delete_confirmation() -> None:
                 delete_pending["name"] = None
@@ -194,10 +214,11 @@ class ResidentSearchOverlay:
                 criteria = preset["criteria"]
                 if not isinstance(criteria, Mapping):
                     raise TypeError("stored preset criteria must be a mapping")
-                set_form_values(
-                    criteria_form_values(criteria, resource_ids_to_labels),
-                    query_name=str(preset["name"]),
-                )
+                values, extras = split_criteria(criteria, resource_ids_to_labels)
+                additional_filters.clear()
+                additional_filters.update(extras)
+                set_form_values(values, query_name=str(preset["name"]))
+                refresh_additional_filters()
                 dpg.set_value("candidate_limit", str(preset["candidate_limit"]))
                 dpg.set_value("result_limit", int(preset["result_limit"]))
 
@@ -208,6 +229,12 @@ class ResidentSearchOverlay:
                 )
                 dpg.set_value("preset", no_preset)
                 reset_delete_confirmation()
+                additional_filters.clear()
+                refresh_additional_filters()
+
+            def clear_additional_filters() -> None:
+                additional_filters.clear()
+                refresh_additional_filters()
 
             def read_form_criteria() -> dict[str, object]:
                 values = {
@@ -223,7 +250,7 @@ class ResidentSearchOverlay:
                 values["population_state"] = population_labels.get(
                     population_label, "Any"
                 )
-                return build_criteria(values)
+                return merge_criteria(values, additional_filters)
 
             def save_preset() -> None:
                 try:
@@ -364,6 +391,13 @@ class ResidentSearchOverlay:
                     "Built-ins may be updated or deleted. Guide changes require an NMS restart.",
                     tag="preset_capacity",
                 )
+                dpg.add_input_text(tag="additional_filters", show=False, readonly=True)
+                dpg.add_button(
+                    tag="clear_additional_filters",
+                    label="Clear additional filters",
+                    show=False,
+                    callback=clear_additional_filters,
+                )
                 result_addresses: dict[str, str] = {}
                 result_details: dict[str, str] = {}
                 result_sets: dict[str, dict[str, object]] = {}
@@ -400,16 +434,23 @@ class ResidentSearchOverlay:
                                 (
                                     "Terrain family (exact)",
                                     "terrain_setting",
-                                    ["Any", *protocol.PROVEN_TERRAIN_SETTINGS],
+                                    [
+                                        "Any",
+                                        *(
+                                            value
+                                            for value in protocol.PROVEN_TERRAIN_SETTINGS
+                                            if value
+                                            not in {
+                                                "FloatingIslands",
+                                                "FloatingIslandsPrime",
+                                                "FloatingIslandsPurple",
+                                            }
+                                        ),
+                                    ],
                                 ),
                                 (
-                                    "Floating-island terrain family",
+                                    "Floating islands",
                                     "floating_islands",
-                                    tristate,
-                                ),
-                                (
-                                    "Floating-island objects (resolved)",
-                                    "floating_island_objects",
                                     tristate,
                                 ),
                                 (
@@ -460,7 +501,6 @@ class ResidentSearchOverlay:
                                 ("Paradise planet", "paradise_planet"),
                                 ("Water", "water_planet"),
                                 ("Deep water", "deep_water_planet"),
-                                ("Extreme storms", "extreme_weather_planet"),
                                 ("Extreme hazards", "extreme_hazard_planet"),
                                 ("Sentinels", "sentinels"),
                                 ("Extreme sentinels", "extreme_sentinel_planet"),
@@ -524,14 +564,9 @@ class ResidentSearchOverlay:
                                 )
                             for label, tag, items in (
                                 (
-                                    "Storm frequency",
-                                    "storm_frequency",
-                                    ["Any", *protocol.PROVEN_STORM_FREQUENCIES],
-                                ),
-                                (
-                                    "Weather intensity",
-                                    "weather_intensity",
-                                    ["Any", *protocol.WEATHER_INTENSITIES],
+                                    "Storms",
+                                    "weather_conditions",
+                                    ["Any", "None", "Non-extreme", "Extreme"],
                                 ),
                                 (
                                     "Weather type",
@@ -549,21 +584,17 @@ class ResidentSearchOverlay:
                                     ),
                                 )
                             for label, tag in (
-                                ("Grass primary hue", "grass_primary_hue"),
-                                ("Plant primary hue", "plant_primary_hue"),
-                                ("Leaf primary hue", "leaf_primary_hue"),
-                                ("Water primary hue", "water_primary_hue"),
-                                ("Near-water primary hue", "near_water_primary_hue"),
-                                ("Cloud primary hue", "cloud_primary_hue"),
-                                ("Sky primary hue", "sky_primary_hue"),
-                                ("Horizon primary hue", "horizon_primary_hue"),
-                                ("Sky-fog primary hue", "sky_fog_primary_hue"),
+                                ("Grass base colour", "grass_primary_hue"),
+                                ("Plant base colour", "plant_primary_hue"),
+                                ("Leaf base colour", "leaf_primary_hue"),
+                                ("Water base colour", "water_primary_hue"),
+                                ("Daytime sky colour", "sky_primary_hue"),
+                                ("Horizon colour", "horizon_primary_hue"),
+                                ("Fog colour", "sky_fog_primary_hue"),
                                 (
-                                    "Height-fog primary hue",
+                                    "Height-fog colour",
                                     "sky_height_fog_primary_hue",
                                 ),
-                                ("Sunset primary hue", "sky_sunset_primary_hue"),
-                                ("Night-sky primary hue", "sky_night_primary_hue"),
                             ):
                                 row(
                                     label,
@@ -578,9 +609,8 @@ class ResidentSearchOverlay:
                                     ),
                                 )
                         dpg.add_text(
-                            "Hue means the generated primary palette value; atmosphere, "
-                            "weather, lighting, and display processing can change the final "
-                            "on-screen colour.",
+                            "Base colours exclude lighting and colour grading. Vegetation can "
+                            "contain multiple colours; water also reflects the sky.",
                             wrap=scaled(680),
                         )
                     with (

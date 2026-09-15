@@ -11,7 +11,6 @@ FORM_CRITERIA_FIELDS = (
     "terrain_setting",
     "resource",
     "floating_islands",
-    "floating_island_objects",
     "non_gas_giant_planet",
     "planet_rings",
     "planet_has_moons",
@@ -22,9 +21,7 @@ FORM_CRITERIA_FIELDS = (
     "creature_life_level",
     "building_density",
     "resource_level",
-    "extreme_weather_planet",
-    "storm_frequency",
-    "weather_intensity",
+    "weather_conditions",
     "weather_type",
     "extreme_hazard_planet",
     "extreme_sentinel_planet",
@@ -44,14 +41,10 @@ FORM_CRITERIA_FIELDS = (
     "plant_primary_hue",
     "leaf_primary_hue",
     "water_primary_hue",
-    "near_water_primary_hue",
-    "cloud_primary_hue",
     "sky_primary_hue",
     "horizon_primary_hue",
     "sky_fog_primary_hue",
     "sky_height_fog_primary_hue",
-    "sky_sunset_primary_hue",
-    "sky_night_primary_hue",
     "star_type",
     "wealth_class",
     "trading_class",
@@ -86,6 +79,30 @@ POPULATION_LABELS = {
     "Uncharted / empty": "Empty",
     "Abandoned": "Abandoned",
 }
+
+
+def split_criteria(
+    criteria: Mapping[str, object], resource_labels: Mapping[str, str] | None = None
+) -> tuple[dict[str, str], dict[str, object]]:
+    values = criteria_form_values(criteria, resource_labels or {})
+    extras = {
+        key: value
+        for key, value in criteria.items()
+        if key not in FORM_WIDGET_FIELDS
+        and key not in {"population_state", "required_resources"}
+    }
+    return values, extras
+
+
+def merge_criteria(
+    values: Mapping[str, object],
+    extras: Mapping[str, object],
+) -> dict[str, object]:
+    result = {
+        key: value for key, value in extras.items() if key not in FORM_WIDGET_FIELDS
+    }
+    result.update(build_criteria(values))
+    return result
 
 
 def preset_form_values(name: str) -> dict[str, str]:

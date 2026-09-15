@@ -86,7 +86,22 @@ def format_result_details(
     primary_hues = planet.get("primary_hues", {})
     if not isinstance(primary_hues, Mapping):
         primary_hues = {}
-    hue_text = ", ".join(f"{name}: {value}" for name, value in primary_hues.items())
+    visible_hues = {
+        name: value
+        for name, value in primary_hues.items()
+        if name
+        in {
+            "Grass",
+            "Plant",
+            "Leaf",
+            "Water",
+            "Sky",
+            "SkyHorizon",
+            "SkyFog",
+            "SkyHeightFog",
+        }
+    }
+    hue_text = ", ".join(f"{name}: {value}" for name, value in visible_hues.items())
     generated_name = str(planet.get("name", "")).strip() or "not captured"
     metadata = []
     if "is_paradise" in planet:
@@ -100,12 +115,12 @@ def format_result_details(
         if key in planet:
             metadata.append(f"{label} {planet[key]}")
     metadata_text = " · ".join(metadata) or "not captured for this query"
-    object_islands = planet.get("has_floating_island_objects")
-    object_islands_text = (
+    floating_islands = planet.get("has_floating_islands")
+    floating_islands_text = (
         "yes"
-        if object_islands is True
+        if floating_islands is True
         else "no"
-        if object_islands is False
+        if floating_islands is False
         else "not captured"
     )
     return (
@@ -116,9 +131,7 @@ def format_result_details(
         f"Planet type: {planet.get('biome', '?')} / "
         f"{planet.get('biome_subtype', '?')} · {planet.get('size', '?')} · "
         f"terrain {planet.get('terrain_setting', '?')} · "
-        f"floating-island terrain "
-        f"{'yes' if planet.get('has_floating_islands') else 'no'} · "
-        f"floating-island objects {object_islands_text} · "
+        f"floating islands {floating_islands_text} · "
         f"rings {'yes' if planet.get('has_rings') else 'no'} · "
         f"moons {planet.get('moon_count', '?')} · "
         f"water {'yes' if planet.get('has_water') else 'no'} · "
@@ -139,7 +152,7 @@ def format_result_details(
         f"weird discovery {'yes' if planet.get('suitable_weird_creature_discovery') else 'no'}, "
         f"taming {'yes' if planet.get('suitable_creature_taming') else 'no'}, "
         f"robot discovery {'yes' if planet.get('suitable_robot_creature_discovery') else 'no'}\n"
-        f"Resources: {resource_text or 'none in generated query'}\n"
+        f"Survey resources: {resource_text or 'none in generated query'}\n"
         f"Primary palette hues: {hue_text or 'not captured for this query'}\n"
         f"Extreme: storms {'yes' if planet.get('has_extreme_weather') else 'no'}, "
         f"hazards {'yes' if planet.get('has_extreme_hazard') else 'no'}, "

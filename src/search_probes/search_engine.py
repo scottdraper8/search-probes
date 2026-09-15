@@ -24,6 +24,7 @@ from search_probes.native_layout import (
     InternalVector,
     SpatialOutput,
 )
+from search_probes.planet_colours import capture_selected_colours
 
 
 class SearchEngine:
@@ -56,6 +57,10 @@ class SearchEngine:
                     include_spawn_flags=self._capture_planet_spawn_flags,
                     include_spawns=self._capture_planet_spawns,
                 )
+                if self._capture_planet_colours:
+                    copied_details["selected_colours"] = capture_selected_colours(
+                        int(planet_data), self.procedural_planet_generator()
+                    )
                 if (
                     self._capture_resolved_object_lists
                     and int(copied_details["planet_index"])
@@ -143,12 +148,12 @@ class SearchEngine:
         }
         native_only_criteria = set(criteria) - _SNAPSHOT.SNAPSHOT_CRITERIA
         if not criteria or snapshot_criteria:
-            object_island_value = snapshot_criteria.get("floating_island_objects")
+            object_island_value = snapshot_criteria.get("floating_islands")
             needs_object_resolution = object_island_value not in {None, "Any"}
             inexpensive_criteria = {
                 field: value
                 for field, value in snapshot_criteria.items()
-                if field != "floating_island_objects"
+                if field != "floating_islands"
             }
             needs_colours = _PROTOCOL.uses_primary_colour(inexpensive_criteria)
             needs_weather = _PROTOCOL.uses_planet_weather(inexpensive_criteria)
@@ -495,6 +500,10 @@ class SearchEngine:
                     and palette["colours"]
                 }
                 planet["primary_colours"] = primary_colours
+                selected = capture["selected_colours"]
+                primary_colours.update(selected["colours"])
+                primary_colours.pop("WaterNear", None)
+                planet["colour_selection"] = selected
                 planet["primary_hues"] = {
                     name: _SNAPSHOT.classify_hue(colour)
                     for name, colour in primary_colours.items()
@@ -582,7 +591,7 @@ class SearchEngine:
                         "target planet did not produce a resolved object-list capture"
                     )
                 planet["resolved_object_lists"] = resolved
-                planet["has_floating_island_objects"] = (
+                planet["has_floating_islands"] = (
                     planet_snapshot.resolved_lists_have_floating_islands(resolved)
                 )
         return snapshot

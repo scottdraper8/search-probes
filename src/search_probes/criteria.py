@@ -94,7 +94,6 @@ PRIMARY_COLOUR_CRITERIA = {
     "plant_primary_hue": "Plant",
     "leaf_primary_hue": "Leaf",
     "water_primary_hue": "Water",
-    "near_water_primary_hue": "WaterNear",
     "cloud_primary_hue": "Cloud",
     "sky_primary_hue": "Sky",
     "horizon_primary_hue": "SkyHorizon",
@@ -106,6 +105,7 @@ PRIMARY_COLOUR_CRITERIA = {
 PRIMARY_COLOUR_FIELDS = tuple(PRIMARY_COLOUR_CRITERIA)
 STORM_FREQUENCIES = ("None", "Low", "High", "Always")
 WEATHER_INTENSITIES = ("Default", "Extreme")
+WEATHER_CONDITIONS = ("None", "Non-extreme", "Extreme")
 WEATHER_TYPES = (
     "Clear",
     "Dust",
