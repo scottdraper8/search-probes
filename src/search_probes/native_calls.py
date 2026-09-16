@@ -56,7 +56,7 @@ class NativeCalls:
             OBJECT_LIST_ELEMENT_DESTROY_RANGE: bytes.fromhex(
                 "48 3B CA 73 51 48 89 5C 24 10 48 89 6C 24 18 56"
             ),
-            ALLOCATOR_DEALLOCATE: bytes.fromhex("48 8D 0D 09 B8 40 02 E9 54 4C 02 00"),
+            ALLOCATOR_DEALLOCATE: bytes.fromhex("48 8D 0D C9 BA 40 02 E9 54 4C 02 00"),
             PUBLISH_SCAN_EVENT: bytes.fromhex(
                 "48 8B C4 55 48 8D A8 28 FF FF FF 48 81 EC D0 01 00 00"
             ),

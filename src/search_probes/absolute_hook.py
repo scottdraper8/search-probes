@@ -26,7 +26,12 @@ PAGE_EXECUTE_READWRITE = 0x40
 MEM_FREE = 0x10000
 TH32CS_SNAPTHREAD = 0x00000004
 THREAD_SUSPEND_RESUME = 0x0002
+THREAD_QUERY_LIMITED_INFORMATION = 0x0800
 INVALID_HANDLE_VALUE = ctypes.c_void_p(-1).value
+ERROR_ACCESS_DENIED = 5
+ERROR_INVALID_HANDLE = 6
+ERROR_INVALID_PARAMETER = 87
+STILL_ACTIVE = 259
 ABSOLUTE_JUMP_SIZE = 14
 ALLOCATION_GRANULARITY = 0x10000
 MAX_RELATIVE_DISTANCE = 0x7FFF0000
@@ -76,6 +81,8 @@ kernel32.ResumeThread.argtypes = [ctypes.c_void_p]
 kernel32.ResumeThread.restype = ctypes.c_uint32
 kernel32.SuspendThread.argtypes = [ctypes.c_void_p]
 kernel32.SuspendThread.restype = ctypes.c_uint32
+kernel32.GetExitCodeThread.argtypes = [ctypes.c_void_p, ctypes.POINTER(ctypes.c_uint32)]
+kernel32.GetExitCodeThread.restype = ctypes.c_int
 kernel32.Thread32First.argtypes = [ctypes.c_void_p, ctypes.POINTER(THREADENTRY32)]
 kernel32.Thread32First.restype = ctypes.c_int
 kernel32.Thread32Next.argtypes = [ctypes.c_void_p, ctypes.POINTER(THREADENTRY32)]
@@ -159,13 +166,52 @@ def _suspend_other_threads() -> list[ctypes.c_void_p]:
     handles: list[ctypes.c_void_p] = []
     try:
         for thread_id in _thread_ids():
-            handle = kernel32.OpenThread(THREAD_SUSPEND_RESUME, False, thread_id)
-            if not handle:
-                raise _winerror(f"OpenThread({thread_id})")
-            if kernel32.SuspendThread(handle) == 0xFFFFFFFF:
+            for attempt in range(3):
+                handle = kernel32.OpenThread(
+                    THREAD_SUSPEND_RESUME | THREAD_QUERY_LIMITED_INFORMATION,
+                    False,
+                    thread_id,
+                )
+                if not handle:
+                    error = ctypes.get_last_error()
+                    if error in (ERROR_INVALID_HANDLE, ERROR_INVALID_PARAMETER):
+                        break
+                    raise OSError(
+                        error,
+                        f"OpenThread({thread_id}) failed: {ctypes.FormatError(error)}",
+                    )
+                if kernel32.SuspendThread(handle) != 0xFFFFFFFF:
+                    handles.append(handle)
+                    break
+
+                error = ctypes.get_last_error()
+                exit_code = ctypes.c_uint32()
+                exit_query_ok = bool(
+                    kernel32.GetExitCodeThread(handle, ctypes.byref(exit_code))
+                )
+                exit_query_error = ctypes.get_last_error()
+                exited = (
+                    exit_query_ok and exit_code.value != STILL_ACTIVE
+                ) or (
+                    not exit_query_ok
+                    and exit_query_error
+                    in (ERROR_INVALID_HANDLE, ERROR_INVALID_PARAMETER)
+                )
                 kernel32.CloseHandle(handle)
-                raise _winerror(f"SuspendThread({thread_id})")
-            handles.append(handle)
+                if exited:
+                    break
+                if error not in (
+                    ERROR_ACCESS_DENIED,
+                    ERROR_INVALID_HANDLE,
+                    ERROR_INVALID_PARAMETER,
+                ) or attempt == 2:
+                    raise OSError(
+                        error,
+                        f"SuspendThread({thread_id}) failed: {ctypes.FormatError(error)}",
+                    )
+                time.sleep(0.01)
+            else:
+                raise RuntimeError(f"could not suspend thread {thread_id}")
     except Exception:
         _resume_threads(handles)
         raise
