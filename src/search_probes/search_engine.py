@@ -9,13 +9,13 @@ from search_probes import system_query_snapshot as _SNAPSHOT
 from search_probes.native_layout import (
     APPLICATION_CURRENT_GALACTIC_POSITION_OFFSET,
     APPLICATION_GALAXY_GRAPH_OFFSET,
+    APPLICATION_GROUND_COMBAT_TIMERS_OFFSET,
     APPLICATION_PROCEDURAL_ROOT_OFFSET,
     APPLICATION_SCAN_EVENT_MANAGER_OFFSET,
     APPLICATION_SINGLETON,
     EVENT_NAME,
     EVENT_REPLACE_IF_ACTIVE_OFFSET,
     EVENT_TABLE,
-    PLANET_DIFFICULTY_OFFSET,
     PROCEDURAL_PLANET_GENERATOR_OFFSET,
     PROCEDURAL_RESOURCE_CACHE_OFFSET,
     PROCEDURAL_RESOURCE_KEY_CACHE_OFFSET,
@@ -127,6 +127,23 @@ class SearchEngine:
         if not 0 <= reality_index <= _PROTOCOL.UNIVERSE_ADDRESS_REALITY_MASK:
             raise RuntimeError(f"current galaxy index is invalid: {reality_index}")
         return reality_index
+
+    def current_ground_combat_difficulty(self) -> int:
+        application = int(
+            ctypes.c_void_p.from_address(self.resolve(APPLICATION_SINGLETON)).value or 0
+        )
+        if not application:
+            raise RuntimeError("application singleton is null")
+        difficulty = int(
+            ctypes.c_int32.from_address(
+                application + APPLICATION_GROUND_COMBAT_TIMERS_OFFSET
+            ).value
+        )
+        if not 0 <= difficulty < 4:
+            raise RuntimeError(
+                f"ground-combat difficulty row is invalid: {difficulty}"
+            )
+        return difficulty
 
     def require_current_reality(self, address: int, *, operation: str) -> int:
         address_reality = _PROTOCOL.universe_address_reality_index(address)
@@ -453,9 +470,7 @@ class SearchEngine:
             copied = ctypes.string_at(owned_address, _SNAPSHOT.QUERY_SIZE)
         finally:
             self.native.destroy_solar_query(owned_address)
-        difficulty_offset = int(
-            ctypes.c_int32.from_address(self.resolve(PLANET_DIFFICULTY_OFFSET)).value
-        )
+        difficulty_offset = self.current_ground_combat_difficulty()
         snapshot = _SNAPSHOT.decode_query(copied, difficulty_offset=difficulty_offset)
         if self._planet_detail_capture_error is not None:
             raise RuntimeError(

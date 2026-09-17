@@ -10,7 +10,7 @@ import time
 import traceback
 from pathlib import Path
 
-EXPECTED_EXE_SHA256 = "78c1d883a8d47c99308795ee22e8bdf7c03970f0af090effa45107cefb194ba4"
+EXPECTED_EXE_SHA256 = "6213bed7f859766d4064de704be25f119f84449fa13d78a3e40e162364a552ad"
 WINDOW_TITLE = "No Man's Sky"
 WINDOW_WAIT_SECONDS = 180.0
 

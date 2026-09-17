@@ -2,13 +2,17 @@ from __future__ import annotations
 
 import ctypes
 import struct
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
 
-APPLICATION_SINGLETON = 0x146E808E8
-MISSION_MANAGER_OFFSET = 0x837B20
-START_MISSION = 0x1409B1F90
-IS_MISSION_ACTIVE = 0x140568BF0
-SELECT_MISSION = 0x1409BA780
+from search_probes.native_layout import (
+    APPLICATION_MISSION_MANAGER_OFFSET,
+    APPLICATION_SINGLETON,
+    MAX_USER_POINTER,
+)
+
+MISSION_MANAGER_OFFSET = APPLICATION_MISSION_MANAGER_OFFSET
+START_MISSION = 0x1409B1F10
+SELECT_MISSION = 0x1409BA700
 MAX_MISSIONS = 4096
 
 
@@ -34,9 +38,14 @@ class NativeMissions:
         self._resolve = resolve
         self._read = read
         prefixes = {
-            START_MISSION: "48 89 5C 24 10 48 89 74 24 18 55 57 41 56",
-            IS_MISSION_ACTIVE: "48 89 5C 24 08 48 89 74 24 10 57 48 83 EC 20",
-            SELECT_MISSION: "48 8B C4 44 88 40 18 53 56 57 41 54",
+            START_MISSION: (
+                "48 89 5C 24 10 48 89 74 24 18 55 57 41 56 48 8D 6C 24 C1 "
+                "48 81 EC 00 01 00 00 8B 99 C4 01 00 00"
+            ),
+            SELECT_MISSION: (
+                "48 8B C4 44 88 40 18 53 56 57 41 54 48 81 EC 58 01 00 00 "
+                "45 33 E4 41 0F B6 F8 48 8B DA 48 8B F1"
+            ),
         }
         for address, value in prefixes.items():
             expected = bytes.fromhex(value)
@@ -52,12 +61,6 @@ class NativeMissions:
             ctypes.c_bool,
             ctypes.c_bool,
         )(resolve(START_MISSION))
-        self._active = ctypes.WINFUNCTYPE(
-            ctypes.c_bool,
-            ctypes.c_void_p,
-            ctypes.c_void_p,
-            ctypes.c_void_p,
-        )(resolve(IS_MISSION_ACTIVE))
         self._select = ctypes.WINFUNCTYPE(
             None, ctypes.c_void_p, ctypes.c_void_p, ctypes.c_bool
         )(resolve(SELECT_MISSION))
@@ -66,7 +69,7 @@ class NativeMissions:
         application = int.from_bytes(
             self._read(self._resolve(APPLICATION_SINGLETON), 8), "little"
         )
-        if not 0x10000 <= application <= 0x00007FFFFFFFFFFF:
+        if not 0x10000 <= application <= MAX_USER_POINTER:
             raise RuntimeError("application singleton is unavailable")
         return application + MISSION_MANAGER_OFFSET
 
@@ -77,12 +80,43 @@ class NativeMissions:
         return ctypes.create_string_buffer(mission_id, 16), MissionSeed(0, True)
 
     def active(self, mission_id: bytes) -> bool:
-        identity, seed = self._identity(mission_id)
-        return bool(
-            self._active(
-                self._manager(), ctypes.addressof(identity), ctypes.addressof(seed)
-            )
+        matches = self._active_instances(mission_id)
+        if len(matches) > 1:
+            raise RuntimeError("multiple active Search Probe Target instances exist")
+        return bool(matches)
+
+    def _mission_instances(self) -> Iterator[tuple[int, int]]:
+        manager = self._manager()
+        capacity, count, pointer = struct.unpack(
+            "<IIQ", self._read(manager + 0x1C0, 16)
         )
+        if count > capacity or capacity > MAX_MISSIONS:
+            raise RuntimeError("native mission collection has an unsupported shape")
+        if count and not 0x10000 <= pointer <= MAX_USER_POINTER:
+            raise RuntimeError("native mission collection is unavailable")
+        for index in range(count):
+            mission = int.from_bytes(self._read(pointer + index * 8, 8), "little")
+            if not 0x10000 <= mission <= MAX_USER_POINTER:
+                raise RuntimeError("native mission instance is unavailable")
+            yield index, mission
+
+    def _active_instances(self, mission_id: bytes) -> list[tuple[int, int]]:
+        identity, seed = self._identity(mission_id)
+        expected_identity = bytes(identity)
+        expected_seed = bytes(seed)[:9]
+        matches = []
+        for index, mission in self._mission_instances():
+            if self._read(mission + 8, 16) != expected_identity:
+                continue
+            if self._read(mission + 0x100, 9) != expected_seed:
+                continue
+            stages = int.from_bytes(self._read(mission + 0x1C, 4), "little")
+            progress = int.from_bytes(
+                self._read(mission + 0x48, 4), "little", signed=True
+            )
+            if 0 <= progress < stages:
+                matches.append((index, mission))
+        return matches
 
     def pending(self, mission_id: bytes) -> bool:
         manager = self._manager()
@@ -116,29 +150,7 @@ class NativeMissions:
 
     def select(self, mission_id: bytes) -> None:
         manager = self._manager()
-        identity, seed = self._identity(mission_id)
-        capacity, count, pointer = struct.unpack(
-            "<IIQ", self._read(manager + 0x1C0, 16)
-        )
-        if count > capacity or capacity > MAX_MISSIONS:
-            raise RuntimeError("native mission collection has an unsupported shape")
-        if count and not 0x10000 <= pointer <= 0x00007FFFFFFFFFFF:
-            raise RuntimeError("native mission collection is unavailable")
-        matches = []
-        for index in range(count):
-            mission = int.from_bytes(self._read(pointer + index * 8, 8), "little")
-            if not 0x10000 <= mission <= 0x00007FFFFFFFFFFF:
-                raise RuntimeError("native mission instance is unavailable")
-            if self._read(mission + 8, 16) != bytes(identity):
-                continue
-            if self._read(mission + 0x100, 9) != bytes(seed)[:9]:
-                continue
-            stages = int.from_bytes(self._read(mission + 0x1C, 4), "little")
-            progress = int.from_bytes(
-                self._read(mission + 0x48, 4), "little", signed=True
-            )
-            if 0 <= progress < stages:
-                matches.append((index, mission))
+        matches = self._active_instances(mission_id)
         if len(matches) != 1:
             raise RuntimeError("expected exactly one active Search Probe Target instance")
         index, mission = matches[0]
