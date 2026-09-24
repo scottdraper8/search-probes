@@ -16,7 +16,7 @@ def format_result_label(match: Mapping[str, object], index: int) -> str:
             f"{index + 1}. {name} · {system.get('star_type', 'Unknown star')} · "
             f"{system.get('wealth_class', 'Unknown economy')} · "
             f"{system.get('conflict_level', 'Unknown conflict')} · "
-            f"rank {match.get('rank', '?')}"
+            f"search order {match.get('rank', '?')}"
         )
     target = str(match.get("evaluation_pass", "")).partition("planet=")[2]
     planet_number = (
@@ -35,7 +35,7 @@ def format_result_label(match: Mapping[str, object], index: int) -> str:
     name_prefix = f"{generated_name} · " if generated_name else ""
     return (
         f"{index + 1}. {name_prefix}{' / '.join(attributes[:2])} · {attributes[2]} · "
-        f"{attributes[3]} · {attributes[4]} · rank {match.get('rank', '?')} · "
+        f"{attributes[3]} · {attributes[4]} · search order {match.get('rank', '?')} · "
         f"planet {planet_number}"
     )
 

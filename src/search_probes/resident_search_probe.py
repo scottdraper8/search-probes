@@ -101,8 +101,8 @@ class ResidentSearchProbe(Mod):
             self._root / _PRESETS.PRESET_FILE,
             defaults=_PRESETS.DEFAULT_PRESETS,
             normalize_criteria=_PROTOCOL.normalize_criteria,
-            default_candidate_limit=5000,
-            max_candidate_limit=_PROTOCOL.MAX_PROVEN_UI_CANDIDATES,
+            default_candidate_limit=10000,
+            max_candidate_limit=_PROTOCOL.MAX_SEARCH_CANDIDATES,
             default_result_limit=5,
             max_result_limit=_PROTOCOL.MAX_RESULTS,
         )
@@ -409,6 +409,8 @@ class ResidentSearchProbe(Mod):
             try:
                 self._execute(command)
             except Exception as exc:  # noqa: BLE001 - never unwind through an NMS callback
+                self._scheduler.searches.pop(str(command["id"]), None)
+                self._scheduler.surveys.pop(str(command["id"]), None)
                 self._respond(
                     command,
                     "error",
@@ -650,9 +652,12 @@ class ResidentSearchProbe(Mod):
         with self._cancel_lock:
             cancelled = command_id in self._cancelled
         if cancelled:
-            self._scheduler.searches.pop(command_id, None)
+            state = self._scheduler.searches.get(command_id)
             self._scheduler.surveys.pop(command_id, None)
-            self._respond(command, "cancelled")
+            if state is not None:
+                self._scheduler.complete_search(command, state, status="cancelled")
+            else:
+                self._respond(command, "cancelled")
             self._fail_guide_command(command, "cancelled")
             return
         action = command["action"]
@@ -672,6 +677,13 @@ class ResidentSearchProbe(Mod):
                 self._hook.restore()
             self._respond(command, "accepted", message="hook entry points restored")
             self._close_requested.set()
+            return
+        if action == "region_enumerate":
+            started = time.perf_counter_ns()
+            candidates = self._engine.generate_region(int(command["address"]))
+            self._respond(command, "completed", candidates=candidates,
+                          candidate_count=len(candidates),
+                          elapsed_ns=time.perf_counter_ns() - started)
             return
         if action == "enumerate":
             started = time.perf_counter_ns()

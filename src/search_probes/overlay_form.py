@@ -4,6 +4,8 @@ from collections.abc import Mapping
 
 from . import resident_search_presets as _PRESETS
 
+SYSTEM_SEARCH_BUDGETS = tuple(10**exponent for exponent in range(3, 10))
+
 FORM_CRITERIA_FIELDS = (
     "target_biome",
     "biome_subtype",

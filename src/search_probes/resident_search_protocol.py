@@ -38,7 +38,7 @@ MAX_QUEUE_SIZE = 64
 MAX_ACTIVE_SEARCHES = 8
 MAX_CANDIDATES = 20000
 MAX_SURVEY_CANDIDATES = 20000
-MAX_PROVEN_UI_CANDIDATES = MAX_CANDIDATES
+MAX_SEARCH_CANDIDATES = 1_000_000_000
 MAX_RESULTS = 16
 MAX_GUIDE_PROBE_TOPICS = 128
 LAUNCH_MODE_FILE = "launch-mode.json"
@@ -364,6 +364,7 @@ def normalize_command(raw: object) -> dict[str, object]:
         "nearest",
         "search",
         "enumerate",
+        "region_enumerate",
         "cancel",
         "shutdown",
         "ping",
@@ -411,7 +412,7 @@ def normalize_command(raw: object) -> dict[str, object]:
         maximum = (
             MAX_SURVEY_CANDIDATES
             if action in {"survey", "colour_survey", "spawn_survey"}
-            else MAX_CANDIDATES
+            else MAX_SEARCH_CANDIDATES if action == "search" else MAX_CANDIDATES
         )
         if (
             not isinstance(candidate_limit, int)
@@ -428,6 +429,7 @@ def normalize_command(raw: object) -> dict[str, object]:
         "system_name_probe",
         "object_resolver_probe",
         "navigate",
+        "region_enumerate",
     }:
         address = raw.get("address")
         if isinstance(address, str):

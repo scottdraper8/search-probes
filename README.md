@@ -1,10 +1,22 @@
 # Search Probes
 
-A No Man's Sky mod for finding nearby systems and planets with specific generated properties.
+A No Man's Sky mod for finding systems and planets with specific generated properties.
 
 Launch the game normally and press **F7** to open the search form. Choose filters, run a search,
 select a result, and navigate. The target appears as an ordinary **Search Probe Target** mission
 in the Log. Abandon that mission before selecting a different target.
+
+Choose **Maximum systems** from the dropdown: **1,000**, **10,000**, **100,000**, **1,000,000**,
+**10,000,000**, **100,000,000**, or **1,000,000,000**. New searches default to **10,000**.
+Existing presets with another budget retain that value as an additional choice when loaded. Search Probes checks nearby indexed systems first, then generates additional
+regions outward from the starting location. It can continue beyond the Galaxy Map's loaded graph
+without moving the player. Each system is checked once; results follow search order and are not
+guaranteed to be globally nearest.
+
+A search stops when it finds the requested number of results or reaches its system budget. **Cancel**
+keeps matches already found. Long searches have no time limit, but NMS must remain open with gameplay
+updates running: opening the Galaxy Map or otherwise pausing gameplay pauses the search. Searches
+resume with gameplay; they do not survive quitting NMS. Changing galaxies ends an active search.
 
 Saved presets also appear in the Catalogue & Guide after the next launch. The mod does not
 replace Quick Actions or multiplayer interactions. Presets are stored under

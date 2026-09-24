@@ -6,6 +6,7 @@ import time
 
 from search_probes import resident_search_protocol as _PROTOCOL
 from search_probes.native_layout import MAX_CANDIDATES_PER_SLICE, MAX_SEARCH_SLICE_NS
+from search_probes.regions import CandidateStream
 from search_probes.survey_summary import record_survey_snapshot
 
 
@@ -41,13 +42,18 @@ class SearchScheduler:
                 raise RuntimeError("an identical search is already active")
             started = time.perf_counter_ns()
             candidates = self.engine.enumerate_candidates(
-                int(command["candidate_limit"])
+                min(int(command["candidate_limit"]) + 1, _PROTOCOL.MAX_CANDIDATES)
             )
             enumeration_metadata = dict(self.engine.last_enumeration)
+            stream = CandidateStream(
+                candidates,
+                int(enumeration_metadata["resolved_address"], 0),
+                int(command["candidate_limit"]),
+            )
             state = {
                 "identity": identity,
-                "candidates": candidates,
-                "next_index": 1,
+                "stream": stream,
+                "candidate_count": int(command["candidate_limit"]),
                 "candidates_checked": 0,
                 "matches": [],
                 "evaluation_ns": 0,
@@ -66,8 +72,10 @@ class SearchScheduler:
                     else MAX_CANDIDATES_PER_SLICE
                 ),
                 "last_progress": 0,
+                "last_progress_time": 0.0,
                 "enumeration_ns": time.perf_counter_ns() - started,
                 "enumeration_metadata": enumeration_metadata,
+                "max_region_generation_ns": 0,
                 "reality_index": int(enumeration_metadata["current_reality_index"]),
             }
             self.searches[command_id] = state
@@ -75,7 +83,7 @@ class SearchScheduler:
                 "search_started",
                 command_id=command_id,
                 generation=command["generation"],
-                candidate_count=len(candidates),
+                candidate_count=int(command["candidate_limit"]),
             )
             self.requeue_search(command)
             return
@@ -89,28 +97,36 @@ class SearchScheduler:
                 f"#{current_reality + 1} while this search was running; run it again"
             )
 
-        candidates = state["candidates"]
+        stream = state["stream"]
         matches = state["matches"]
-        if not isinstance(candidates, list) or not isinstance(matches, list):
+        if not isinstance(stream, CandidateStream) or not isinstance(matches, list):
             raise TypeError("corrupt resident search state")
         slice_started = time.perf_counter_ns()
         slice_candidates = 0
         while slice_candidates < int(state["candidates_per_slice_limit"]):
-            next_index = int(state["next_index"])
-            if next_index >= len(candidates):
+            if stream.done:
                 self.record_search_slice(state, slice_started, slice_candidates)
                 self.complete_search(command, state)
                 return
-            candidate = candidates[next_index]
-            if not isinstance(candidate, dict):
-                raise TypeError("corrupt resident candidate state")
+            candidate = stream.take()
+            if candidate is None:
+                # Region generation is one non-preemptible native call. Give it
+                # its own update, then evaluate its copied systems on later ticks.
+                if slice_candidates == 0:
+                    started = time.perf_counter_ns()
+                    stream.expand(self.engine.generate_region)
+                    elapsed = time.perf_counter_ns() - started
+                    state["enumeration_ns"] += elapsed
+                    state["max_region_generation_ns"] = max(
+                        state["max_region_generation_ns"], elapsed
+                    )
+                break
             address = int(str(candidate["address"]), 0)
             started = time.perf_counter_ns()
             accepted, evaluation_pass, summary = self.engine.candidate_matches(
                 command.get("criteria", {}), address
             )
             elapsed_ns = time.perf_counter_ns() - started
-            state["next_index"] = next_index + 1
             state["candidates_checked"] = int(state["candidates_checked"]) + 1
             state["evaluation_ns"] = int(state["evaluation_ns"]) + elapsed_ns
             state["max_evaluation_ns"] = max(
@@ -145,13 +161,19 @@ class SearchScheduler:
                 break
         self.record_search_slice(state, slice_started, slice_candidates)
         checked = int(state["candidates_checked"])
-        if checked - int(state["last_progress"]) >= 64:
+        if (
+            checked - int(state["last_progress"]) >= 64
+            or time.monotonic() - state["last_progress_time"] >= 1.0
+        ):
             state["last_progress"] = checked
+            state["last_progress_time"] = time.monotonic()
             self.progress(
                 command,
                 candidates_checked=checked,
-                candidate_count=max(0, len(candidates) - 1),
+                candidate_count=state["candidate_count"],
                 matches_found=len(matches),
+                regions_generated=stream.regions_generated,
+                region_systems_checked=stream.region_checked,
             )
         self.requeue_search(command)
 
@@ -325,7 +347,11 @@ class SearchScheduler:
             raise RuntimeError("command queue filled while continuing search") from exc
 
     def complete_search(
-        self, command: dict[str, object], state: dict[str, object]
+        self,
+        command: dict[str, object],
+        state: dict[str, object],
+        *,
+        status: str = "completed",
     ) -> None:
         command_id = str(command["id"])
         self.searches.pop(command_id, None)
@@ -335,16 +361,29 @@ class SearchScheduler:
         slice_limit = int(state["candidates_per_slice_limit"])
         candidate_word = "candidate" if slice_limit == 1 else "candidates"
         guide_result: dict[str, object] = {}
-        if "_guide_slot" in command:
+        if "_guide_slot" in command and status == "completed":
             guide_result = self.complete_guide(command, matches)
         self.respond(
             command,
-            "completed",
+            status,
             matched=bool(matches),
             matches=matches,
             query_name=str(command.get("name", "System search")),
             candidates_checked=int(state["candidates_checked"]),
-            candidate_count=len(state["candidates"]),
+            candidate_count=state["candidate_count"],
+            completion_reason=(
+                "cancelled"
+                if status == "cancelled"
+                else "result_limit"
+                if len(matches) >= int(command["result_limit"])
+                else "candidate_limit"
+                if state["stream"].checked >= state["stream"].limit
+                else "regions_exhausted"
+            ),
+            regions_generated=state["stream"].regions_generated,
+            max_region_generation_ns=state["max_region_generation_ns"],
+            region_systems_checked=state["stream"].region_checked,
+            search_order="nearby distance order, then expanding region shells",
             current_system_excluded=True,
             enumeration_ns=int(state["enumeration_ns"]),
             enumeration_metadata=state["enumeration_metadata"],

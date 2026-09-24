@@ -611,6 +611,12 @@ class SearchEngine:
                 )
         return snapshot
 
+    def generate_region(self, address: int) -> list[dict[str, object]]:
+        from search_probes.regions import generate_region
+
+        self.require_current_reality(address, operation="Region search")
+        return generate_region(self.native, address)
+
     def enumerate_candidates(
         self, candidate_limit: int = 64, *, maximum: int = _PROTOCOL.MAX_CANDIDATES
     ) -> list[dict[str, object]]:

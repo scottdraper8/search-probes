@@ -39,9 +39,12 @@ def key_press_transition(raw_state: int, was_down: bool) -> tuple[bool, bool]:
 
 def parse_candidate_limit(value: object, maximum: int) -> int:
     text = str(value).strip()
-    if not text or not text.isdecimal():
+    digits = text.replace(",", "")
+    if not digits or not digits.isdecimal():
         raise ValueError("Maximum systems must be a whole number.")
-    parsed = int(text)
+    parsed = int(digits)
+    if "," in text and text != f"{parsed:,}":
+        raise ValueError("Maximum systems has invalid thousands separators.")
     if not 1 <= parsed <= maximum:
         raise ValueError(f"Maximum systems must be from 1 through {maximum:,}.")
     return parsed

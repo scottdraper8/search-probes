@@ -20,6 +20,7 @@ from search_probes.overlay_form import (
     FORM_WIDGET_FIELDS,
     MAX_PRESETS,
     POPULATION_LABELS,
+    SYSTEM_SEARCH_BUDGETS,
     merge_criteria,
     split_criteria,
 )
@@ -219,7 +220,13 @@ class ResidentSearchOverlay:
                 additional_filters.update(extras)
                 set_form_values(values, query_name=str(preset["name"]))
                 refresh_additional_filters()
-                dpg.set_value("candidate_limit", str(preset["candidate_limit"]))
+                budget = int(preset["candidate_limit"])
+                budget_labels = [f"{value:,}" for value in SYSTEM_SEARCH_BUDGETS]
+                # Preserve exact budgets in existing presets, including former defaults.
+                if budget not in SYSTEM_SEARCH_BUDGETS:
+                    budget_labels.append(f"{budget:,}")
+                dpg.configure_item("candidate_limit", items=budget_labels)
+                dpg.set_value("candidate_limit", f"{budget:,}")
                 dpg.set_value("result_limit", int(preset["result_limit"]))
 
             def clear_filters() -> None:
@@ -260,7 +267,7 @@ class ResidentSearchOverlay:
                         read_form_criteria(),
                         candidate_limit=parse_candidate_limit(
                             dpg.get_value("candidate_limit"),
-                            protocol.MAX_PROVEN_UI_CANDIDATES,
+                            protocol.MAX_SEARCH_CANDIDATES,
                         ),
                         result_limit=int(dpg.get_value("result_limit")),
                     )
@@ -351,12 +358,18 @@ class ResidentSearchOverlay:
                     )
                     row(
                         "Maximum systems",
-                        lambda: dpg.add_input_text(
+                        lambda: dpg.add_combo(
                             tag="candidate_limit",
-                            default_value="5000",
-                            decimal=True,
+                            items=[f"{value:,}" for value in SYSTEM_SEARCH_BUDGETS],
+                            default_value="10,000",
                             width=-1,
                         ),
+                    )
+                    dpg.add_text(
+                        "Up to 1,000,000,000 systems. Searches expand into new regions "
+                        "after nearby systems and can run for hours. Stops at the system "
+                        "budget or requested matches; Cancel stops early.",
+                        wrap=scaled(700),
                     )
                     row(
                         "Results to retain",
@@ -774,7 +787,7 @@ class ResidentSearchOverlay:
                     try:
                         candidate_limit = parse_candidate_limit(
                             dpg.get_value("candidate_limit"),
-                            protocol.MAX_PROVEN_UI_CANDIDATES,
+                            protocol.MAX_SEARCH_CANDIDATES,
                         )
                     except ValueError as exc:
                         set_status(str(exc))
@@ -883,7 +896,8 @@ class ResidentSearchOverlay:
                 )
                 dpg.add_text(
                     "Search returns focus to NMS for full update cadence; "
-                    "progress remains visible. "
+                    "progress remains visible. Paused gameplay (including the Galaxy Map) "
+                    "pauses searching. Keep NMS running; searches do not survive closing it. "
                     "F7 toggles the form.",
                     wrap=scaled(700),
                 )
@@ -986,7 +1000,7 @@ class ResidentSearchOverlay:
                     result = self._read_result(result_path)
                     status = str(result.get("status", "unknown"))
                     matches = result.get("matches", [])
-                    if status == "completed" and isinstance(matches, list):
+                    if status in {"completed", "cancelled"} and isinstance(matches, list):
                         result_sets[self._active_id or ""] = result
                         query_name = str(result.get("query_name", "System search"))
                         history_label = f"{query_name} - {len(matches)} result(s)"
@@ -999,13 +1013,11 @@ class ResidentSearchOverlay:
                         checked = result.get("candidates_checked", "?")
                         if matches:
                             set_status(
-                                f"Completed - {len(matches)} result(s), {checked} checked. "
+                                f"{status.capitalize()} - {len(matches)} result(s), {checked} checked. "
                                 "Select a result and press Navigate to publish it to NMS."
                             )
                         else:
-                            set_status(f"Completed - no matches, {checked} checked.")
-                    elif status == "cancelled":
-                        set_status("Cancelled.")
+                            set_status(f"{status.capitalize()} - no matches, {checked} checked.")
                     else:
                         set_status(f"Search ended with status: {status}")
                     self._active_id = None
@@ -1023,7 +1035,8 @@ class ResidentSearchOverlay:
                     total = int(progress.get("candidate_count", 0))
                     found = int(progress.get("matches_found", 0))
                     set_status(
-                        f"Searching... {checked}/{total} checked, {found} found."
+                        f"Searching... {checked:,}/{total:,} checked, {found} found. "
+                        f"{int(progress.get('regions_generated', 0)):,} regions generated."
                     )
                 navigation_path = self._navigation_result
                 if navigation_path is not None and navigation_path.exists():
