@@ -221,11 +221,6 @@ class ResidentSearchOverlay:
                 set_form_values(values, query_name=str(preset["name"]))
                 refresh_additional_filters()
                 budget = int(preset["candidate_limit"])
-                budget_labels = [f"{value:,}" for value in SYSTEM_SEARCH_BUDGETS]
-                # Preserve exact budgets in existing presets, including former defaults.
-                if budget not in SYSTEM_SEARCH_BUDGETS:
-                    budget_labels.append(f"{budget:,}")
-                dpg.configure_item("candidate_limit", items=budget_labels)
                 dpg.set_value("candidate_limit", f"{budget:,}")
                 dpg.set_value("result_limit", int(preset["result_limit"]))
 

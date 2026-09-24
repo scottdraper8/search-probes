@@ -8,7 +8,11 @@ in the Log. Abandon that mission before selecting a different target.
 
 Choose **Maximum systems** from the dropdown: **1,000**, **10,000**, **100,000**, **1,000,000**,
 **10,000,000**, **100,000,000**, or **1,000,000,000**. New searches default to **10,000**.
-Existing presets with another budget retain that value as an additional choice when loaded. Search Probes checks nearby indexed systems first, then generates additional
+Existing preset budgets are rounded to the numerically nearest dropdown value on load and save;
+ties round up. For example, 5,000 becomes 1,000 and 20,000 becomes 10,000. Migration retains the
+original preset file as a backup. **Results to retain** accepts 1 through **100** matches per search.
+
+Search Probes checks nearby indexed systems first, then generates additional
 regions outward from the starting location. It can continue beyond the Galaxy Map's loaded graph
 without moving the player. Each system is checked once; results follow search order and are not
 guaranteed to be globally nearest.

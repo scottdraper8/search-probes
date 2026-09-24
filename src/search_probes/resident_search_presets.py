@@ -17,6 +17,7 @@ PRESET_BACKUP_FILE = "presets.backup.json"
 MAX_PRESETS = 9
 MAX_PRESET_NAME_LENGTH = 80
 MAX_PRESET_FILE_BYTES = 1_048_576
+SYSTEM_SEARCH_BUDGETS = tuple(10**exponent for exponent in range(3, 10))
 GUIDE_FIXED_STRING_BYTES = 0x20
 GUIDE_SLOT_PREFIX = "SQN_SS9_P"
 GUIDE_EVENT_PREFIX = "SE_SQN_SS9_P"
@@ -121,6 +122,11 @@ class PresetStore:
         self._normalize_criteria = normalize_criteria
         self._max_candidate_limit = max_candidate_limit
         self._max_result_limit = max_result_limit
+        self._candidate_budgets = tuple(
+            value for value in SYSTEM_SEARCH_BUDGETS if value <= max_candidate_limit
+        )
+        if not self._candidate_budgets:
+            raise ValueError("preset maximum must allow at least 1,000 systems")
         self._defaults = tuple(
             self._normalize_record(
                 {
@@ -187,7 +193,11 @@ class PresetStore:
         return {
             "name": name,
             "criteria": normalized_criteria,
-            "candidate_limit": candidate_limit,
+            # Round by absolute system count; exact midpoints choose the larger budget.
+            "candidate_limit": min(
+                self._candidate_budgets,
+                key=lambda value: (abs(value - candidate_limit), -value),
+            ),
             "result_limit": result_limit,
         }
 
@@ -213,6 +223,12 @@ class PresetStore:
                 raise ValueError(f"duplicate preset name: {record['name']}")
             names.add(folded)
             records.append(record)
+        if any(
+            record["candidate_limit"] != raw["candidate_limit"]
+            for record, raw in zip(records, raw_records, strict=True)
+        ):
+            # Validate the entire library before migrating it. _write retains the original.
+            self._write(records)
         return records
 
     def _write(self, records: list[dict[str, object]]) -> None:
