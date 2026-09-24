@@ -52,7 +52,7 @@ def _source_mission(root: ET.Element) -> ET.Element:
     return candidates[0]
 
 
-def _reference_scan_event(root: ET.Element) -> ET.Element:
+def _validate_lush_reference_contract(root: ET.Element) -> None:
     candidates = [
         node
         for node in root.iter("Property")
@@ -73,9 +73,6 @@ def _reference_scan_event(root: ET.Element) -> ET.Element:
     checks = {
         "BuildingLocation": "PlanetSearch",
         "SearchType": "Any",
-        "ForceWideRandom": "true",
-        "MustFindSystem": "false",
-        "SolarSystemLocation": "LocalOrNear",
     }
     for name, expected in checks.items():
         actual = _child(event, name).attrib.get("value")
@@ -84,11 +81,9 @@ def _reference_scan_event(root: ET.Element) -> ET.Element:
                 "probe_source_shape_changed",
                 f"{REFERENCE_SCAN_EVENT_ID} {name} changed from {expected!r} to {actual!r}",
             )
-    building = _child(_child(event, "SpecificBuildingClass"), "BuildingClass")
     lookup = _child(event, "SolarSystemAttributes")
     if (
-        building.attrib.get("value") != "None"
-        or _child(lookup, "NeedsBiome").attrib.get("value") != "true"
+        _child(lookup, "NeedsBiome").attrib.get("value") != "true"
         or _child(_child(lookup, "NeedsBiomeType"), "Biome").attrib.get("value")
         != "Lush"
     ):
@@ -96,9 +91,6 @@ def _reference_scan_event(root: ET.Element) -> ET.Element:
             "probe_source_shape_changed",
             f"{REFERENCE_SCAN_EVENT_ID} is no longer a direct Lush-biome planet search",
         )
-    return event
-
-
 def _reference_near_scan_events(root: ET.Element) -> tuple[str, ...]:
     matches = []
     for event in root.iter("Property"):

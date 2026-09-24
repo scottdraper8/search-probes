@@ -1,4 +1,4 @@
-"""Decode and filter caller-owned NMS 7.03.1 solar-system query snapshots.
+"""Decode and filter caller-owned NMS 7.04 solar-system query snapshots.
 
 The native bridge constructs a 0x36c0-byte ``cGcSolarSystemQuery`` object, runs it on the
 gameplay thread, copies the complete object while it is alive, and then calls its destructor.

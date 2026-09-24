@@ -33,7 +33,7 @@ additional saved filters so presets retain their exact criteria.
 - `dependencies`: pinned runtime dependencies.
 
 Native integration is version-qualified and fails closed when the executable changes. This
-source targets No Man's Sky 7.03.1 on Windows and Steam Proton.
+source targets No Man's Sky 7.04 on Windows and Steam Proton.
 
 Build, packaging, installation, tests, client controls, and retained investigation evidence live
 in the parent [squinchmods repository](https://github.com/scottdraper8/squinchmods), under

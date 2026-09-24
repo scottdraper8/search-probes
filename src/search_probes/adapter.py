@@ -17,7 +17,7 @@ from .adapter_errors import AdapterError
 from .guide import _wiki_patch
 from .localization import _localisation
 from .mission_builder import _mission_patch, _move_mission
-from .xml_helpers import _reference_near_scan_events, _reference_scan_event
+from .xml_helpers import _reference_near_scan_events, _validate_lush_reference_contract
 
 
 @dataclass(frozen=True)
@@ -60,7 +60,7 @@ def compose_adapter(
     probe_tag: str | None = None,
     guide_preset_slots: int = 0,
 ) -> AdapterComposition:
-    _reference_scan_event(reference_root)
+    _validate_lush_reference_contract(reference_root)
     location_references = _reference_near_scan_events(reference_root)
     mission_id, scan_event_id = probe_ids(probe_tag)
     wiki_missions = _mission_patch(
