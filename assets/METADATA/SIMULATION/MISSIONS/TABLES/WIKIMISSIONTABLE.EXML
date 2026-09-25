@@ -1,0 +1,1904 @@
+<?xml version='1.0' encoding='utf-8'?>
+<Data template="cGcMissionTable">
+  <Property name="Missions">
+    <Property name="Missions" value="GcGenericMissionSequence" _id="SQN_SP_P01">
+      <Property name="MissionID" value="SQN_SP_P01" />
+      <Property name="MissionClass" value="Secondary" />
+      <Property name="MissionIsCritical" value="false" />
+      <Property name="MissionObjective" value="" />
+      <Property name="MissionTitles" value="GcNumberedTextList">
+        <Property name="Format" value="SQN_SP_GUIDE_TITLE" />
+        <Property name="Count" value="1" />
+      </Property>
+      <Property name="MissionSubtitles" value="GcNumberedTextList">
+        <Property name="Format" value="SQN_SP_GUIDE_DESC" />
+        <Property name="Count" value="1" />
+      </Property>
+      <Property name="MissionDescriptions" value="GcNumberedTextList">
+        <Property name="Format" value="SQN_SP_GUIDE_DESC" />
+        <Property name="Count" value="1" />
+      </Property>
+      <Property name="SeasonalLogTextOverrides" value="GcSeasonalLogOverrides">
+        <Property name="ApplicableSeasonNumbers" />
+        <Property name="MissionTitle" value="" />
+        <Property name="MissionSubtitle" value="" />
+        <Property name="MissionDescription" value="" />
+      </Property>
+      <Property name="MissionDescSwitchOverride" value="" />
+      <Property name="MissionProcDescriptionHeader" value="GcNumberedTextList">
+        <Property name="Format" value="" />
+        <Property name="Count" value="1" />
+      </Property>
+      <Property name="MissionProcDescriptionA" value="GcNumberedTextList">
+        <Property name="Format" value="" />
+        <Property name="Count" value="1" />
+      </Property>
+      <Property name="MissionProcDescriptionB" value="GcNumberedTextList">
+        <Property name="Format" value="" />
+        <Property name="Count" value="1" />
+      </Property>
+      <Property name="MissionProcDescriptionC" value="GcNumberedTextList">
+        <Property name="Format" value="" />
+        <Property name="Count" value="1" />
+      </Property>
+      <Property name="UseScanEventDetailsInLogInfo" value="false" />
+      <Property name="UseFirstPurpleSystemDetailsInLogInfo" value="false" />
+      <Property name="MissionIcon" value="TkTextureResource">
+        <Property name="Filename" value="TEXTURES/UI/HUD/ICONS/MISSIONS/DEFAULT.DDS" />
+      </Property>
+      <Property name="MissionIconSelected" value="TkTextureResource">
+        <Property name="Filename" value="TEXTURES/UI/FRONTEND/ICONS/MISSIONS/MISSION.MISSINGPERSON.ON.DDS" />
+      </Property>
+      <Property name="MissionIconNotSelected" value="TkTextureResource">
+        <Property name="Filename" value="TEXTURES/UI/FRONTEND/ICONS/MISSIONS/MISSION.MISSINGPERSON.OFF.DDS" />
+      </Property>
+      <Property name="MissionPriority" value="0" />
+      <Property name="MissionCategory" value="GcMissionCategory">
+        <Property name="MissionCategory" value="Mission" />
+      </Property>
+      <Property name="MissionPageHint" value="GcMissionPageHint">
+        <Property name="MissionPageHint" value="None" />
+      </Property>
+      <Property name="MissionPageLocID" value="" />
+      <Property name="MissionBuildMenuHint" value="" />
+      <Property name="MissionHasColourOverride" value="false" />
+      <Property name="MissionColourOverride">
+        <Property name="R" value="1.000000" />
+        <Property name="G" value="1.000000" />
+        <Property name="B" value="1.000000" />
+        <Property name="A" value="1.000000" />
+      </Property>
+      <Property name="BeginCheckFrequency" value="1" />
+      <Property name="WikiMissionBlockedBySeasons" />
+      <Property name="DefaultItems" value="GcDefaultMissionItemsTable">
+        <Property name="PrimarySubstances" />
+        <Property name="SecondarySubstances" />
+        <Property name="PrimaryProducts" />
+        <Property name="SecondaryProducts" />
+        <Property name="AmountMin" value="0" />
+        <Property name="AmountMax" value="0" />
+        <Property name="AmountShouldBeRoundNumber" value="false" />
+      </Property>
+      <Property name="PrefixTitle" value="false" />
+      <Property name="NextMissionHint" value="" />
+      <Property name="MessageComplete" value="Never" />
+      <Property name="MessageStart" value="Never" />
+      <Property name="MissionBoardOptions" value="GcMissionBoardOptions">
+        <Property name="Type" value="GcMissionType">
+          <Property name="MissionType" value="SpaceCombat" />
+        </Property>
+        <Property name="Difficulty" value="GcMissionDifficulty">
+          <Property name="MissionDifficulty" value="Normal" />
+        </Property>
+        <Property name="MinRank" value="0" />
+        <Property name="CloseMissionGiver" value="false" />
+        <Property name="IsGuildShopMission" value="false" />
+        <Property name="IsPlanetProcMission" value="false" />
+        <Property name="IsMultiplayerEventMission" value="false" />
+        <Property name="RewardPenaltyOnAbandon" value="" />
+        <Property name="Faction" />
+        <Property name="Weighting" value="100" />
+        <Property name="IgnoreCalculatedObjective" value="false" />
+        <Property name="MultiplayerMissionInitialWarpScanEvent" value="" />
+        <Property name="DefaultItemInitialWarpScanEvents" />
+        <Property name="DefaultItemTypeForInitialWarp" value="None" />
+        <Property name="BasePartBlueprints" />
+        <Property name="MandatorySalvageEquipment" />
+        <Property name="RequireUncompletedPOI" value="false" />
+        <Property name="RequireUncompletedPOIOfType" value="GcSpacePoiType">
+          <Property name="SpacePoiType" value="AsteroidBelt" />
+        </Property>
+      </Property>
+      <Property name="AutoStart" value="None" />
+      <Property name="RestartOnCompletion" value="false" />
+      <Property name="CancelSetsComplete" value="false" />
+      <Property name="Dialog" value="GcAlienPuzzleTable">
+        <Property name="Table" />
+      </Property>
+      <Property name="ScanEvents">
+        </Property>
+      <Property name="Rewards" />
+      <Property name="Costs" />
+      <Property name="TradingDataOverride" value="GcTradeData">
+        <Property name="AlwaysPresentProducts" />
+        <Property name="AlwaysPresentSubstances" />
+        <Property name="OptionalProducts" />
+        <Property name="OptionalSubstances" />
+        <Property name="AlwaysConsideredBarterProducts" />
+        <Property name="BarterAcceptanceCurve" value="TkCurveType">
+          <Property name="Curve" value="Linear" />
+        </Property>
+        <Property name="BarterPriceMultiplier" value="1.000000" />
+        <Property name="BarterItemPreferenceFloor" value="0.500000" />
+        <Property name="MinItemsForSale" value="5" />
+        <Property name="MaxItemsForSale" value="15" />
+        <Property name="PercentageOfItemsAreProducts" value="0.300000" />
+        <Property name="BuyPriceIncreaseRedThreshold" value="20.000000" />
+        <Property name="BuyPriceDecreaseGreenThreshold" value="-10.000000" />
+        <Property name="SellPriceIncreaseGreenThreshold" value="10.000000" />
+        <Property name="SellPriceDecreaseRedThreshold" value="-20.000000" />
+        <Property name="ShowSeasonRewards" value="false" />
+        <Property name="UseBarterForBuy" value="false" />
+        <Property name="MinAmountOfProductAvailable">
+          <Property name="Poor" value="10" />
+          <Property name="Average" value="10" />
+          <Property name="Wealthy" value="10" />
+          <Property name="Pirate" value="10" />
+        </Property>
+        <Property name="MaxAmountOfProductAvailable">
+          <Property name="Poor" value="100" />
+          <Property name="Average" value="100" />
+          <Property name="Wealthy" value="100" />
+          <Property name="Pirate" value="100" />
+        </Property>
+        <Property name="MinAmountOfSubstanceAvailable">
+          <Property name="Poor" value="100" />
+          <Property name="Average" value="100" />
+          <Property name="Wealthy" value="100" />
+          <Property name="Pirate" value="100" />
+        </Property>
+        <Property name="MaxAmountOfSubstanceAvailable">
+          <Property name="Poor" value="1000" />
+          <Property name="Average" value="1000" />
+          <Property name="Wealthy" value="1000" />
+          <Property name="Pirate" value="1000" />
+        </Property>
+        <Property name="MinExtraSystemProducts">
+          <Property name="Poor" value="2" />
+          <Property name="Average" value="2" />
+          <Property name="Wealthy" value="2" />
+          <Property name="Pirate" value="2" />
+        </Property>
+        <Property name="MaxExtraSystemProducts">
+          <Property name="Poor" value="4" />
+          <Property name="Average" value="4" />
+          <Property name="Wealthy" value="4" />
+          <Property name="Pirate" value="4" />
+        </Property>
+        <Property name="TradeProductsPriceImprovements">
+          <Property name="Poor" value="0.000000" />
+          <Property name="Average" value="0.000000" />
+          <Property name="Wealthy" value="0.000000" />
+          <Property name="Pirate" value="0.000000" />
+        </Property>
+      </Property>
+      <Property name="StartConditionTest" value="GcMissionConditionTest">
+        <Property name="ConditionTest" value="AnyFalse" />
+      </Property>
+      <Property name="CancelConditionTest" value="GcMissionConditionTest">
+        <Property name="ConditionTest" value="AnyFalse" />
+      </Property>
+      <Property name="StartIsCancel" value="false" />
+      <Property name="StartingConditions" />
+      <Property name="CancelingConditions" />
+      <Property name="FinalStageVersions">
+        <Property name="FinalStageVersions" value="GcGenericMissionVersionProgress">
+          <Property name="Version" value="1" />
+          <Property name="Progress" value="1" />
+        </Property>
+      </Property>
+      <Property name="Stages">
+        </Property>
+      <Property name="ForcesBuildMenuHint" value="false" />
+      <Property name="IsProceduralAllowed" value="false" />
+      <Property name="IsRecurring" value="false" />
+      <Property name="IsLegacy" value="false" />
+      <Property name="BlocksPinning" value="false" />
+      <Property name="CanRenounce" value="true" />
+      <Property name="UseCommunityMissionForLog" value="" />
+      <Property name="TakeCommunityMissionIDFromSeasonData" value="false" />
+      <Property name="TelemetryUpload" value="false" />
+      <Property name="UseSeasonTitleOverride" value="false" />
+      <Property name="RequiresSettlement" value="false" />
+      <Property name="SettlementAbandonOSD" value="" />
+    </Property>
+    <Property name="Missions" value="GcGenericMissionSequence" _id="SQN_SP_P02">
+      <Property name="MissionID" value="SQN_SP_P02" />
+      <Property name="MissionClass" value="Secondary" />
+      <Property name="MissionIsCritical" value="false" />
+      <Property name="MissionObjective" value="" />
+      <Property name="MissionTitles" value="GcNumberedTextList">
+        <Property name="Format" value="SQN_SP_GUIDE_TITLE" />
+        <Property name="Count" value="1" />
+      </Property>
+      <Property name="MissionSubtitles" value="GcNumberedTextList">
+        <Property name="Format" value="SQN_SP_GUIDE_DESC" />
+        <Property name="Count" value="1" />
+      </Property>
+      <Property name="MissionDescriptions" value="GcNumberedTextList">
+        <Property name="Format" value="SQN_SP_GUIDE_DESC" />
+        <Property name="Count" value="1" />
+      </Property>
+      <Property name="SeasonalLogTextOverrides" value="GcSeasonalLogOverrides">
+        <Property name="ApplicableSeasonNumbers" />
+        <Property name="MissionTitle" value="" />
+        <Property name="MissionSubtitle" value="" />
+        <Property name="MissionDescription" value="" />
+      </Property>
+      <Property name="MissionDescSwitchOverride" value="" />
+      <Property name="MissionProcDescriptionHeader" value="GcNumberedTextList">
+        <Property name="Format" value="" />
+        <Property name="Count" value="1" />
+      </Property>
+      <Property name="MissionProcDescriptionA" value="GcNumberedTextList">
+        <Property name="Format" value="" />
+        <Property name="Count" value="1" />
+      </Property>
+      <Property name="MissionProcDescriptionB" value="GcNumberedTextList">
+        <Property name="Format" value="" />
+        <Property name="Count" value="1" />
+      </Property>
+      <Property name="MissionProcDescriptionC" value="GcNumberedTextList">
+        <Property name="Format" value="" />
+        <Property name="Count" value="1" />
+      </Property>
+      <Property name="UseScanEventDetailsInLogInfo" value="false" />
+      <Property name="UseFirstPurpleSystemDetailsInLogInfo" value="false" />
+      <Property name="MissionIcon" value="TkTextureResource">
+        <Property name="Filename" value="TEXTURES/UI/HUD/ICONS/MISSIONS/DEFAULT.DDS" />
+      </Property>
+      <Property name="MissionIconSelected" value="TkTextureResource">
+        <Property name="Filename" value="TEXTURES/UI/FRONTEND/ICONS/MISSIONS/MISSION.MISSINGPERSON.ON.DDS" />
+      </Property>
+      <Property name="MissionIconNotSelected" value="TkTextureResource">
+        <Property name="Filename" value="TEXTURES/UI/FRONTEND/ICONS/MISSIONS/MISSION.MISSINGPERSON.OFF.DDS" />
+      </Property>
+      <Property name="MissionPriority" value="0" />
+      <Property name="MissionCategory" value="GcMissionCategory">
+        <Property name="MissionCategory" value="Mission" />
+      </Property>
+      <Property name="MissionPageHint" value="GcMissionPageHint">
+        <Property name="MissionPageHint" value="None" />
+      </Property>
+      <Property name="MissionPageLocID" value="" />
+      <Property name="MissionBuildMenuHint" value="" />
+      <Property name="MissionHasColourOverride" value="false" />
+      <Property name="MissionColourOverride">
+        <Property name="R" value="1.000000" />
+        <Property name="G" value="1.000000" />
+        <Property name="B" value="1.000000" />
+        <Property name="A" value="1.000000" />
+      </Property>
+      <Property name="BeginCheckFrequency" value="1" />
+      <Property name="WikiMissionBlockedBySeasons" />
+      <Property name="DefaultItems" value="GcDefaultMissionItemsTable">
+        <Property name="PrimarySubstances" />
+        <Property name="SecondarySubstances" />
+        <Property name="PrimaryProducts" />
+        <Property name="SecondaryProducts" />
+        <Property name="AmountMin" value="0" />
+        <Property name="AmountMax" value="0" />
+        <Property name="AmountShouldBeRoundNumber" value="false" />
+      </Property>
+      <Property name="PrefixTitle" value="false" />
+      <Property name="NextMissionHint" value="" />
+      <Property name="MessageComplete" value="Never" />
+      <Property name="MessageStart" value="Never" />
+      <Property name="MissionBoardOptions" value="GcMissionBoardOptions">
+        <Property name="Type" value="GcMissionType">
+          <Property name="MissionType" value="SpaceCombat" />
+        </Property>
+        <Property name="Difficulty" value="GcMissionDifficulty">
+          <Property name="MissionDifficulty" value="Normal" />
+        </Property>
+        <Property name="MinRank" value="0" />
+        <Property name="CloseMissionGiver" value="false" />
+        <Property name="IsGuildShopMission" value="false" />
+        <Property name="IsPlanetProcMission" value="false" />
+        <Property name="IsMultiplayerEventMission" value="false" />
+        <Property name="RewardPenaltyOnAbandon" value="" />
+        <Property name="Faction" />
+        <Property name="Weighting" value="100" />
+        <Property name="IgnoreCalculatedObjective" value="false" />
+        <Property name="MultiplayerMissionInitialWarpScanEvent" value="" />
+        <Property name="DefaultItemInitialWarpScanEvents" />
+        <Property name="DefaultItemTypeForInitialWarp" value="None" />
+        <Property name="BasePartBlueprints" />
+        <Property name="MandatorySalvageEquipment" />
+        <Property name="RequireUncompletedPOI" value="false" />
+        <Property name="RequireUncompletedPOIOfType" value="GcSpacePoiType">
+          <Property name="SpacePoiType" value="AsteroidBelt" />
+        </Property>
+      </Property>
+      <Property name="AutoStart" value="None" />
+      <Property name="RestartOnCompletion" value="false" />
+      <Property name="CancelSetsComplete" value="false" />
+      <Property name="Dialog" value="GcAlienPuzzleTable">
+        <Property name="Table" />
+      </Property>
+      <Property name="ScanEvents">
+        </Property>
+      <Property name="Rewards" />
+      <Property name="Costs" />
+      <Property name="TradingDataOverride" value="GcTradeData">
+        <Property name="AlwaysPresentProducts" />
+        <Property name="AlwaysPresentSubstances" />
+        <Property name="OptionalProducts" />
+        <Property name="OptionalSubstances" />
+        <Property name="AlwaysConsideredBarterProducts" />
+        <Property name="BarterAcceptanceCurve" value="TkCurveType">
+          <Property name="Curve" value="Linear" />
+        </Property>
+        <Property name="BarterPriceMultiplier" value="1.000000" />
+        <Property name="BarterItemPreferenceFloor" value="0.500000" />
+        <Property name="MinItemsForSale" value="5" />
+        <Property name="MaxItemsForSale" value="15" />
+        <Property name="PercentageOfItemsAreProducts" value="0.300000" />
+        <Property name="BuyPriceIncreaseRedThreshold" value="20.000000" />
+        <Property name="BuyPriceDecreaseGreenThreshold" value="-10.000000" />
+        <Property name="SellPriceIncreaseGreenThreshold" value="10.000000" />
+        <Property name="SellPriceDecreaseRedThreshold" value="-20.000000" />
+        <Property name="ShowSeasonRewards" value="false" />
+        <Property name="UseBarterForBuy" value="false" />
+        <Property name="MinAmountOfProductAvailable">
+          <Property name="Poor" value="10" />
+          <Property name="Average" value="10" />
+          <Property name="Wealthy" value="10" />
+          <Property name="Pirate" value="10" />
+        </Property>
+        <Property name="MaxAmountOfProductAvailable">
+          <Property name="Poor" value="100" />
+          <Property name="Average" value="100" />
+          <Property name="Wealthy" value="100" />
+          <Property name="Pirate" value="100" />
+        </Property>
+        <Property name="MinAmountOfSubstanceAvailable">
+          <Property name="Poor" value="100" />
+          <Property name="Average" value="100" />
+          <Property name="Wealthy" value="100" />
+          <Property name="Pirate" value="100" />
+        </Property>
+        <Property name="MaxAmountOfSubstanceAvailable">
+          <Property name="Poor" value="1000" />
+          <Property name="Average" value="1000" />
+          <Property name="Wealthy" value="1000" />
+          <Property name="Pirate" value="1000" />
+        </Property>
+        <Property name="MinExtraSystemProducts">
+          <Property name="Poor" value="2" />
+          <Property name="Average" value="2" />
+          <Property name="Wealthy" value="2" />
+          <Property name="Pirate" value="2" />
+        </Property>
+        <Property name="MaxExtraSystemProducts">
+          <Property name="Poor" value="4" />
+          <Property name="Average" value="4" />
+          <Property name="Wealthy" value="4" />
+          <Property name="Pirate" value="4" />
+        </Property>
+        <Property name="TradeProductsPriceImprovements">
+          <Property name="Poor" value="0.000000" />
+          <Property name="Average" value="0.000000" />
+          <Property name="Wealthy" value="0.000000" />
+          <Property name="Pirate" value="0.000000" />
+        </Property>
+      </Property>
+      <Property name="StartConditionTest" value="GcMissionConditionTest">
+        <Property name="ConditionTest" value="AnyFalse" />
+      </Property>
+      <Property name="CancelConditionTest" value="GcMissionConditionTest">
+        <Property name="ConditionTest" value="AnyFalse" />
+      </Property>
+      <Property name="StartIsCancel" value="false" />
+      <Property name="StartingConditions" />
+      <Property name="CancelingConditions" />
+      <Property name="FinalStageVersions">
+        <Property name="FinalStageVersions" value="GcGenericMissionVersionProgress">
+          <Property name="Version" value="1" />
+          <Property name="Progress" value="1" />
+        </Property>
+      </Property>
+      <Property name="Stages">
+        </Property>
+      <Property name="ForcesBuildMenuHint" value="false" />
+      <Property name="IsProceduralAllowed" value="false" />
+      <Property name="IsRecurring" value="false" />
+      <Property name="IsLegacy" value="false" />
+      <Property name="BlocksPinning" value="false" />
+      <Property name="CanRenounce" value="true" />
+      <Property name="UseCommunityMissionForLog" value="" />
+      <Property name="TakeCommunityMissionIDFromSeasonData" value="false" />
+      <Property name="TelemetryUpload" value="false" />
+      <Property name="UseSeasonTitleOverride" value="false" />
+      <Property name="RequiresSettlement" value="false" />
+      <Property name="SettlementAbandonOSD" value="" />
+    </Property>
+    <Property name="Missions" value="GcGenericMissionSequence" _id="SQN_SP_P03">
+      <Property name="MissionID" value="SQN_SP_P03" />
+      <Property name="MissionClass" value="Secondary" />
+      <Property name="MissionIsCritical" value="false" />
+      <Property name="MissionObjective" value="" />
+      <Property name="MissionTitles" value="GcNumberedTextList">
+        <Property name="Format" value="SQN_SP_GUIDE_TITLE" />
+        <Property name="Count" value="1" />
+      </Property>
+      <Property name="MissionSubtitles" value="GcNumberedTextList">
+        <Property name="Format" value="SQN_SP_GUIDE_DESC" />
+        <Property name="Count" value="1" />
+      </Property>
+      <Property name="MissionDescriptions" value="GcNumberedTextList">
+        <Property name="Format" value="SQN_SP_GUIDE_DESC" />
+        <Property name="Count" value="1" />
+      </Property>
+      <Property name="SeasonalLogTextOverrides" value="GcSeasonalLogOverrides">
+        <Property name="ApplicableSeasonNumbers" />
+        <Property name="MissionTitle" value="" />
+        <Property name="MissionSubtitle" value="" />
+        <Property name="MissionDescription" value="" />
+      </Property>
+      <Property name="MissionDescSwitchOverride" value="" />
+      <Property name="MissionProcDescriptionHeader" value="GcNumberedTextList">
+        <Property name="Format" value="" />
+        <Property name="Count" value="1" />
+      </Property>
+      <Property name="MissionProcDescriptionA" value="GcNumberedTextList">
+        <Property name="Format" value="" />
+        <Property name="Count" value="1" />
+      </Property>
+      <Property name="MissionProcDescriptionB" value="GcNumberedTextList">
+        <Property name="Format" value="" />
+        <Property name="Count" value="1" />
+      </Property>
+      <Property name="MissionProcDescriptionC" value="GcNumberedTextList">
+        <Property name="Format" value="" />
+        <Property name="Count" value="1" />
+      </Property>
+      <Property name="UseScanEventDetailsInLogInfo" value="false" />
+      <Property name="UseFirstPurpleSystemDetailsInLogInfo" value="false" />
+      <Property name="MissionIcon" value="TkTextureResource">
+        <Property name="Filename" value="TEXTURES/UI/HUD/ICONS/MISSIONS/DEFAULT.DDS" />
+      </Property>
+      <Property name="MissionIconSelected" value="TkTextureResource">
+        <Property name="Filename" value="TEXTURES/UI/FRONTEND/ICONS/MISSIONS/MISSION.MISSINGPERSON.ON.DDS" />
+      </Property>
+      <Property name="MissionIconNotSelected" value="TkTextureResource">
+        <Property name="Filename" value="TEXTURES/UI/FRONTEND/ICONS/MISSIONS/MISSION.MISSINGPERSON.OFF.DDS" />
+      </Property>
+      <Property name="MissionPriority" value="0" />
+      <Property name="MissionCategory" value="GcMissionCategory">
+        <Property name="MissionCategory" value="Mission" />
+      </Property>
+      <Property name="MissionPageHint" value="GcMissionPageHint">
+        <Property name="MissionPageHint" value="None" />
+      </Property>
+      <Property name="MissionPageLocID" value="" />
+      <Property name="MissionBuildMenuHint" value="" />
+      <Property name="MissionHasColourOverride" value="false" />
+      <Property name="MissionColourOverride">
+        <Property name="R" value="1.000000" />
+        <Property name="G" value="1.000000" />
+        <Property name="B" value="1.000000" />
+        <Property name="A" value="1.000000" />
+      </Property>
+      <Property name="BeginCheckFrequency" value="1" />
+      <Property name="WikiMissionBlockedBySeasons" />
+      <Property name="DefaultItems" value="GcDefaultMissionItemsTable">
+        <Property name="PrimarySubstances" />
+        <Property name="SecondarySubstances" />
+        <Property name="PrimaryProducts" />
+        <Property name="SecondaryProducts" />
+        <Property name="AmountMin" value="0" />
+        <Property name="AmountMax" value="0" />
+        <Property name="AmountShouldBeRoundNumber" value="false" />
+      </Property>
+      <Property name="PrefixTitle" value="false" />
+      <Property name="NextMissionHint" value="" />
+      <Property name="MessageComplete" value="Never" />
+      <Property name="MessageStart" value="Never" />
+      <Property name="MissionBoardOptions" value="GcMissionBoardOptions">
+        <Property name="Type" value="GcMissionType">
+          <Property name="MissionType" value="SpaceCombat" />
+        </Property>
+        <Property name="Difficulty" value="GcMissionDifficulty">
+          <Property name="MissionDifficulty" value="Normal" />
+        </Property>
+        <Property name="MinRank" value="0" />
+        <Property name="CloseMissionGiver" value="false" />
+        <Property name="IsGuildShopMission" value="false" />
+        <Property name="IsPlanetProcMission" value="false" />
+        <Property name="IsMultiplayerEventMission" value="false" />
+        <Property name="RewardPenaltyOnAbandon" value="" />
+        <Property name="Faction" />
+        <Property name="Weighting" value="100" />
+        <Property name="IgnoreCalculatedObjective" value="false" />
+        <Property name="MultiplayerMissionInitialWarpScanEvent" value="" />
+        <Property name="DefaultItemInitialWarpScanEvents" />
+        <Property name="DefaultItemTypeForInitialWarp" value="None" />
+        <Property name="BasePartBlueprints" />
+        <Property name="MandatorySalvageEquipment" />
+        <Property name="RequireUncompletedPOI" value="false" />
+        <Property name="RequireUncompletedPOIOfType" value="GcSpacePoiType">
+          <Property name="SpacePoiType" value="AsteroidBelt" />
+        </Property>
+      </Property>
+      <Property name="AutoStart" value="None" />
+      <Property name="RestartOnCompletion" value="false" />
+      <Property name="CancelSetsComplete" value="false" />
+      <Property name="Dialog" value="GcAlienPuzzleTable">
+        <Property name="Table" />
+      </Property>
+      <Property name="ScanEvents">
+        </Property>
+      <Property name="Rewards" />
+      <Property name="Costs" />
+      <Property name="TradingDataOverride" value="GcTradeData">
+        <Property name="AlwaysPresentProducts" />
+        <Property name="AlwaysPresentSubstances" />
+        <Property name="OptionalProducts" />
+        <Property name="OptionalSubstances" />
+        <Property name="AlwaysConsideredBarterProducts" />
+        <Property name="BarterAcceptanceCurve" value="TkCurveType">
+          <Property name="Curve" value="Linear" />
+        </Property>
+        <Property name="BarterPriceMultiplier" value="1.000000" />
+        <Property name="BarterItemPreferenceFloor" value="0.500000" />
+        <Property name="MinItemsForSale" value="5" />
+        <Property name="MaxItemsForSale" value="15" />
+        <Property name="PercentageOfItemsAreProducts" value="0.300000" />
+        <Property name="BuyPriceIncreaseRedThreshold" value="20.000000" />
+        <Property name="BuyPriceDecreaseGreenThreshold" value="-10.000000" />
+        <Property name="SellPriceIncreaseGreenThreshold" value="10.000000" />
+        <Property name="SellPriceDecreaseRedThreshold" value="-20.000000" />
+        <Property name="ShowSeasonRewards" value="false" />
+        <Property name="UseBarterForBuy" value="false" />
+        <Property name="MinAmountOfProductAvailable">
+          <Property name="Poor" value="10" />
+          <Property name="Average" value="10" />
+          <Property name="Wealthy" value="10" />
+          <Property name="Pirate" value="10" />
+        </Property>
+        <Property name="MaxAmountOfProductAvailable">
+          <Property name="Poor" value="100" />
+          <Property name="Average" value="100" />
+          <Property name="Wealthy" value="100" />
+          <Property name="Pirate" value="100" />
+        </Property>
+        <Property name="MinAmountOfSubstanceAvailable">
+          <Property name="Poor" value="100" />
+          <Property name="Average" value="100" />
+          <Property name="Wealthy" value="100" />
+          <Property name="Pirate" value="100" />
+        </Property>
+        <Property name="MaxAmountOfSubstanceAvailable">
+          <Property name="Poor" value="1000" />
+          <Property name="Average" value="1000" />
+          <Property name="Wealthy" value="1000" />
+          <Property name="Pirate" value="1000" />
+        </Property>
+        <Property name="MinExtraSystemProducts">
+          <Property name="Poor" value="2" />
+          <Property name="Average" value="2" />
+          <Property name="Wealthy" value="2" />
+          <Property name="Pirate" value="2" />
+        </Property>
+        <Property name="MaxExtraSystemProducts">
+          <Property name="Poor" value="4" />
+          <Property name="Average" value="4" />
+          <Property name="Wealthy" value="4" />
+          <Property name="Pirate" value="4" />
+        </Property>
+        <Property name="TradeProductsPriceImprovements">
+          <Property name="Poor" value="0.000000" />
+          <Property name="Average" value="0.000000" />
+          <Property name="Wealthy" value="0.000000" />
+          <Property name="Pirate" value="0.000000" />
+        </Property>
+      </Property>
+      <Property name="StartConditionTest" value="GcMissionConditionTest">
+        <Property name="ConditionTest" value="AnyFalse" />
+      </Property>
+      <Property name="CancelConditionTest" value="GcMissionConditionTest">
+        <Property name="ConditionTest" value="AnyFalse" />
+      </Property>
+      <Property name="StartIsCancel" value="false" />
+      <Property name="StartingConditions" />
+      <Property name="CancelingConditions" />
+      <Property name="FinalStageVersions">
+        <Property name="FinalStageVersions" value="GcGenericMissionVersionProgress">
+          <Property name="Version" value="1" />
+          <Property name="Progress" value="1" />
+        </Property>
+      </Property>
+      <Property name="Stages">
+        </Property>
+      <Property name="ForcesBuildMenuHint" value="false" />
+      <Property name="IsProceduralAllowed" value="false" />
+      <Property name="IsRecurring" value="false" />
+      <Property name="IsLegacy" value="false" />
+      <Property name="BlocksPinning" value="false" />
+      <Property name="CanRenounce" value="true" />
+      <Property name="UseCommunityMissionForLog" value="" />
+      <Property name="TakeCommunityMissionIDFromSeasonData" value="false" />
+      <Property name="TelemetryUpload" value="false" />
+      <Property name="UseSeasonTitleOverride" value="false" />
+      <Property name="RequiresSettlement" value="false" />
+      <Property name="SettlementAbandonOSD" value="" />
+    </Property>
+    <Property name="Missions" value="GcGenericMissionSequence" _id="SQN_SP_P04">
+      <Property name="MissionID" value="SQN_SP_P04" />
+      <Property name="MissionClass" value="Secondary" />
+      <Property name="MissionIsCritical" value="false" />
+      <Property name="MissionObjective" value="" />
+      <Property name="MissionTitles" value="GcNumberedTextList">
+        <Property name="Format" value="SQN_SP_GUIDE_TITLE" />
+        <Property name="Count" value="1" />
+      </Property>
+      <Property name="MissionSubtitles" value="GcNumberedTextList">
+        <Property name="Format" value="SQN_SP_GUIDE_DESC" />
+        <Property name="Count" value="1" />
+      </Property>
+      <Property name="MissionDescriptions" value="GcNumberedTextList">
+        <Property name="Format" value="SQN_SP_GUIDE_DESC" />
+        <Property name="Count" value="1" />
+      </Property>
+      <Property name="SeasonalLogTextOverrides" value="GcSeasonalLogOverrides">
+        <Property name="ApplicableSeasonNumbers" />
+        <Property name="MissionTitle" value="" />
+        <Property name="MissionSubtitle" value="" />
+        <Property name="MissionDescription" value="" />
+      </Property>
+      <Property name="MissionDescSwitchOverride" value="" />
+      <Property name="MissionProcDescriptionHeader" value="GcNumberedTextList">
+        <Property name="Format" value="" />
+        <Property name="Count" value="1" />
+      </Property>
+      <Property name="MissionProcDescriptionA" value="GcNumberedTextList">
+        <Property name="Format" value="" />
+        <Property name="Count" value="1" />
+      </Property>
+      <Property name="MissionProcDescriptionB" value="GcNumberedTextList">
+        <Property name="Format" value="" />
+        <Property name="Count" value="1" />
+      </Property>
+      <Property name="MissionProcDescriptionC" value="GcNumberedTextList">
+        <Property name="Format" value="" />
+        <Property name="Count" value="1" />
+      </Property>
+      <Property name="UseScanEventDetailsInLogInfo" value="false" />
+      <Property name="UseFirstPurpleSystemDetailsInLogInfo" value="false" />
+      <Property name="MissionIcon" value="TkTextureResource">
+        <Property name="Filename" value="TEXTURES/UI/HUD/ICONS/MISSIONS/DEFAULT.DDS" />
+      </Property>
+      <Property name="MissionIconSelected" value="TkTextureResource">
+        <Property name="Filename" value="TEXTURES/UI/FRONTEND/ICONS/MISSIONS/MISSION.MISSINGPERSON.ON.DDS" />
+      </Property>
+      <Property name="MissionIconNotSelected" value="TkTextureResource">
+        <Property name="Filename" value="TEXTURES/UI/FRONTEND/ICONS/MISSIONS/MISSION.MISSINGPERSON.OFF.DDS" />
+      </Property>
+      <Property name="MissionPriority" value="0" />
+      <Property name="MissionCategory" value="GcMissionCategory">
+        <Property name="MissionCategory" value="Mission" />
+      </Property>
+      <Property name="MissionPageHint" value="GcMissionPageHint">
+        <Property name="MissionPageHint" value="None" />
+      </Property>
+      <Property name="MissionPageLocID" value="" />
+      <Property name="MissionBuildMenuHint" value="" />
+      <Property name="MissionHasColourOverride" value="false" />
+      <Property name="MissionColourOverride">
+        <Property name="R" value="1.000000" />
+        <Property name="G" value="1.000000" />
+        <Property name="B" value="1.000000" />
+        <Property name="A" value="1.000000" />
+      </Property>
+      <Property name="BeginCheckFrequency" value="1" />
+      <Property name="WikiMissionBlockedBySeasons" />
+      <Property name="DefaultItems" value="GcDefaultMissionItemsTable">
+        <Property name="PrimarySubstances" />
+        <Property name="SecondarySubstances" />
+        <Property name="PrimaryProducts" />
+        <Property name="SecondaryProducts" />
+        <Property name="AmountMin" value="0" />
+        <Property name="AmountMax" value="0" />
+        <Property name="AmountShouldBeRoundNumber" value="false" />
+      </Property>
+      <Property name="PrefixTitle" value="false" />
+      <Property name="NextMissionHint" value="" />
+      <Property name="MessageComplete" value="Never" />
+      <Property name="MessageStart" value="Never" />
+      <Property name="MissionBoardOptions" value="GcMissionBoardOptions">
+        <Property name="Type" value="GcMissionType">
+          <Property name="MissionType" value="SpaceCombat" />
+        </Property>
+        <Property name="Difficulty" value="GcMissionDifficulty">
+          <Property name="MissionDifficulty" value="Normal" />
+        </Property>
+        <Property name="MinRank" value="0" />
+        <Property name="CloseMissionGiver" value="false" />
+        <Property name="IsGuildShopMission" value="false" />
+        <Property name="IsPlanetProcMission" value="false" />
+        <Property name="IsMultiplayerEventMission" value="false" />
+        <Property name="RewardPenaltyOnAbandon" value="" />
+        <Property name="Faction" />
+        <Property name="Weighting" value="100" />
+        <Property name="IgnoreCalculatedObjective" value="false" />
+        <Property name="MultiplayerMissionInitialWarpScanEvent" value="" />
+        <Property name="DefaultItemInitialWarpScanEvents" />
+        <Property name="DefaultItemTypeForInitialWarp" value="None" />
+        <Property name="BasePartBlueprints" />
+        <Property name="MandatorySalvageEquipment" />
+        <Property name="RequireUncompletedPOI" value="false" />
+        <Property name="RequireUncompletedPOIOfType" value="GcSpacePoiType">
+          <Property name="SpacePoiType" value="AsteroidBelt" />
+        </Property>
+      </Property>
+      <Property name="AutoStart" value="None" />
+      <Property name="RestartOnCompletion" value="false" />
+      <Property name="CancelSetsComplete" value="false" />
+      <Property name="Dialog" value="GcAlienPuzzleTable">
+        <Property name="Table" />
+      </Property>
+      <Property name="ScanEvents">
+        </Property>
+      <Property name="Rewards" />
+      <Property name="Costs" />
+      <Property name="TradingDataOverride" value="GcTradeData">
+        <Property name="AlwaysPresentProducts" />
+        <Property name="AlwaysPresentSubstances" />
+        <Property name="OptionalProducts" />
+        <Property name="OptionalSubstances" />
+        <Property name="AlwaysConsideredBarterProducts" />
+        <Property name="BarterAcceptanceCurve" value="TkCurveType">
+          <Property name="Curve" value="Linear" />
+        </Property>
+        <Property name="BarterPriceMultiplier" value="1.000000" />
+        <Property name="BarterItemPreferenceFloor" value="0.500000" />
+        <Property name="MinItemsForSale" value="5" />
+        <Property name="MaxItemsForSale" value="15" />
+        <Property name="PercentageOfItemsAreProducts" value="0.300000" />
+        <Property name="BuyPriceIncreaseRedThreshold" value="20.000000" />
+        <Property name="BuyPriceDecreaseGreenThreshold" value="-10.000000" />
+        <Property name="SellPriceIncreaseGreenThreshold" value="10.000000" />
+        <Property name="SellPriceDecreaseRedThreshold" value="-20.000000" />
+        <Property name="ShowSeasonRewards" value="false" />
+        <Property name="UseBarterForBuy" value="false" />
+        <Property name="MinAmountOfProductAvailable">
+          <Property name="Poor" value="10" />
+          <Property name="Average" value="10" />
+          <Property name="Wealthy" value="10" />
+          <Property name="Pirate" value="10" />
+        </Property>
+        <Property name="MaxAmountOfProductAvailable">
+          <Property name="Poor" value="100" />
+          <Property name="Average" value="100" />
+          <Property name="Wealthy" value="100" />
+          <Property name="Pirate" value="100" />
+        </Property>
+        <Property name="MinAmountOfSubstanceAvailable">
+          <Property name="Poor" value="100" />
+          <Property name="Average" value="100" />
+          <Property name="Wealthy" value="100" />
+          <Property name="Pirate" value="100" />
+        </Property>
+        <Property name="MaxAmountOfSubstanceAvailable">
+          <Property name="Poor" value="1000" />
+          <Property name="Average" value="1000" />
+          <Property name="Wealthy" value="1000" />
+          <Property name="Pirate" value="1000" />
+        </Property>
+        <Property name="MinExtraSystemProducts">
+          <Property name="Poor" value="2" />
+          <Property name="Average" value="2" />
+          <Property name="Wealthy" value="2" />
+          <Property name="Pirate" value="2" />
+        </Property>
+        <Property name="MaxExtraSystemProducts">
+          <Property name="Poor" value="4" />
+          <Property name="Average" value="4" />
+          <Property name="Wealthy" value="4" />
+          <Property name="Pirate" value="4" />
+        </Property>
+        <Property name="TradeProductsPriceImprovements">
+          <Property name="Poor" value="0.000000" />
+          <Property name="Average" value="0.000000" />
+          <Property name="Wealthy" value="0.000000" />
+          <Property name="Pirate" value="0.000000" />
+        </Property>
+      </Property>
+      <Property name="StartConditionTest" value="GcMissionConditionTest">
+        <Property name="ConditionTest" value="AnyFalse" />
+      </Property>
+      <Property name="CancelConditionTest" value="GcMissionConditionTest">
+        <Property name="ConditionTest" value="AnyFalse" />
+      </Property>
+      <Property name="StartIsCancel" value="false" />
+      <Property name="StartingConditions" />
+      <Property name="CancelingConditions" />
+      <Property name="FinalStageVersions">
+        <Property name="FinalStageVersions" value="GcGenericMissionVersionProgress">
+          <Property name="Version" value="1" />
+          <Property name="Progress" value="1" />
+        </Property>
+      </Property>
+      <Property name="Stages">
+        </Property>
+      <Property name="ForcesBuildMenuHint" value="false" />
+      <Property name="IsProceduralAllowed" value="false" />
+      <Property name="IsRecurring" value="false" />
+      <Property name="IsLegacy" value="false" />
+      <Property name="BlocksPinning" value="false" />
+      <Property name="CanRenounce" value="true" />
+      <Property name="UseCommunityMissionForLog" value="" />
+      <Property name="TakeCommunityMissionIDFromSeasonData" value="false" />
+      <Property name="TelemetryUpload" value="false" />
+      <Property name="UseSeasonTitleOverride" value="false" />
+      <Property name="RequiresSettlement" value="false" />
+      <Property name="SettlementAbandonOSD" value="" />
+    </Property>
+    <Property name="Missions" value="GcGenericMissionSequence" _id="SQN_SP_P05">
+      <Property name="MissionID" value="SQN_SP_P05" />
+      <Property name="MissionClass" value="Secondary" />
+      <Property name="MissionIsCritical" value="false" />
+      <Property name="MissionObjective" value="" />
+      <Property name="MissionTitles" value="GcNumberedTextList">
+        <Property name="Format" value="SQN_SP_GUIDE_TITLE" />
+        <Property name="Count" value="1" />
+      </Property>
+      <Property name="MissionSubtitles" value="GcNumberedTextList">
+        <Property name="Format" value="SQN_SP_GUIDE_DESC" />
+        <Property name="Count" value="1" />
+      </Property>
+      <Property name="MissionDescriptions" value="GcNumberedTextList">
+        <Property name="Format" value="SQN_SP_GUIDE_DESC" />
+        <Property name="Count" value="1" />
+      </Property>
+      <Property name="SeasonalLogTextOverrides" value="GcSeasonalLogOverrides">
+        <Property name="ApplicableSeasonNumbers" />
+        <Property name="MissionTitle" value="" />
+        <Property name="MissionSubtitle" value="" />
+        <Property name="MissionDescription" value="" />
+      </Property>
+      <Property name="MissionDescSwitchOverride" value="" />
+      <Property name="MissionProcDescriptionHeader" value="GcNumberedTextList">
+        <Property name="Format" value="" />
+        <Property name="Count" value="1" />
+      </Property>
+      <Property name="MissionProcDescriptionA" value="GcNumberedTextList">
+        <Property name="Format" value="" />
+        <Property name="Count" value="1" />
+      </Property>
+      <Property name="MissionProcDescriptionB" value="GcNumberedTextList">
+        <Property name="Format" value="" />
+        <Property name="Count" value="1" />
+      </Property>
+      <Property name="MissionProcDescriptionC" value="GcNumberedTextList">
+        <Property name="Format" value="" />
+        <Property name="Count" value="1" />
+      </Property>
+      <Property name="UseScanEventDetailsInLogInfo" value="false" />
+      <Property name="UseFirstPurpleSystemDetailsInLogInfo" value="false" />
+      <Property name="MissionIcon" value="TkTextureResource">
+        <Property name="Filename" value="TEXTURES/UI/HUD/ICONS/MISSIONS/DEFAULT.DDS" />
+      </Property>
+      <Property name="MissionIconSelected" value="TkTextureResource">
+        <Property name="Filename" value="TEXTURES/UI/FRONTEND/ICONS/MISSIONS/MISSION.MISSINGPERSON.ON.DDS" />
+      </Property>
+      <Property name="MissionIconNotSelected" value="TkTextureResource">
+        <Property name="Filename" value="TEXTURES/UI/FRONTEND/ICONS/MISSIONS/MISSION.MISSINGPERSON.OFF.DDS" />
+      </Property>
+      <Property name="MissionPriority" value="0" />
+      <Property name="MissionCategory" value="GcMissionCategory">
+        <Property name="MissionCategory" value="Mission" />
+      </Property>
+      <Property name="MissionPageHint" value="GcMissionPageHint">
+        <Property name="MissionPageHint" value="None" />
+      </Property>
+      <Property name="MissionPageLocID" value="" />
+      <Property name="MissionBuildMenuHint" value="" />
+      <Property name="MissionHasColourOverride" value="false" />
+      <Property name="MissionColourOverride">
+        <Property name="R" value="1.000000" />
+        <Property name="G" value="1.000000" />
+        <Property name="B" value="1.000000" />
+        <Property name="A" value="1.000000" />
+      </Property>
+      <Property name="BeginCheckFrequency" value="1" />
+      <Property name="WikiMissionBlockedBySeasons" />
+      <Property name="DefaultItems" value="GcDefaultMissionItemsTable">
+        <Property name="PrimarySubstances" />
+        <Property name="SecondarySubstances" />
+        <Property name="PrimaryProducts" />
+        <Property name="SecondaryProducts" />
+        <Property name="AmountMin" value="0" />
+        <Property name="AmountMax" value="0" />
+        <Property name="AmountShouldBeRoundNumber" value="false" />
+      </Property>
+      <Property name="PrefixTitle" value="false" />
+      <Property name="NextMissionHint" value="" />
+      <Property name="MessageComplete" value="Never" />
+      <Property name="MessageStart" value="Never" />
+      <Property name="MissionBoardOptions" value="GcMissionBoardOptions">
+        <Property name="Type" value="GcMissionType">
+          <Property name="MissionType" value="SpaceCombat" />
+        </Property>
+        <Property name="Difficulty" value="GcMissionDifficulty">
+          <Property name="MissionDifficulty" value="Normal" />
+        </Property>
+        <Property name="MinRank" value="0" />
+        <Property name="CloseMissionGiver" value="false" />
+        <Property name="IsGuildShopMission" value="false" />
+        <Property name="IsPlanetProcMission" value="false" />
+        <Property name="IsMultiplayerEventMission" value="false" />
+        <Property name="RewardPenaltyOnAbandon" value="" />
+        <Property name="Faction" />
+        <Property name="Weighting" value="100" />
+        <Property name="IgnoreCalculatedObjective" value="false" />
+        <Property name="MultiplayerMissionInitialWarpScanEvent" value="" />
+        <Property name="DefaultItemInitialWarpScanEvents" />
+        <Property name="DefaultItemTypeForInitialWarp" value="None" />
+        <Property name="BasePartBlueprints" />
+        <Property name="MandatorySalvageEquipment" />
+        <Property name="RequireUncompletedPOI" value="false" />
+        <Property name="RequireUncompletedPOIOfType" value="GcSpacePoiType">
+          <Property name="SpacePoiType" value="AsteroidBelt" />
+        </Property>
+      </Property>
+      <Property name="AutoStart" value="None" />
+      <Property name="RestartOnCompletion" value="false" />
+      <Property name="CancelSetsComplete" value="false" />
+      <Property name="Dialog" value="GcAlienPuzzleTable">
+        <Property name="Table" />
+      </Property>
+      <Property name="ScanEvents">
+        </Property>
+      <Property name="Rewards" />
+      <Property name="Costs" />
+      <Property name="TradingDataOverride" value="GcTradeData">
+        <Property name="AlwaysPresentProducts" />
+        <Property name="AlwaysPresentSubstances" />
+        <Property name="OptionalProducts" />
+        <Property name="OptionalSubstances" />
+        <Property name="AlwaysConsideredBarterProducts" />
+        <Property name="BarterAcceptanceCurve" value="TkCurveType">
+          <Property name="Curve" value="Linear" />
+        </Property>
+        <Property name="BarterPriceMultiplier" value="1.000000" />
+        <Property name="BarterItemPreferenceFloor" value="0.500000" />
+        <Property name="MinItemsForSale" value="5" />
+        <Property name="MaxItemsForSale" value="15" />
+        <Property name="PercentageOfItemsAreProducts" value="0.300000" />
+        <Property name="BuyPriceIncreaseRedThreshold" value="20.000000" />
+        <Property name="BuyPriceDecreaseGreenThreshold" value="-10.000000" />
+        <Property name="SellPriceIncreaseGreenThreshold" value="10.000000" />
+        <Property name="SellPriceDecreaseRedThreshold" value="-20.000000" />
+        <Property name="ShowSeasonRewards" value="false" />
+        <Property name="UseBarterForBuy" value="false" />
+        <Property name="MinAmountOfProductAvailable">
+          <Property name="Poor" value="10" />
+          <Property name="Average" value="10" />
+          <Property name="Wealthy" value="10" />
+          <Property name="Pirate" value="10" />
+        </Property>
+        <Property name="MaxAmountOfProductAvailable">
+          <Property name="Poor" value="100" />
+          <Property name="Average" value="100" />
+          <Property name="Wealthy" value="100" />
+          <Property name="Pirate" value="100" />
+        </Property>
+        <Property name="MinAmountOfSubstanceAvailable">
+          <Property name="Poor" value="100" />
+          <Property name="Average" value="100" />
+          <Property name="Wealthy" value="100" />
+          <Property name="Pirate" value="100" />
+        </Property>
+        <Property name="MaxAmountOfSubstanceAvailable">
+          <Property name="Poor" value="1000" />
+          <Property name="Average" value="1000" />
+          <Property name="Wealthy" value="1000" />
+          <Property name="Pirate" value="1000" />
+        </Property>
+        <Property name="MinExtraSystemProducts">
+          <Property name="Poor" value="2" />
+          <Property name="Average" value="2" />
+          <Property name="Wealthy" value="2" />
+          <Property name="Pirate" value="2" />
+        </Property>
+        <Property name="MaxExtraSystemProducts">
+          <Property name="Poor" value="4" />
+          <Property name="Average" value="4" />
+          <Property name="Wealthy" value="4" />
+          <Property name="Pirate" value="4" />
+        </Property>
+        <Property name="TradeProductsPriceImprovements">
+          <Property name="Poor" value="0.000000" />
+          <Property name="Average" value="0.000000" />
+          <Property name="Wealthy" value="0.000000" />
+          <Property name="Pirate" value="0.000000" />
+        </Property>
+      </Property>
+      <Property name="StartConditionTest" value="GcMissionConditionTest">
+        <Property name="ConditionTest" value="AnyFalse" />
+      </Property>
+      <Property name="CancelConditionTest" value="GcMissionConditionTest">
+        <Property name="ConditionTest" value="AnyFalse" />
+      </Property>
+      <Property name="StartIsCancel" value="false" />
+      <Property name="StartingConditions" />
+      <Property name="CancelingConditions" />
+      <Property name="FinalStageVersions">
+        <Property name="FinalStageVersions" value="GcGenericMissionVersionProgress">
+          <Property name="Version" value="1" />
+          <Property name="Progress" value="1" />
+        </Property>
+      </Property>
+      <Property name="Stages">
+        </Property>
+      <Property name="ForcesBuildMenuHint" value="false" />
+      <Property name="IsProceduralAllowed" value="false" />
+      <Property name="IsRecurring" value="false" />
+      <Property name="IsLegacy" value="false" />
+      <Property name="BlocksPinning" value="false" />
+      <Property name="CanRenounce" value="true" />
+      <Property name="UseCommunityMissionForLog" value="" />
+      <Property name="TakeCommunityMissionIDFromSeasonData" value="false" />
+      <Property name="TelemetryUpload" value="false" />
+      <Property name="UseSeasonTitleOverride" value="false" />
+      <Property name="RequiresSettlement" value="false" />
+      <Property name="SettlementAbandonOSD" value="" />
+    </Property>
+    <Property name="Missions" value="GcGenericMissionSequence" _id="SQN_SP_P06">
+      <Property name="MissionID" value="SQN_SP_P06" />
+      <Property name="MissionClass" value="Secondary" />
+      <Property name="MissionIsCritical" value="false" />
+      <Property name="MissionObjective" value="" />
+      <Property name="MissionTitles" value="GcNumberedTextList">
+        <Property name="Format" value="SQN_SP_GUIDE_TITLE" />
+        <Property name="Count" value="1" />
+      </Property>
+      <Property name="MissionSubtitles" value="GcNumberedTextList">
+        <Property name="Format" value="SQN_SP_GUIDE_DESC" />
+        <Property name="Count" value="1" />
+      </Property>
+      <Property name="MissionDescriptions" value="GcNumberedTextList">
+        <Property name="Format" value="SQN_SP_GUIDE_DESC" />
+        <Property name="Count" value="1" />
+      </Property>
+      <Property name="SeasonalLogTextOverrides" value="GcSeasonalLogOverrides">
+        <Property name="ApplicableSeasonNumbers" />
+        <Property name="MissionTitle" value="" />
+        <Property name="MissionSubtitle" value="" />
+        <Property name="MissionDescription" value="" />
+      </Property>
+      <Property name="MissionDescSwitchOverride" value="" />
+      <Property name="MissionProcDescriptionHeader" value="GcNumberedTextList">
+        <Property name="Format" value="" />
+        <Property name="Count" value="1" />
+      </Property>
+      <Property name="MissionProcDescriptionA" value="GcNumberedTextList">
+        <Property name="Format" value="" />
+        <Property name="Count" value="1" />
+      </Property>
+      <Property name="MissionProcDescriptionB" value="GcNumberedTextList">
+        <Property name="Format" value="" />
+        <Property name="Count" value="1" />
+      </Property>
+      <Property name="MissionProcDescriptionC" value="GcNumberedTextList">
+        <Property name="Format" value="" />
+        <Property name="Count" value="1" />
+      </Property>
+      <Property name="UseScanEventDetailsInLogInfo" value="false" />
+      <Property name="UseFirstPurpleSystemDetailsInLogInfo" value="false" />
+      <Property name="MissionIcon" value="TkTextureResource">
+        <Property name="Filename" value="TEXTURES/UI/HUD/ICONS/MISSIONS/DEFAULT.DDS" />
+      </Property>
+      <Property name="MissionIconSelected" value="TkTextureResource">
+        <Property name="Filename" value="TEXTURES/UI/FRONTEND/ICONS/MISSIONS/MISSION.MISSINGPERSON.ON.DDS" />
+      </Property>
+      <Property name="MissionIconNotSelected" value="TkTextureResource">
+        <Property name="Filename" value="TEXTURES/UI/FRONTEND/ICONS/MISSIONS/MISSION.MISSINGPERSON.OFF.DDS" />
+      </Property>
+      <Property name="MissionPriority" value="0" />
+      <Property name="MissionCategory" value="GcMissionCategory">
+        <Property name="MissionCategory" value="Mission" />
+      </Property>
+      <Property name="MissionPageHint" value="GcMissionPageHint">
+        <Property name="MissionPageHint" value="None" />
+      </Property>
+      <Property name="MissionPageLocID" value="" />
+      <Property name="MissionBuildMenuHint" value="" />
+      <Property name="MissionHasColourOverride" value="false" />
+      <Property name="MissionColourOverride">
+        <Property name="R" value="1.000000" />
+        <Property name="G" value="1.000000" />
+        <Property name="B" value="1.000000" />
+        <Property name="A" value="1.000000" />
+      </Property>
+      <Property name="BeginCheckFrequency" value="1" />
+      <Property name="WikiMissionBlockedBySeasons" />
+      <Property name="DefaultItems" value="GcDefaultMissionItemsTable">
+        <Property name="PrimarySubstances" />
+        <Property name="SecondarySubstances" />
+        <Property name="PrimaryProducts" />
+        <Property name="SecondaryProducts" />
+        <Property name="AmountMin" value="0" />
+        <Property name="AmountMax" value="0" />
+        <Property name="AmountShouldBeRoundNumber" value="false" />
+      </Property>
+      <Property name="PrefixTitle" value="false" />
+      <Property name="NextMissionHint" value="" />
+      <Property name="MessageComplete" value="Never" />
+      <Property name="MessageStart" value="Never" />
+      <Property name="MissionBoardOptions" value="GcMissionBoardOptions">
+        <Property name="Type" value="GcMissionType">
+          <Property name="MissionType" value="SpaceCombat" />
+        </Property>
+        <Property name="Difficulty" value="GcMissionDifficulty">
+          <Property name="MissionDifficulty" value="Normal" />
+        </Property>
+        <Property name="MinRank" value="0" />
+        <Property name="CloseMissionGiver" value="false" />
+        <Property name="IsGuildShopMission" value="false" />
+        <Property name="IsPlanetProcMission" value="false" />
+        <Property name="IsMultiplayerEventMission" value="false" />
+        <Property name="RewardPenaltyOnAbandon" value="" />
+        <Property name="Faction" />
+        <Property name="Weighting" value="100" />
+        <Property name="IgnoreCalculatedObjective" value="false" />
+        <Property name="MultiplayerMissionInitialWarpScanEvent" value="" />
+        <Property name="DefaultItemInitialWarpScanEvents" />
+        <Property name="DefaultItemTypeForInitialWarp" value="None" />
+        <Property name="BasePartBlueprints" />
+        <Property name="MandatorySalvageEquipment" />
+        <Property name="RequireUncompletedPOI" value="false" />
+        <Property name="RequireUncompletedPOIOfType" value="GcSpacePoiType">
+          <Property name="SpacePoiType" value="AsteroidBelt" />
+        </Property>
+      </Property>
+      <Property name="AutoStart" value="None" />
+      <Property name="RestartOnCompletion" value="false" />
+      <Property name="CancelSetsComplete" value="false" />
+      <Property name="Dialog" value="GcAlienPuzzleTable">
+        <Property name="Table" />
+      </Property>
+      <Property name="ScanEvents">
+        </Property>
+      <Property name="Rewards" />
+      <Property name="Costs" />
+      <Property name="TradingDataOverride" value="GcTradeData">
+        <Property name="AlwaysPresentProducts" />
+        <Property name="AlwaysPresentSubstances" />
+        <Property name="OptionalProducts" />
+        <Property name="OptionalSubstances" />
+        <Property name="AlwaysConsideredBarterProducts" />
+        <Property name="BarterAcceptanceCurve" value="TkCurveType">
+          <Property name="Curve" value="Linear" />
+        </Property>
+        <Property name="BarterPriceMultiplier" value="1.000000" />
+        <Property name="BarterItemPreferenceFloor" value="0.500000" />
+        <Property name="MinItemsForSale" value="5" />
+        <Property name="MaxItemsForSale" value="15" />
+        <Property name="PercentageOfItemsAreProducts" value="0.300000" />
+        <Property name="BuyPriceIncreaseRedThreshold" value="20.000000" />
+        <Property name="BuyPriceDecreaseGreenThreshold" value="-10.000000" />
+        <Property name="SellPriceIncreaseGreenThreshold" value="10.000000" />
+        <Property name="SellPriceDecreaseRedThreshold" value="-20.000000" />
+        <Property name="ShowSeasonRewards" value="false" />
+        <Property name="UseBarterForBuy" value="false" />
+        <Property name="MinAmountOfProductAvailable">
+          <Property name="Poor" value="10" />
+          <Property name="Average" value="10" />
+          <Property name="Wealthy" value="10" />
+          <Property name="Pirate" value="10" />
+        </Property>
+        <Property name="MaxAmountOfProductAvailable">
+          <Property name="Poor" value="100" />
+          <Property name="Average" value="100" />
+          <Property name="Wealthy" value="100" />
+          <Property name="Pirate" value="100" />
+        </Property>
+        <Property name="MinAmountOfSubstanceAvailable">
+          <Property name="Poor" value="100" />
+          <Property name="Average" value="100" />
+          <Property name="Wealthy" value="100" />
+          <Property name="Pirate" value="100" />
+        </Property>
+        <Property name="MaxAmountOfSubstanceAvailable">
+          <Property name="Poor" value="1000" />
+          <Property name="Average" value="1000" />
+          <Property name="Wealthy" value="1000" />
+          <Property name="Pirate" value="1000" />
+        </Property>
+        <Property name="MinExtraSystemProducts">
+          <Property name="Poor" value="2" />
+          <Property name="Average" value="2" />
+          <Property name="Wealthy" value="2" />
+          <Property name="Pirate" value="2" />
+        </Property>
+        <Property name="MaxExtraSystemProducts">
+          <Property name="Poor" value="4" />
+          <Property name="Average" value="4" />
+          <Property name="Wealthy" value="4" />
+          <Property name="Pirate" value="4" />
+        </Property>
+        <Property name="TradeProductsPriceImprovements">
+          <Property name="Poor" value="0.000000" />
+          <Property name="Average" value="0.000000" />
+          <Property name="Wealthy" value="0.000000" />
+          <Property name="Pirate" value="0.000000" />
+        </Property>
+      </Property>
+      <Property name="StartConditionTest" value="GcMissionConditionTest">
+        <Property name="ConditionTest" value="AnyFalse" />
+      </Property>
+      <Property name="CancelConditionTest" value="GcMissionConditionTest">
+        <Property name="ConditionTest" value="AnyFalse" />
+      </Property>
+      <Property name="StartIsCancel" value="false" />
+      <Property name="StartingConditions" />
+      <Property name="CancelingConditions" />
+      <Property name="FinalStageVersions">
+        <Property name="FinalStageVersions" value="GcGenericMissionVersionProgress">
+          <Property name="Version" value="1" />
+          <Property name="Progress" value="1" />
+        </Property>
+      </Property>
+      <Property name="Stages">
+        </Property>
+      <Property name="ForcesBuildMenuHint" value="false" />
+      <Property name="IsProceduralAllowed" value="false" />
+      <Property name="IsRecurring" value="false" />
+      <Property name="IsLegacy" value="false" />
+      <Property name="BlocksPinning" value="false" />
+      <Property name="CanRenounce" value="true" />
+      <Property name="UseCommunityMissionForLog" value="" />
+      <Property name="TakeCommunityMissionIDFromSeasonData" value="false" />
+      <Property name="TelemetryUpload" value="false" />
+      <Property name="UseSeasonTitleOverride" value="false" />
+      <Property name="RequiresSettlement" value="false" />
+      <Property name="SettlementAbandonOSD" value="" />
+    </Property>
+    <Property name="Missions" value="GcGenericMissionSequence" _id="SQN_SP_P07">
+      <Property name="MissionID" value="SQN_SP_P07" />
+      <Property name="MissionClass" value="Secondary" />
+      <Property name="MissionIsCritical" value="false" />
+      <Property name="MissionObjective" value="" />
+      <Property name="MissionTitles" value="GcNumberedTextList">
+        <Property name="Format" value="SQN_SP_GUIDE_TITLE" />
+        <Property name="Count" value="1" />
+      </Property>
+      <Property name="MissionSubtitles" value="GcNumberedTextList">
+        <Property name="Format" value="SQN_SP_GUIDE_DESC" />
+        <Property name="Count" value="1" />
+      </Property>
+      <Property name="MissionDescriptions" value="GcNumberedTextList">
+        <Property name="Format" value="SQN_SP_GUIDE_DESC" />
+        <Property name="Count" value="1" />
+      </Property>
+      <Property name="SeasonalLogTextOverrides" value="GcSeasonalLogOverrides">
+        <Property name="ApplicableSeasonNumbers" />
+        <Property name="MissionTitle" value="" />
+        <Property name="MissionSubtitle" value="" />
+        <Property name="MissionDescription" value="" />
+      </Property>
+      <Property name="MissionDescSwitchOverride" value="" />
+      <Property name="MissionProcDescriptionHeader" value="GcNumberedTextList">
+        <Property name="Format" value="" />
+        <Property name="Count" value="1" />
+      </Property>
+      <Property name="MissionProcDescriptionA" value="GcNumberedTextList">
+        <Property name="Format" value="" />
+        <Property name="Count" value="1" />
+      </Property>
+      <Property name="MissionProcDescriptionB" value="GcNumberedTextList">
+        <Property name="Format" value="" />
+        <Property name="Count" value="1" />
+      </Property>
+      <Property name="MissionProcDescriptionC" value="GcNumberedTextList">
+        <Property name="Format" value="" />
+        <Property name="Count" value="1" />
+      </Property>
+      <Property name="UseScanEventDetailsInLogInfo" value="false" />
+      <Property name="UseFirstPurpleSystemDetailsInLogInfo" value="false" />
+      <Property name="MissionIcon" value="TkTextureResource">
+        <Property name="Filename" value="TEXTURES/UI/HUD/ICONS/MISSIONS/DEFAULT.DDS" />
+      </Property>
+      <Property name="MissionIconSelected" value="TkTextureResource">
+        <Property name="Filename" value="TEXTURES/UI/FRONTEND/ICONS/MISSIONS/MISSION.MISSINGPERSON.ON.DDS" />
+      </Property>
+      <Property name="MissionIconNotSelected" value="TkTextureResource">
+        <Property name="Filename" value="TEXTURES/UI/FRONTEND/ICONS/MISSIONS/MISSION.MISSINGPERSON.OFF.DDS" />
+      </Property>
+      <Property name="MissionPriority" value="0" />
+      <Property name="MissionCategory" value="GcMissionCategory">
+        <Property name="MissionCategory" value="Mission" />
+      </Property>
+      <Property name="MissionPageHint" value="GcMissionPageHint">
+        <Property name="MissionPageHint" value="None" />
+      </Property>
+      <Property name="MissionPageLocID" value="" />
+      <Property name="MissionBuildMenuHint" value="" />
+      <Property name="MissionHasColourOverride" value="false" />
+      <Property name="MissionColourOverride">
+        <Property name="R" value="1.000000" />
+        <Property name="G" value="1.000000" />
+        <Property name="B" value="1.000000" />
+        <Property name="A" value="1.000000" />
+      </Property>
+      <Property name="BeginCheckFrequency" value="1" />
+      <Property name="WikiMissionBlockedBySeasons" />
+      <Property name="DefaultItems" value="GcDefaultMissionItemsTable">
+        <Property name="PrimarySubstances" />
+        <Property name="SecondarySubstances" />
+        <Property name="PrimaryProducts" />
+        <Property name="SecondaryProducts" />
+        <Property name="AmountMin" value="0" />
+        <Property name="AmountMax" value="0" />
+        <Property name="AmountShouldBeRoundNumber" value="false" />
+      </Property>
+      <Property name="PrefixTitle" value="false" />
+      <Property name="NextMissionHint" value="" />
+      <Property name="MessageComplete" value="Never" />
+      <Property name="MessageStart" value="Never" />
+      <Property name="MissionBoardOptions" value="GcMissionBoardOptions">
+        <Property name="Type" value="GcMissionType">
+          <Property name="MissionType" value="SpaceCombat" />
+        </Property>
+        <Property name="Difficulty" value="GcMissionDifficulty">
+          <Property name="MissionDifficulty" value="Normal" />
+        </Property>
+        <Property name="MinRank" value="0" />
+        <Property name="CloseMissionGiver" value="false" />
+        <Property name="IsGuildShopMission" value="false" />
+        <Property name="IsPlanetProcMission" value="false" />
+        <Property name="IsMultiplayerEventMission" value="false" />
+        <Property name="RewardPenaltyOnAbandon" value="" />
+        <Property name="Faction" />
+        <Property name="Weighting" value="100" />
+        <Property name="IgnoreCalculatedObjective" value="false" />
+        <Property name="MultiplayerMissionInitialWarpScanEvent" value="" />
+        <Property name="DefaultItemInitialWarpScanEvents" />
+        <Property name="DefaultItemTypeForInitialWarp" value="None" />
+        <Property name="BasePartBlueprints" />
+        <Property name="MandatorySalvageEquipment" />
+        <Property name="RequireUncompletedPOI" value="false" />
+        <Property name="RequireUncompletedPOIOfType" value="GcSpacePoiType">
+          <Property name="SpacePoiType" value="AsteroidBelt" />
+        </Property>
+      </Property>
+      <Property name="AutoStart" value="None" />
+      <Property name="RestartOnCompletion" value="false" />
+      <Property name="CancelSetsComplete" value="false" />
+      <Property name="Dialog" value="GcAlienPuzzleTable">
+        <Property name="Table" />
+      </Property>
+      <Property name="ScanEvents">
+        </Property>
+      <Property name="Rewards" />
+      <Property name="Costs" />
+      <Property name="TradingDataOverride" value="GcTradeData">
+        <Property name="AlwaysPresentProducts" />
+        <Property name="AlwaysPresentSubstances" />
+        <Property name="OptionalProducts" />
+        <Property name="OptionalSubstances" />
+        <Property name="AlwaysConsideredBarterProducts" />
+        <Property name="BarterAcceptanceCurve" value="TkCurveType">
+          <Property name="Curve" value="Linear" />
+        </Property>
+        <Property name="BarterPriceMultiplier" value="1.000000" />
+        <Property name="BarterItemPreferenceFloor" value="0.500000" />
+        <Property name="MinItemsForSale" value="5" />
+        <Property name="MaxItemsForSale" value="15" />
+        <Property name="PercentageOfItemsAreProducts" value="0.300000" />
+        <Property name="BuyPriceIncreaseRedThreshold" value="20.000000" />
+        <Property name="BuyPriceDecreaseGreenThreshold" value="-10.000000" />
+        <Property name="SellPriceIncreaseGreenThreshold" value="10.000000" />
+        <Property name="SellPriceDecreaseRedThreshold" value="-20.000000" />
+        <Property name="ShowSeasonRewards" value="false" />
+        <Property name="UseBarterForBuy" value="false" />
+        <Property name="MinAmountOfProductAvailable">
+          <Property name="Poor" value="10" />
+          <Property name="Average" value="10" />
+          <Property name="Wealthy" value="10" />
+          <Property name="Pirate" value="10" />
+        </Property>
+        <Property name="MaxAmountOfProductAvailable">
+          <Property name="Poor" value="100" />
+          <Property name="Average" value="100" />
+          <Property name="Wealthy" value="100" />
+          <Property name="Pirate" value="100" />
+        </Property>
+        <Property name="MinAmountOfSubstanceAvailable">
+          <Property name="Poor" value="100" />
+          <Property name="Average" value="100" />
+          <Property name="Wealthy" value="100" />
+          <Property name="Pirate" value="100" />
+        </Property>
+        <Property name="MaxAmountOfSubstanceAvailable">
+          <Property name="Poor" value="1000" />
+          <Property name="Average" value="1000" />
+          <Property name="Wealthy" value="1000" />
+          <Property name="Pirate" value="1000" />
+        </Property>
+        <Property name="MinExtraSystemProducts">
+          <Property name="Poor" value="2" />
+          <Property name="Average" value="2" />
+          <Property name="Wealthy" value="2" />
+          <Property name="Pirate" value="2" />
+        </Property>
+        <Property name="MaxExtraSystemProducts">
+          <Property name="Poor" value="4" />
+          <Property name="Average" value="4" />
+          <Property name="Wealthy" value="4" />
+          <Property name="Pirate" value="4" />
+        </Property>
+        <Property name="TradeProductsPriceImprovements">
+          <Property name="Poor" value="0.000000" />
+          <Property name="Average" value="0.000000" />
+          <Property name="Wealthy" value="0.000000" />
+          <Property name="Pirate" value="0.000000" />
+        </Property>
+      </Property>
+      <Property name="StartConditionTest" value="GcMissionConditionTest">
+        <Property name="ConditionTest" value="AnyFalse" />
+      </Property>
+      <Property name="CancelConditionTest" value="GcMissionConditionTest">
+        <Property name="ConditionTest" value="AnyFalse" />
+      </Property>
+      <Property name="StartIsCancel" value="false" />
+      <Property name="StartingConditions" />
+      <Property name="CancelingConditions" />
+      <Property name="FinalStageVersions">
+        <Property name="FinalStageVersions" value="GcGenericMissionVersionProgress">
+          <Property name="Version" value="1" />
+          <Property name="Progress" value="1" />
+        </Property>
+      </Property>
+      <Property name="Stages">
+        </Property>
+      <Property name="ForcesBuildMenuHint" value="false" />
+      <Property name="IsProceduralAllowed" value="false" />
+      <Property name="IsRecurring" value="false" />
+      <Property name="IsLegacy" value="false" />
+      <Property name="BlocksPinning" value="false" />
+      <Property name="CanRenounce" value="true" />
+      <Property name="UseCommunityMissionForLog" value="" />
+      <Property name="TakeCommunityMissionIDFromSeasonData" value="false" />
+      <Property name="TelemetryUpload" value="false" />
+      <Property name="UseSeasonTitleOverride" value="false" />
+      <Property name="RequiresSettlement" value="false" />
+      <Property name="SettlementAbandonOSD" value="" />
+    </Property>
+    <Property name="Missions" value="GcGenericMissionSequence" _id="SQN_SP_P08">
+      <Property name="MissionID" value="SQN_SP_P08" />
+      <Property name="MissionClass" value="Secondary" />
+      <Property name="MissionIsCritical" value="false" />
+      <Property name="MissionObjective" value="" />
+      <Property name="MissionTitles" value="GcNumberedTextList">
+        <Property name="Format" value="SQN_SP_GUIDE_TITLE" />
+        <Property name="Count" value="1" />
+      </Property>
+      <Property name="MissionSubtitles" value="GcNumberedTextList">
+        <Property name="Format" value="SQN_SP_GUIDE_DESC" />
+        <Property name="Count" value="1" />
+      </Property>
+      <Property name="MissionDescriptions" value="GcNumberedTextList">
+        <Property name="Format" value="SQN_SP_GUIDE_DESC" />
+        <Property name="Count" value="1" />
+      </Property>
+      <Property name="SeasonalLogTextOverrides" value="GcSeasonalLogOverrides">
+        <Property name="ApplicableSeasonNumbers" />
+        <Property name="MissionTitle" value="" />
+        <Property name="MissionSubtitle" value="" />
+        <Property name="MissionDescription" value="" />
+      </Property>
+      <Property name="MissionDescSwitchOverride" value="" />
+      <Property name="MissionProcDescriptionHeader" value="GcNumberedTextList">
+        <Property name="Format" value="" />
+        <Property name="Count" value="1" />
+      </Property>
+      <Property name="MissionProcDescriptionA" value="GcNumberedTextList">
+        <Property name="Format" value="" />
+        <Property name="Count" value="1" />
+      </Property>
+      <Property name="MissionProcDescriptionB" value="GcNumberedTextList">
+        <Property name="Format" value="" />
+        <Property name="Count" value="1" />
+      </Property>
+      <Property name="MissionProcDescriptionC" value="GcNumberedTextList">
+        <Property name="Format" value="" />
+        <Property name="Count" value="1" />
+      </Property>
+      <Property name="UseScanEventDetailsInLogInfo" value="false" />
+      <Property name="UseFirstPurpleSystemDetailsInLogInfo" value="false" />
+      <Property name="MissionIcon" value="TkTextureResource">
+        <Property name="Filename" value="TEXTURES/UI/HUD/ICONS/MISSIONS/DEFAULT.DDS" />
+      </Property>
+      <Property name="MissionIconSelected" value="TkTextureResource">
+        <Property name="Filename" value="TEXTURES/UI/FRONTEND/ICONS/MISSIONS/MISSION.MISSINGPERSON.ON.DDS" />
+      </Property>
+      <Property name="MissionIconNotSelected" value="TkTextureResource">
+        <Property name="Filename" value="TEXTURES/UI/FRONTEND/ICONS/MISSIONS/MISSION.MISSINGPERSON.OFF.DDS" />
+      </Property>
+      <Property name="MissionPriority" value="0" />
+      <Property name="MissionCategory" value="GcMissionCategory">
+        <Property name="MissionCategory" value="Mission" />
+      </Property>
+      <Property name="MissionPageHint" value="GcMissionPageHint">
+        <Property name="MissionPageHint" value="None" />
+      </Property>
+      <Property name="MissionPageLocID" value="" />
+      <Property name="MissionBuildMenuHint" value="" />
+      <Property name="MissionHasColourOverride" value="false" />
+      <Property name="MissionColourOverride">
+        <Property name="R" value="1.000000" />
+        <Property name="G" value="1.000000" />
+        <Property name="B" value="1.000000" />
+        <Property name="A" value="1.000000" />
+      </Property>
+      <Property name="BeginCheckFrequency" value="1" />
+      <Property name="WikiMissionBlockedBySeasons" />
+      <Property name="DefaultItems" value="GcDefaultMissionItemsTable">
+        <Property name="PrimarySubstances" />
+        <Property name="SecondarySubstances" />
+        <Property name="PrimaryProducts" />
+        <Property name="SecondaryProducts" />
+        <Property name="AmountMin" value="0" />
+        <Property name="AmountMax" value="0" />
+        <Property name="AmountShouldBeRoundNumber" value="false" />
+      </Property>
+      <Property name="PrefixTitle" value="false" />
+      <Property name="NextMissionHint" value="" />
+      <Property name="MessageComplete" value="Never" />
+      <Property name="MessageStart" value="Never" />
+      <Property name="MissionBoardOptions" value="GcMissionBoardOptions">
+        <Property name="Type" value="GcMissionType">
+          <Property name="MissionType" value="SpaceCombat" />
+        </Property>
+        <Property name="Difficulty" value="GcMissionDifficulty">
+          <Property name="MissionDifficulty" value="Normal" />
+        </Property>
+        <Property name="MinRank" value="0" />
+        <Property name="CloseMissionGiver" value="false" />
+        <Property name="IsGuildShopMission" value="false" />
+        <Property name="IsPlanetProcMission" value="false" />
+        <Property name="IsMultiplayerEventMission" value="false" />
+        <Property name="RewardPenaltyOnAbandon" value="" />
+        <Property name="Faction" />
+        <Property name="Weighting" value="100" />
+        <Property name="IgnoreCalculatedObjective" value="false" />
+        <Property name="MultiplayerMissionInitialWarpScanEvent" value="" />
+        <Property name="DefaultItemInitialWarpScanEvents" />
+        <Property name="DefaultItemTypeForInitialWarp" value="None" />
+        <Property name="BasePartBlueprints" />
+        <Property name="MandatorySalvageEquipment" />
+        <Property name="RequireUncompletedPOI" value="false" />
+        <Property name="RequireUncompletedPOIOfType" value="GcSpacePoiType">
+          <Property name="SpacePoiType" value="AsteroidBelt" />
+        </Property>
+      </Property>
+      <Property name="AutoStart" value="None" />
+      <Property name="RestartOnCompletion" value="false" />
+      <Property name="CancelSetsComplete" value="false" />
+      <Property name="Dialog" value="GcAlienPuzzleTable">
+        <Property name="Table" />
+      </Property>
+      <Property name="ScanEvents">
+        </Property>
+      <Property name="Rewards" />
+      <Property name="Costs" />
+      <Property name="TradingDataOverride" value="GcTradeData">
+        <Property name="AlwaysPresentProducts" />
+        <Property name="AlwaysPresentSubstances" />
+        <Property name="OptionalProducts" />
+        <Property name="OptionalSubstances" />
+        <Property name="AlwaysConsideredBarterProducts" />
+        <Property name="BarterAcceptanceCurve" value="TkCurveType">
+          <Property name="Curve" value="Linear" />
+        </Property>
+        <Property name="BarterPriceMultiplier" value="1.000000" />
+        <Property name="BarterItemPreferenceFloor" value="0.500000" />
+        <Property name="MinItemsForSale" value="5" />
+        <Property name="MaxItemsForSale" value="15" />
+        <Property name="PercentageOfItemsAreProducts" value="0.300000" />
+        <Property name="BuyPriceIncreaseRedThreshold" value="20.000000" />
+        <Property name="BuyPriceDecreaseGreenThreshold" value="-10.000000" />
+        <Property name="SellPriceIncreaseGreenThreshold" value="10.000000" />
+        <Property name="SellPriceDecreaseRedThreshold" value="-20.000000" />
+        <Property name="ShowSeasonRewards" value="false" />
+        <Property name="UseBarterForBuy" value="false" />
+        <Property name="MinAmountOfProductAvailable">
+          <Property name="Poor" value="10" />
+          <Property name="Average" value="10" />
+          <Property name="Wealthy" value="10" />
+          <Property name="Pirate" value="10" />
+        </Property>
+        <Property name="MaxAmountOfProductAvailable">
+          <Property name="Poor" value="100" />
+          <Property name="Average" value="100" />
+          <Property name="Wealthy" value="100" />
+          <Property name="Pirate" value="100" />
+        </Property>
+        <Property name="MinAmountOfSubstanceAvailable">
+          <Property name="Poor" value="100" />
+          <Property name="Average" value="100" />
+          <Property name="Wealthy" value="100" />
+          <Property name="Pirate" value="100" />
+        </Property>
+        <Property name="MaxAmountOfSubstanceAvailable">
+          <Property name="Poor" value="1000" />
+          <Property name="Average" value="1000" />
+          <Property name="Wealthy" value="1000" />
+          <Property name="Pirate" value="1000" />
+        </Property>
+        <Property name="MinExtraSystemProducts">
+          <Property name="Poor" value="2" />
+          <Property name="Average" value="2" />
+          <Property name="Wealthy" value="2" />
+          <Property name="Pirate" value="2" />
+        </Property>
+        <Property name="MaxExtraSystemProducts">
+          <Property name="Poor" value="4" />
+          <Property name="Average" value="4" />
+          <Property name="Wealthy" value="4" />
+          <Property name="Pirate" value="4" />
+        </Property>
+        <Property name="TradeProductsPriceImprovements">
+          <Property name="Poor" value="0.000000" />
+          <Property name="Average" value="0.000000" />
+          <Property name="Wealthy" value="0.000000" />
+          <Property name="Pirate" value="0.000000" />
+        </Property>
+      </Property>
+      <Property name="StartConditionTest" value="GcMissionConditionTest">
+        <Property name="ConditionTest" value="AnyFalse" />
+      </Property>
+      <Property name="CancelConditionTest" value="GcMissionConditionTest">
+        <Property name="ConditionTest" value="AnyFalse" />
+      </Property>
+      <Property name="StartIsCancel" value="false" />
+      <Property name="StartingConditions" />
+      <Property name="CancelingConditions" />
+      <Property name="FinalStageVersions">
+        <Property name="FinalStageVersions" value="GcGenericMissionVersionProgress">
+          <Property name="Version" value="1" />
+          <Property name="Progress" value="1" />
+        </Property>
+      </Property>
+      <Property name="Stages">
+        </Property>
+      <Property name="ForcesBuildMenuHint" value="false" />
+      <Property name="IsProceduralAllowed" value="false" />
+      <Property name="IsRecurring" value="false" />
+      <Property name="IsLegacy" value="false" />
+      <Property name="BlocksPinning" value="false" />
+      <Property name="CanRenounce" value="true" />
+      <Property name="UseCommunityMissionForLog" value="" />
+      <Property name="TakeCommunityMissionIDFromSeasonData" value="false" />
+      <Property name="TelemetryUpload" value="false" />
+      <Property name="UseSeasonTitleOverride" value="false" />
+      <Property name="RequiresSettlement" value="false" />
+      <Property name="SettlementAbandonOSD" value="" />
+    </Property>
+    <Property name="Missions" value="GcGenericMissionSequence" _id="SQN_SP_P09">
+      <Property name="MissionID" value="SQN_SP_P09" />
+      <Property name="MissionClass" value="Secondary" />
+      <Property name="MissionIsCritical" value="false" />
+      <Property name="MissionObjective" value="" />
+      <Property name="MissionTitles" value="GcNumberedTextList">
+        <Property name="Format" value="SQN_SP_GUIDE_TITLE" />
+        <Property name="Count" value="1" />
+      </Property>
+      <Property name="MissionSubtitles" value="GcNumberedTextList">
+        <Property name="Format" value="SQN_SP_GUIDE_DESC" />
+        <Property name="Count" value="1" />
+      </Property>
+      <Property name="MissionDescriptions" value="GcNumberedTextList">
+        <Property name="Format" value="SQN_SP_GUIDE_DESC" />
+        <Property name="Count" value="1" />
+      </Property>
+      <Property name="SeasonalLogTextOverrides" value="GcSeasonalLogOverrides">
+        <Property name="ApplicableSeasonNumbers" />
+        <Property name="MissionTitle" value="" />
+        <Property name="MissionSubtitle" value="" />
+        <Property name="MissionDescription" value="" />
+      </Property>
+      <Property name="MissionDescSwitchOverride" value="" />
+      <Property name="MissionProcDescriptionHeader" value="GcNumberedTextList">
+        <Property name="Format" value="" />
+        <Property name="Count" value="1" />
+      </Property>
+      <Property name="MissionProcDescriptionA" value="GcNumberedTextList">
+        <Property name="Format" value="" />
+        <Property name="Count" value="1" />
+      </Property>
+      <Property name="MissionProcDescriptionB" value="GcNumberedTextList">
+        <Property name="Format" value="" />
+        <Property name="Count" value="1" />
+      </Property>
+      <Property name="MissionProcDescriptionC" value="GcNumberedTextList">
+        <Property name="Format" value="" />
+        <Property name="Count" value="1" />
+      </Property>
+      <Property name="UseScanEventDetailsInLogInfo" value="false" />
+      <Property name="UseFirstPurpleSystemDetailsInLogInfo" value="false" />
+      <Property name="MissionIcon" value="TkTextureResource">
+        <Property name="Filename" value="TEXTURES/UI/HUD/ICONS/MISSIONS/DEFAULT.DDS" />
+      </Property>
+      <Property name="MissionIconSelected" value="TkTextureResource">
+        <Property name="Filename" value="TEXTURES/UI/FRONTEND/ICONS/MISSIONS/MISSION.MISSINGPERSON.ON.DDS" />
+      </Property>
+      <Property name="MissionIconNotSelected" value="TkTextureResource">
+        <Property name="Filename" value="TEXTURES/UI/FRONTEND/ICONS/MISSIONS/MISSION.MISSINGPERSON.OFF.DDS" />
+      </Property>
+      <Property name="MissionPriority" value="0" />
+      <Property name="MissionCategory" value="GcMissionCategory">
+        <Property name="MissionCategory" value="Mission" />
+      </Property>
+      <Property name="MissionPageHint" value="GcMissionPageHint">
+        <Property name="MissionPageHint" value="None" />
+      </Property>
+      <Property name="MissionPageLocID" value="" />
+      <Property name="MissionBuildMenuHint" value="" />
+      <Property name="MissionHasColourOverride" value="false" />
+      <Property name="MissionColourOverride">
+        <Property name="R" value="1.000000" />
+        <Property name="G" value="1.000000" />
+        <Property name="B" value="1.000000" />
+        <Property name="A" value="1.000000" />
+      </Property>
+      <Property name="BeginCheckFrequency" value="1" />
+      <Property name="WikiMissionBlockedBySeasons" />
+      <Property name="DefaultItems" value="GcDefaultMissionItemsTable">
+        <Property name="PrimarySubstances" />
+        <Property name="SecondarySubstances" />
+        <Property name="PrimaryProducts" />
+        <Property name="SecondaryProducts" />
+        <Property name="AmountMin" value="0" />
+        <Property name="AmountMax" value="0" />
+        <Property name="AmountShouldBeRoundNumber" value="false" />
+      </Property>
+      <Property name="PrefixTitle" value="false" />
+      <Property name="NextMissionHint" value="" />
+      <Property name="MessageComplete" value="Never" />
+      <Property name="MessageStart" value="Never" />
+      <Property name="MissionBoardOptions" value="GcMissionBoardOptions">
+        <Property name="Type" value="GcMissionType">
+          <Property name="MissionType" value="SpaceCombat" />
+        </Property>
+        <Property name="Difficulty" value="GcMissionDifficulty">
+          <Property name="MissionDifficulty" value="Normal" />
+        </Property>
+        <Property name="MinRank" value="0" />
+        <Property name="CloseMissionGiver" value="false" />
+        <Property name="IsGuildShopMission" value="false" />
+        <Property name="IsPlanetProcMission" value="false" />
+        <Property name="IsMultiplayerEventMission" value="false" />
+        <Property name="RewardPenaltyOnAbandon" value="" />
+        <Property name="Faction" />
+        <Property name="Weighting" value="100" />
+        <Property name="IgnoreCalculatedObjective" value="false" />
+        <Property name="MultiplayerMissionInitialWarpScanEvent" value="" />
+        <Property name="DefaultItemInitialWarpScanEvents" />
+        <Property name="DefaultItemTypeForInitialWarp" value="None" />
+        <Property name="BasePartBlueprints" />
+        <Property name="MandatorySalvageEquipment" />
+        <Property name="RequireUncompletedPOI" value="false" />
+        <Property name="RequireUncompletedPOIOfType" value="GcSpacePoiType">
+          <Property name="SpacePoiType" value="AsteroidBelt" />
+        </Property>
+      </Property>
+      <Property name="AutoStart" value="None" />
+      <Property name="RestartOnCompletion" value="false" />
+      <Property name="CancelSetsComplete" value="false" />
+      <Property name="Dialog" value="GcAlienPuzzleTable">
+        <Property name="Table" />
+      </Property>
+      <Property name="ScanEvents">
+        </Property>
+      <Property name="Rewards" />
+      <Property name="Costs" />
+      <Property name="TradingDataOverride" value="GcTradeData">
+        <Property name="AlwaysPresentProducts" />
+        <Property name="AlwaysPresentSubstances" />
+        <Property name="OptionalProducts" />
+        <Property name="OptionalSubstances" />
+        <Property name="AlwaysConsideredBarterProducts" />
+        <Property name="BarterAcceptanceCurve" value="TkCurveType">
+          <Property name="Curve" value="Linear" />
+        </Property>
+        <Property name="BarterPriceMultiplier" value="1.000000" />
+        <Property name="BarterItemPreferenceFloor" value="0.500000" />
+        <Property name="MinItemsForSale" value="5" />
+        <Property name="MaxItemsForSale" value="15" />
+        <Property name="PercentageOfItemsAreProducts" value="0.300000" />
+        <Property name="BuyPriceIncreaseRedThreshold" value="20.000000" />
+        <Property name="BuyPriceDecreaseGreenThreshold" value="-10.000000" />
+        <Property name="SellPriceIncreaseGreenThreshold" value="10.000000" />
+        <Property name="SellPriceDecreaseRedThreshold" value="-20.000000" />
+        <Property name="ShowSeasonRewards" value="false" />
+        <Property name="UseBarterForBuy" value="false" />
+        <Property name="MinAmountOfProductAvailable">
+          <Property name="Poor" value="10" />
+          <Property name="Average" value="10" />
+          <Property name="Wealthy" value="10" />
+          <Property name="Pirate" value="10" />
+        </Property>
+        <Property name="MaxAmountOfProductAvailable">
+          <Property name="Poor" value="100" />
+          <Property name="Average" value="100" />
+          <Property name="Wealthy" value="100" />
+          <Property name="Pirate" value="100" />
+        </Property>
+        <Property name="MinAmountOfSubstanceAvailable">
+          <Property name="Poor" value="100" />
+          <Property name="Average" value="100" />
+          <Property name="Wealthy" value="100" />
+          <Property name="Pirate" value="100" />
+        </Property>
+        <Property name="MaxAmountOfSubstanceAvailable">
+          <Property name="Poor" value="1000" />
+          <Property name="Average" value="1000" />
+          <Property name="Wealthy" value="1000" />
+          <Property name="Pirate" value="1000" />
+        </Property>
+        <Property name="MinExtraSystemProducts">
+          <Property name="Poor" value="2" />
+          <Property name="Average" value="2" />
+          <Property name="Wealthy" value="2" />
+          <Property name="Pirate" value="2" />
+        </Property>
+        <Property name="MaxExtraSystemProducts">
+          <Property name="Poor" value="4" />
+          <Property name="Average" value="4" />
+          <Property name="Wealthy" value="4" />
+          <Property name="Pirate" value="4" />
+        </Property>
+        <Property name="TradeProductsPriceImprovements">
+          <Property name="Poor" value="0.000000" />
+          <Property name="Average" value="0.000000" />
+          <Property name="Wealthy" value="0.000000" />
+          <Property name="Pirate" value="0.000000" />
+        </Property>
+      </Property>
+      <Property name="StartConditionTest" value="GcMissionConditionTest">
+        <Property name="ConditionTest" value="AnyFalse" />
+      </Property>
+      <Property name="CancelConditionTest" value="GcMissionConditionTest">
+        <Property name="ConditionTest" value="AnyFalse" />
+      </Property>
+      <Property name="StartIsCancel" value="false" />
+      <Property name="StartingConditions" />
+      <Property name="CancelingConditions" />
+      <Property name="FinalStageVersions">
+        <Property name="FinalStageVersions" value="GcGenericMissionVersionProgress">
+          <Property name="Version" value="1" />
+          <Property name="Progress" value="1" />
+        </Property>
+      </Property>
+      <Property name="Stages">
+        </Property>
+      <Property name="ForcesBuildMenuHint" value="false" />
+      <Property name="IsProceduralAllowed" value="false" />
+      <Property name="IsRecurring" value="false" />
+      <Property name="IsLegacy" value="false" />
+      <Property name="BlocksPinning" value="false" />
+      <Property name="CanRenounce" value="true" />
+      <Property name="UseCommunityMissionForLog" value="" />
+      <Property name="TakeCommunityMissionIDFromSeasonData" value="false" />
+      <Property name="TelemetryUpload" value="false" />
+      <Property name="UseSeasonTitleOverride" value="false" />
+      <Property name="RequiresSettlement" value="false" />
+      <Property name="SettlementAbandonOSD" value="" />
+    </Property>
+  </Property>
+</Data>

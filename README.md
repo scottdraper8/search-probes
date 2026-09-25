@@ -1,56 +1,119 @@
 # Search Probes
 
-A No Man's Sky mod for finding systems and planets with specific generated properties.
+Search No Man's Sky systems and planets by their generated properties. The runtime, search
+workers, controls, and desktop UI are Rust. No Python, NMS.py, pyMHF, or WebView is required.
 
-Launch the game normally and press **F7** to open the search form. Choose filters, run a search,
-select a result, and navigate. The target appears as an ordinary **Search Probe Target** mission
-in the Log. Abandon that mission before selecting a different target.
+The release targets the exact game build below. Bounded runtime validation covers standalone
+startup, searches, purple systems, Guide presets, destination missions, save reload and shutdown.
+See [validation and performance](VALIDATION.md) for measured limits.
 
-Choose **Maximum systems** from the dropdown: **1,000**, **10,000**, **100,000**, **1,000,000**,
-**10,000,000**, **100,000,000**, or **1,000,000,000**. New searches default to **10,000**.
-Existing preset budgets are rounded to the numerically nearest dropdown value on load and save;
-ties round up. For example, 5,000 becomes 1,000 and 20,000 becomes 10,000. Migration retains the
-original preset file as a backup. **Results to retain** accepts 1 through **100** matches per search.
+## Supported game
 
-Search Probes checks nearby indexed systems first, then generates additional
-regions outward from the starting location. It can continue beyond the Galaxy Map's loaded graph
-without moving the player. Each system is checked once; results follow search order and are not
-guaranteed to be globally nearest.
+The native interface targets **No Man's Sky 7.04**, Windows x64 Steam build **25442159**.
+The executable must match SHA-256
+`b7913f268dfc62386b6b68f524bfc8ade4a44a9f4fbad39085b7bf51be3680cb`.
+An update stops native initialization until a matching version is validated. Proton is the
+validated runtime environment. Native Windows desktop operation has not been tested.
 
-A search stops when it finds the requested number of results or reaches its system budget. **Cancel**
-keeps matches already found. Long searches have no time limit, but NMS must remain open with gameplay
-updates running: opening the Galaxy Map or otherwise pausing gameplay pauses the search. Searches
-resume with gameplay; they do not survive quitting NMS. Changing galaxies ends an active search.
+## Search
 
-Saved presets also appear in the Catalogue & Guide after the next launch. The mod does not
-replace Quick Actions or multiplayer interactions. Presets are stored under
-`Binaries/SearchProbes/app/.resident-search` in the game installation.
-If a Guide search finds no exact match, abandon its probe in the Log before retrying; the form
-shows the search status. The Guide snapshot updates on the next game launch.
+Press **F7** in NMS to open Search Probes. Select criteria and start a search. Starting returns
+focus to NMS so gameplay can continue. Under Proton the controls may hide during a search;
+press F7 to reopen them. Pausing NMS or leaving gameplay pauses search progress.
 
-The Floating islands filter is the canonical `floating_islands` criterion: it reads the resolved
-object-list `IsFloatingIsland` result. Terrain families remain available as an exact diagnostic,
-but the three `FloatingIslands*` values are not offered as a second island selector.
-Required resource selections are combined with AND across three survey-resource slots. Target-
-planet filters apply to the same planet; system filters can describe other planets in the system.
+- **Systems to search:** 1,000; 10,000; 100,000; 1,000,000; 10,000,000; 100,000,000;
+  1,000,000,000. The default is 10,000.
+- **Results:** 1–100 matches. A search ends at its result cap, budget, or galaxy exhaustion.
+- Select multiple values in a field to accept any selected value. All selected fields must match.
+  **Any** omits that predicate and its optional acquisition work.
+- Resources have explicit **All** and **Any** selection modes.
+- **Cancel** keeps completed matches and the continuation position.
+- Worker count and the gameplay time budget control the search's share of processing time.
+  The budget is a scheduling target; an individual native call cannot be interrupted.
 
-The form exposes base vegetation colours (Grass, Plant, and Leaf), water base colour, and the
-daytime sky and atmosphere colours. These are generated inputs, not guarantees about rendered
-pixels: lighting and colour grading are excluded, vegetation can contain multiple colours, and
-water reflects the sky. Weather type remains available, with Storms grouped as None,
-Non-extreme, or Extreme. Older protocol fields that are not form controls remain visible as
-additional saved filters so presets retain their exact criteria.
+Search begins around the player's current region and traverses actual generated region lists
+outward. It is independent of the Galaxy Map's loaded search graph and does not move the player.
+Results follow traversal order and are not guaranteed to be the closest possible matches.
 
-## Source layout
+A repeated filter continues from its previous position within the same galaxy, even after moving
+elsewhere. Explicit restart begins around the current position. The latest 128 filter/galaxy
+continuations are retained. Searches and continuation history last for the current game session.
+Loading a save or changing relevant native configuration clears them.
 
-- `src/search_probes`: form, criteria, generated-data decoding, native integration, mission
-  navigation, Guide presets, and adapter definitions.
-- `native-bootstrap`: application-local WINMM forwarder and embedded-runtime startup.
-- `dependencies`: pinned runtime dependencies.
+## Reuse and results
 
-Native integration is version-qualified and fails closed when the executable changes. This
-source targets No Man's Sky 7.04 on Windows and Steam Proton.
+A bounded cache keeps acquired facts for up to 16,384 systems, including nonmatches. It does not
+collect every property of every planet. Unknown facts cannot satisfy a filter. Cached results
+appear before live work, with a control to continue searching. Continuing a full result page
+replaces that page with new matches; continuing a partial page adds matches. The cache has a conservative
+64 MiB structural budget; it does not grow with the selected billion-system budget. A separate
+cache holds up to 1,024 small object-table summaries, with no retained native pointers. Both caches
+clear on save reload, relevant native configuration changes, or explicit history clearing.
 
-Build, packaging, installation, tests, client controls, and retained investigation evidence live
-in the parent [squinchmods repository](https://github.com/scottdraper8/squinchmods), under
-`games/no-mans-sky/tooling`. This repository contains mod source only.
+Colours describe generated inputs rather than rendered pixels. Lighting, grading, vegetation
+variation and reflections can change the appearance. Floating islands checks the generated
+object flag. Expensive criteria take more work than basic system filters.
+
+Choose **Set destination** on a result to create a **Search Probe Target** mission. Select Current Mission
+in the Galaxy Map and approach the marked planet. Abandon that mission in the Log before choosing
+a different destination. Navigation stays in the current galaxy.
+
+## Presets and Guide
+
+Save up to nine named presets in the Rust UI. Their numbered order corresponds to **Preset 1**
+through **Preset 9** in Catalogue & Guide → Search Probes. Saving updates that slot immediately.
+Removing a preset shifts the following slots. Launch a slot and return to gameplay to let the search
+run. Results open in the Rust UI; choose the result you want to navigate to. Empty slots open the
+controls with an explanation.
+
+Settings are stored in `%LOCALAPPDATA%\SearchProbes\settings.json` inside the game's Windows or
+Proton user profile. A valid previous version is kept as `settings.backup.json`. Unreadable
+settings are preserved; saving replacements retains malformed files as `settings.rejected-*.json`.
+`startup-error.txt` records initialization failures. `current.json` contains bounded runtime status.
+
+## Install, update and remove
+
+Close NMS before replacing files. Extract a release archive into the game directory containing
+`Binaries` and `GAMEDATA`. The product files are:
+
+- `Binaries/winmm.dll`
+- `Binaries/SearchProbes/SearchProbes.exe`
+- `GAMEDATA/MODS/SearchProbes/` (Guide, mission and localization patches)
+
+Do not overwrite another mod's `winmm.dll`. A shared proxy chain is not supported. Remove or
+rename `GAMEDATA/PCBANKS/DISABLEMODS.TXT` if present. On Proton the application-local WinMM proxy
+requires the Steam launch option `WINEDLLOVERRIDES="winmm=n,b" %command%`.
+Enable mods and Search Probes in NMS's mod settings, then restart NMS. Disabling asset mods leaves
+the DLL search controls available, but prevents Guide and navigation definitions from loading.
+
+For an update, replace the owned product files together. Older Python prerelease runtime folders
+must be removed, not merged into this package. Keep other mods and personal game saves intact.
+For Amethyst, the DLL and executable belong in its game root-file deployment; the asset directory
+belongs in its normal mod deployment. Deploy one consistent version in both locations.
+
+Before uninstalling, abandon any Search Probe Target mission. With NMS closed, remove the three
+owned locations above. Remove the WinMM launch override if no remaining mod uses it. User settings
+may be retained or removed separately; uninstalling does not require deleting a game save.
+
+## Build
+
+Use Rust 1.98.1 and the locked Cargo dependencies. The Windows product comprises the bootstrap
+DLL and UI executable. The native crate's `investigation` feature is for development probes and
+must not be enabled in a release.
+
+```sh
+cargo test --workspace
+cargo build --locked --release --target x86_64-pc-windows-gnu \
+  -p search-probes-bootstrap -p search-probes-ui
+cargo run --locked -p search-probes-package -- package ./dist/SearchProbes-0.1.0
+cargo run --locked -p search-probes-package -- verify ./dist/SearchProbes-0.1.0
+```
+
+`tooling/windows.Containerfile` supplies the GNU cross compiler for Linux builds. The packager
+copies declarative assets, retains dependency licenses, records hashes, verifies the expanded
+package, and produces a ZIP archive. MBINCompiler remains a development schema/roundtrip tool;
+it is not shipped and is not part of search execution.
+
+The parent squinchmods repository holds the exact native evidence and bounded runtime scenarios.
+No billion-system or 100,000-system runtime benchmark has established an end-to-end completion
+time. Ordered warm worker measurements must not be treated as a billion-system performance promise.

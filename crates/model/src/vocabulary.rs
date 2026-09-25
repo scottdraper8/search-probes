@@ -1,0 +1,191 @@
+pub const BIOMES: &[&str] = &[
+    "Lush",
+    "Toxic",
+    "Scorched",
+    "Radioactive",
+    "Frozen",
+    "Barren",
+    "Dead",
+    "Weird",
+    "Red",
+    "Green",
+    "Blue",
+    "Test",
+    "Swamp",
+    "Lava",
+    "Waterworld",
+    "GasGiant",
+];
+pub const STAR_TYPES: &[&str] = &["Yellow", "Green", "Blue", "Red", "Purple"];
+pub const WEALTH_CLASSES: &[&str] = &["Poor", "Average", "Wealthy", "Pirate"];
+pub const TRADING_CLASSES: &[&str] = &[
+    "Mining",
+    "HighTech",
+    "Trading",
+    "Manufacturing",
+    "Fusion",
+    "Scientific",
+    "PowerGeneration",
+];
+pub const POPULATION_STATES: &[&str] = &["Inhabited", "Empty", "Abandoned"];
+pub const PLANET_SIZES: &[&str] = &["Large", "Medium", "Small", "Moon", "Giant"];
+pub const PLANET_LIFE_LEVELS: &[&str] = &["Dead", "Low", "Mid", "Full"];
+pub const BUILDING_DENSITY_LEVELS: &[&str] = &[
+    "Dead",
+    "Low",
+    "Mid",
+    "Full",
+    "Weird",
+    "HalfWeird",
+    "Waterworld",
+    "GasGiant",
+];
+pub const RESOURCE_LEVELS: &[&str] = &["Low", "High"];
+pub const SYSTEM_CLASSES: &[&str] = &["Default", "Initial", "Anomaly", "GameStart"];
+pub const TERRAIN_SETTINGS: &[&str] = &[
+    "FloatingIslands",
+    "GrandCanyon",
+    "MountainRavines",
+    "HugeArches",
+    "Alien",
+    "Craters",
+    "Caverns",
+    "Alpine",
+    "LilyPad",
+    "Desert",
+    "WaterworldPrime",
+    "FloatingIslandsPrime",
+    "GrandCanyonPrime",
+    "MountainRavinesPrime",
+    "HugeArchesPrime",
+    "AlienPrime",
+    "CratersPrime",
+    "CavernsPrime",
+    "AlpinePrime",
+    "LilyPadPrime",
+    "DesertPrime",
+    "FloatingIslandsPurple",
+    "GrandCanyonPurple",
+    "MountainRavinesPurple",
+    "HugeArchesPurple",
+    "AlienPurple",
+    "CratersPurple",
+    "CavernsPurple",
+    "AlpinePurple",
+    "LilyPadPurple",
+    "DesertPurple",
+];
+pub const HUE_FAMILIES: &[&str] = &[
+    "Red", "Orange", "Yellow", "Green", "Cyan", "Blue", "Purple", "Magenta", "Neutral",
+];
+pub const STORM_FREQUENCIES: &[&str] = &["None", "Low", "High", "Always"];
+pub const WEATHER_INTENSITIES: &[&str] = &["Default", "Extreme"];
+pub const WEATHER_CONDITIONS: &[&str] = &["None", "Non-extreme", "Extreme"];
+pub const WEATHER_TYPES: &[&str] = &[
+    "Clear",
+    "Dust",
+    "Humid",
+    "Snow",
+    "Toxic",
+    "Scorched",
+    "Radioactive",
+    "RedWeather",
+    "GreenWeather",
+    "BlueWeather",
+    "Swamp",
+    "Lava",
+    "Bubble",
+    "Weird",
+    "Fire",
+    "ClearCold",
+    "GasGiant",
+];
+pub const RACE_ENUM: &[&str] = &[
+    "Traders",
+    "Warriors",
+    "Explorers",
+    "Robots",
+    "Atlas",
+    "Diplomats",
+    "Exotics",
+    "None",
+    "Builders",
+];
+pub const BIOME_SUBTYPES: &[&str] = &[
+    "Standard",
+    "HighQuality",
+    "Structure",
+    "Beam",
+    "Hexagon",
+    "FractCube",
+    "Bubble",
+    "Shards",
+    "Contour",
+    "Shell",
+    "BoneSpire",
+    "WireCell",
+    "HydroGarden",
+    "HugePlant",
+    "HugeLush",
+    "HugeRing",
+    "HugeRock",
+    "HugeScorch",
+    "HugeToxic",
+    "Variant_A",
+    "Variant_B",
+    "Variant_C",
+    "Variant_D",
+    "Infested",
+    "Swamp",
+    "Lava",
+    "Worlds",
+    "Remix_A",
+    "Remix_B",
+    "Remix_C",
+    "Remix_D",
+];
+pub const ANOMALIES: &[&str] = &[
+    "AtlasStation",
+    "AtlasStationFinal",
+    "BlackHole",
+    "MiniStation",
+    "BackgroundSwarmHive",
+];
+macro_rules! resources {
+    ($($id:literal => $label:literal),+ $(,)?) => {
+        pub const RESOURCE_IDS: &[&str] = &[$($id),+];
+        pub const RESOURCE_LABELS: &[&str] = &[$($label),+];
+    };
+}
+
+resources! {
+    "ASTEROID1" => "Silver",
+    "ASTEROID2" => "Gold",
+    "BLUE2" => "Indium",
+    "CATALYST1" => "Sodium",
+    "CAVE1" => "Cobalt",
+    "COLD1" => "Dioxite",
+    "DUSTY1" => "Pyrite",
+    "EX_BLUE" => "Activated Indium",
+    "EX_GREEN" => "Activated Emeril",
+    "EX_PURPLE" => "Activated Quartzite",
+    "EX_RED" => "Activated Cadmium",
+    "EX_YELLOW" => "Activated Copper",
+    "GAS1" => "Sulphurine",
+    "GASGIANT1" => "Crystallised Helium",
+    "GREEN2" => "Emeril",
+    "HOT1" => "Phosphorus",
+    "LAND3" => "Magnetised Ferrite",
+    "LAVA1" => "Basalt",
+    "LUSH1" => "Paraffinium",
+    "PLANT_POOP" => "Faecium",
+    "PURPLE2" => "Quartzite",
+    "RADIO1" => "Uranium",
+    "RED2" => "Cadmium",
+    "SPACEGUNK3" => "Rusted Metal",
+    "TOXIC1" => "Ammonia",
+    "WATER1" => "Salt",
+    "WATERWORLD1" => "Lithium",
+    "YELLOW2" => "Copper",
+}
+pub const CONFLICT_LEVELS: &[&str] = &["Low", "Medium", "High", "Pirate"];

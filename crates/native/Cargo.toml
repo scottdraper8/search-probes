@@ -1,0 +1,21 @@
+[package]
+name = "search-probes-native"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[lib]
+crate-type = ["rlib", "cdylib"]
+
+[features]
+investigation = []
+
+[dependencies]
+iced-x86 = { version = "1.21.0", default-features = false, features = ["std", "decoder", "block_encoder", "instr_info"] }
+search-probes-model = { path = "../model" }
+serde_json = "1.0"
+sha2 = "0.11"
+
+[target."cfg(windows)".dependencies]
+windows-sys = { version = "0.61.2", features = ["Win32_Foundation", "Win32_System_Memory", "Win32_System_Threading", "Win32_System_Diagnostics_Debug", "Win32_System_Diagnostics_ToolHelp", "Win32_System_LibraryLoader", "Win32_System_Kernel", "Win32_UI_Input_KeyboardAndMouse", "Win32_UI_WindowsAndMessaging"] }

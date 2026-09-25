@@ -1,0 +1,18 @@
+[package]
+name = "search-probes-ui"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "SearchProbes"
+path = "src/main.rs"
+
+[dependencies]
+search-probes-model = { path = "../model" }
+serde_json = "1.0"
+
+[target.'cfg(windows)'.dependencies]
+eframe = { version = "0.36.2", default-features = false, features = ["glow", "default_fonts"] }
+windows-sys = { version = "0.61.2", features = ["Win32_Foundation", "Win32_System_Threading", "Win32_Security", "Win32_UI_WindowsAndMessaging"] }

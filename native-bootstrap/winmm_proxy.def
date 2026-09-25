@@ -1,4 +1,0 @@
-LIBRARY winmm
-EXPORTS
-    timeBeginPeriod
-    timeEndPeriod

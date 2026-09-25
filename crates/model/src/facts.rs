@@ -1,0 +1,255 @@
+use crate::criteria::{Field, Plan, PlanetFlag, Predicate, Requirements, Stage, SystemFlag};
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, serde::Serialize)]
+pub struct Facts {
+    values: [u32; Field::ALL.len()],
+    known_values: u64,
+    planet_flags: u32,
+    known_planet_flags: u32,
+    system_flags: u16,
+    known_system_flags: u16,
+    resources: Option<u32>,
+    planet_count: Option<u8>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Verdict {
+    Match,
+    NoMatch,
+    Unknown,
+}
+
+impl Facts {
+    pub fn set(&mut self, field: Field, value: u32) {
+        self.values[field as usize] = value;
+        self.known_values |= 1u64 << (field as usize);
+    }
+    pub fn get(&self, field: Field) -> Option<u32> {
+        (self.known_values & (1u64 << (field as usize)) != 0).then_some(self.values[field as usize])
+    }
+    pub fn set_planet_flag(&mut self, flag: PlanetFlag, value: bool) {
+        let bit = 1u32 << (flag as usize);
+        self.known_planet_flags |= bit;
+        self.planet_flags = (self.planet_flags & !bit) | if value { bit } else { 0 };
+    }
+    pub fn planet_flag(&self, flag: PlanetFlag) -> Option<bool> {
+        let bit = 1u32 << (flag as usize);
+        (self.known_planet_flags & bit != 0).then_some(self.planet_flags & bit != 0)
+    }
+    pub fn set_system_flag(&mut self, flag: SystemFlag, value: bool) {
+        let bit = 1u16 << (flag as usize);
+        self.known_system_flags |= bit;
+        self.system_flags = (self.system_flags & !bit) | if value { bit } else { 0 };
+    }
+    pub fn system_flag(&self, flag: SystemFlag) -> Option<bool> {
+        let bit = 1u16 << (flag as usize);
+        (self.known_system_flags & bit != 0).then_some(self.system_flags & bit != 0)
+    }
+    pub fn set_resources(&mut self, resources: u32) {
+        self.resources = Some(resources);
+    }
+    pub fn resources(&self) -> Option<u32> {
+        self.resources
+    }
+    pub fn set_planet_count(&mut self, count: u8) {
+        self.planet_count = Some(count);
+    }
+    pub fn planet_count(&self) -> Option<u8> {
+        self.planet_count
+    }
+
+    pub fn merge(&mut self, new: &Self) {
+        for &field in Field::ALL {
+            if let Some(value) = new.get(field) {
+                self.set(field, value);
+            }
+        }
+        for &flag in PlanetFlag::ALL {
+            if let Some(value) = new.planet_flag(flag) {
+                self.set_planet_flag(flag, value);
+            }
+        }
+        for &flag in SystemFlag::ALL {
+            if let Some(value) = new.system_flag(flag) {
+                self.set_system_flag(flag, value);
+            }
+        }
+        if let Some(value) = new.resources {
+            self.resources = Some(value);
+        }
+        if let Some(value) = new.planet_count {
+            self.planet_count = Some(value);
+        }
+    }
+
+    pub fn evaluate(&self, predicate: Predicate) -> Verdict {
+        let accepted = match predicate {
+            Predicate::Choice(choices) => self
+                .get(choices.field())
+                .map(|value| choices.accepts(value)),
+            Predicate::Planet(flag, expected) => {
+                self.planet_flag(flag).map(|value| value == expected)
+            }
+            Predicate::System(flag, expected) => {
+                self.system_flag(flag).map(|value| value == expected)
+            }
+            Predicate::Resources(rule) => self.resources.map(|value| rule.accepts(value)),
+            Predicate::MinimumPlanets(minimum) => self.planet_count.map(|count| count >= minimum),
+        };
+        match accepted {
+            Some(true) => Verdict::Match,
+            Some(false) => Verdict::NoMatch,
+            None => Verdict::Unknown,
+        }
+    }
+}
+
+fn conjunction(predicates: &[Predicate], facts: &Facts) -> Verdict {
+    let mut verdict = Verdict::Match;
+    for &predicate in predicates {
+        match facts.evaluate(predicate) {
+            Verdict::NoMatch => return Verdict::NoMatch,
+            Verdict::Unknown => verdict = Verdict::Unknown,
+            Verdict::Match => {}
+        }
+    }
+    verdict
+}
+
+impl Plan {
+    pub fn missing_planet_requirements(&self, facts: &Facts) -> Requirements {
+        let mut needed = Requirements::default();
+        for &predicate in &self.planet {
+            if facts.evaluate(predicate) != Verdict::Unknown {
+                continue;
+            }
+            needed.planet_query |= predicate.stage() >= Stage::Query;
+            needed.metadata |= predicate.stage() == Stage::Metadata
+                || matches!(predicate, Predicate::Planet(PlanetFlag::Paradise, _));
+            needed.weather |= predicate.stage() == Stage::Weather;
+            needed.objects |= predicate.stage() == Stage::Objects;
+            if let Predicate::Choice(choices) = predicate {
+                if let Some(index) = choices.field().colour_index() {
+                    needed.colours |= 1 << index;
+                }
+            }
+        }
+        needed
+    }
+    pub fn system_match(&self, facts: &Facts) -> Verdict {
+        conjunction(&self.system, facts)
+    }
+    pub fn planet_match(&self, facts: &Facts) -> Verdict {
+        conjunction(&self.planet, facts)
+    }
+}
+
+pub fn hue(rgb: [f64; 3]) -> Result<u32, &'static str> {
+    if !rgb.iter().all(|value| value.is_finite() && *value >= 0.0) {
+        return Err("invalid colour components");
+    }
+    let [red, green, blue] = rgb;
+    let maximum = red.max(green).max(blue);
+    let minimum = red.min(green).min(blue);
+    let range = maximum - minimum;
+    if maximum == 0.0 || range / maximum < 0.12 {
+        return Ok(8);
+    }
+    let rc = (maximum - red) / range;
+    let gc = (maximum - green) / range;
+    let bc = (maximum - blue) / range;
+    let h = if red == maximum {
+        bc - gc
+    } else if green == maximum {
+        2.0 + rc - bc
+    } else {
+        4.0 + gc - rc
+    };
+    let degrees = (h / 6.0).rem_euclid(1.0) * 360.0;
+    Ok(if !(15.0..345.0).contains(&degrees) {
+        0
+    } else if degrees < 45.0 {
+        1
+    } else if degrees <= 60.0 {
+        2
+    } else if degrees < 165.0 {
+        3
+    } else if degrees < 195.0 {
+        4
+    } else if degrees < 255.0 {
+        5
+    } else if degrees < 285.0 {
+        6
+    } else {
+        7
+    })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::criteria::Criteria;
+
+    #[test]
+    fn missing_data_is_never_a_negative_fact() {
+        let mut criteria = Criteria::default();
+        criteria.planets.insert(PlanetFlag::FloatingIslands, false);
+        let plan = criteria.compile().unwrap();
+        let mut facts = Facts::default();
+        assert_eq!(plan.planet_match(&facts), Verdict::Unknown);
+        facts.set_planet_flag(PlanetFlag::FloatingIslands, false);
+        assert_eq!(plan.planet_match(&facts), Verdict::Match);
+    }
+
+    #[test]
+    fn choices_are_or_within_each_field_and_and_across_fields() {
+        let mut criteria = Criteria::default();
+        criteria.choices.insert(Field::Size, 0b10111);
+        criteria.choices.insert(Field::Biome, 1);
+        let plan = criteria.compile().unwrap();
+        let mut facts = Facts::default();
+        facts.set(Field::Size, 3);
+        assert_eq!(plan.planet_match(&facts), Verdict::NoMatch);
+        facts.set(Field::Size, 0);
+        assert_eq!(plan.planet_match(&facts), Verdict::Unknown);
+        facts.set(Field::Biome, 0);
+        assert_eq!(plan.planet_match(&facts), Verdict::Match);
+        facts.set(Field::Biome, 1);
+        assert_eq!(plan.planet_match(&facts), Verdict::NoMatch);
+    }
+
+    #[test]
+    fn merging_new_observations_preserves_known_fields() {
+        let mut before = Facts::default();
+        before.set(Field::Sky, 5);
+        before.set_planet_flag(PlanetFlag::Water, true);
+        let mut new = Facts::default();
+        new.set(Field::Biome, 0);
+        new.set_planet_flag(PlanetFlag::Water, false);
+        before.merge(&new);
+        assert_eq!(before.get(Field::Sky), Some(5));
+        assert_eq!(before.get(Field::Biome), Some(0));
+        assert_eq!(before.planet_flag(PlanetFlag::Water), Some(false));
+        assert!(std::mem::size_of::<Facts>() <= 192);
+    }
+
+    #[test]
+    fn hue_families_preserve_yellow_green_boundary_and_hdr_values() {
+        for (colour, expected) in [
+            ([1.0, 0.0, 0.0], 0),
+            ([1.0, 0.5, 0.0], 1),
+            ([1.0, 1.0, 0.0], 2),
+            ([0.99, 1.0, 0.0], 3),
+            ([0.0, 1.0, 1.0], 4),
+            ([0.0, 0.0, 4.0], 5),
+            ([0.5, 0.0, 1.0], 6),
+            ([1.0, 0.0, 1.0], 7),
+            ([1.0, 0.99, 0.99], 8),
+            ([0.0; 3], 8),
+        ] {
+            assert_eq!(hue(colour).unwrap(), expected);
+        }
+        assert!(hue([f64::NAN, 0.0, 0.0]).is_err());
+        assert!(hue([-1.0, 0.0, 0.0]).is_err());
+    }
+}

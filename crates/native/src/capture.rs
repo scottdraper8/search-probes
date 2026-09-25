@@ -1,0 +1,257 @@
+pub const WEATHER: u32 = 1;
+pub const METADATA: u32 = 2;
+pub const NAME: u32 = 4;
+pub const SCREEN_FILTER: u32 = 8;
+pub const INDEX: u32 = 16;
+pub const COLOUR_COUNT: usize = 11;
+pub const ALL: u32 = 31 | (((1 << COLOUR_COUNT) - 1) << 8);
+
+#[repr(usize)]
+#[derive(Clone, Copy, Debug)]
+pub enum Colour {
+    Grass,
+    Plant,
+    Leaf,
+    Cloud,
+    SkyFog,
+    SkyHeightFog,
+    SkyHorizon,
+    Sky,
+    SkySunset,
+    SkyNight,
+    Water,
+}
+
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct Metadata {
+    pub biome: u32,
+    pub biome_subtype: u32,
+    pub building_density: u32,
+    pub creature_life_level: u32,
+    pub inhabiting_race: u32,
+    pub life_level: u32,
+    pub resource_level: u32,
+    pub sentinel_levels: [u32; 4],
+    pub has_scrap: u32,
+    pub in_abandoned_system: u32,
+    pub in_empty_system: u32,
+    pub in_gas_giant_system: u32,
+}
+
+pub const fn colour(index: usize) -> u32 {
+    if index < COLOUR_COUNT {
+        1 << (index + 8)
+    } else {
+        0
+    }
+}
+
+#[repr(C)]
+#[derive(Clone, Debug, PartialEq)]
+pub struct Facts {
+    pub present: u32,
+    pub index: i32,
+    pub weather: [u32; 3],
+    pub metadata: Metadata,
+    pub screen_filter: i32,
+    pub name: [u8; 128],
+    pub colours: [[f64; 4]; COLOUR_COUNT],
+}
+
+impl Default for Facts {
+    fn default() -> Self {
+        Self {
+            present: 0,
+            index: -1,
+            weather: [0; 3],
+            metadata: Metadata::default(),
+            screen_filter: -1,
+            name: [0; 128],
+            colours: [[0.; 4]; COLOUR_COUNT],
+        }
+    }
+}
+
+unsafe fn read<T: Copy>(p: *const u8, offset: usize) -> T {
+    unsafe { p.add(offset).cast::<T>().read_unaligned() }
+}
+
+fn pointer(value: usize) -> Result<*const u8, &'static str> {
+    if !(0x10000..=0x0000_7fff_ffff_ffff).contains(&value) {
+        return Err("invalid colour table pointer");
+    }
+    Ok(value as *const u8)
+}
+
+unsafe fn record(header: *const u8, index: i32, stride: usize) -> Result<*const u8, &'static str> {
+    let count: i32 = unsafe { read(header, 8) };
+    if !(0..count).contains(&index) || count > 4096 {
+        return Err("selected colour index outside bounded native table");
+    }
+    let data = pointer(unsafe { read(header, 0) })?;
+    Ok(unsafe { data.add(index as usize * stride) })
+}
+
+pub fn water_reflectance(
+    scattering: [f32; 3],
+    transmission: [f32; 3],
+    distances: [f32; 2],
+) -> Result<[f64; 4], &'static str> {
+    if distances.iter().any(|v| !v.is_finite() || *v <= 0.) {
+        return Err("invalid water optical distance");
+    }
+    let mut rgb = [0., 0., 0., 1.];
+    for i in 0..3 {
+        let s = scattering[i] as f64;
+        let t = transmission[i] as f64;
+        if !s.is_finite() || !t.is_finite() || !(0. ..=1.).contains(&s) || !(0. ..=1.).contains(&t)
+        {
+            return Err("invalid water optical coefficient");
+        }
+        let scatter = -s.max(0.01).ln() / distances[0] as f64;
+        let absorb = -t.max(0.01).ln() / distances[1] as f64;
+        if scatter + absorb == 0. {
+            return Err("water has no scattering or absorption");
+        }
+        let albedo = scatter / (scatter + absorb);
+        let a = ((1. - albedo) / (1. - 0.8 * albedo)).sqrt();
+        rgb[i] = 5. * (1. - 0.139 * a) * (1. - a) / (1. + 1.17 * a);
+    }
+    Ok(rgb)
+}
+
+/// # Safety
+/// Every requested field must be readable from a live current-build planet. Requested sky/water
+/// tables require its initialized generator and live resource graph. Call before planet destruction,
+/// without concurrent mutation. An empty mask does not read pointers.
+pub unsafe fn capture(
+    planet: *const u8,
+    generator: *const u8,
+    wanted: u32,
+) -> Result<Facts, &'static str> {
+    if wanted & !ALL != 0 {
+        return Err("unknown capture requirement");
+    }
+    let mut facts = Facts::default();
+    if wanted == 0 {
+        return Ok(facts);
+    }
+    if planet.is_null() {
+        return Err("null live planet");
+    }
+    unsafe {
+        if wanted & INDEX != 0 {
+            facts.index = read(planet, 0x353c);
+        }
+        if wanted & WEATHER != 0 {
+            for (slot, offset) in facts.weather.iter_mut().zip([0x1e48, 0x1e50, 0x1e54]) {
+                *slot = read(planet, offset);
+            }
+        }
+        if wanted & METADATA != 0 {
+            facts.metadata = Metadata {
+                biome: read(planet, 0x32b8),
+                biome_subtype: read(planet, 0x32bc),
+                building_density: read(planet, 0x3528),
+                creature_life_level: read(planet, 0x352c),
+                inhabiting_race: read(planet, 0x3534),
+                life_level: read(planet, 0x3538),
+                resource_level: read(planet, 0x3540),
+                sentinel_levels: [0x34cc, 0x34e4, 0x34fc, 0x3514]
+                    .map(|offset| read(planet, offset)),
+                has_scrap: u32::from(read::<u8>(planet, 0x3ace) != 0),
+                in_abandoned_system: u32::from(read::<u8>(planet, 0x3acf) != 0),
+                in_empty_system: u32::from(read::<u8>(planet, 0x3ad0) != 0),
+                in_gas_giant_system: u32::from(read::<u8>(planet, 0x3ad1) != 0),
+            };
+        }
+        if wanted & NAME != 0 {
+            facts.name = read(planet, 0x3a4e);
+        }
+        if wanted & SCREEN_FILTER != 0 {
+            facts.screen_filter = read(planet, 0x1e44);
+        }
+        for i in 0..3 {
+            if wanted & colour(i) != 0 {
+                facts.colours[i] = read::<[f32; 4]>(planet, i * 0x70).map(f64::from);
+            }
+        }
+        if wanted
+            & (colour(3) | colour(4) | colour(5) | colour(6) | colour(7) | colour(8) | colour(9))
+            != 0
+        {
+            if generator.is_null() {
+                return Err("null sky generator");
+            }
+            let mut biome: i32 = read(planet, 0x32b8);
+            let subtype: i32 = read(planet, 0x32bc);
+            if !(0..17).contains(&biome) {
+                return Err("invalid sky biome");
+            }
+            if subtype == 25 {
+                biome = 12;
+            } else if subtype == 26 {
+                biome = 13;
+            }
+            for period in 0..3 {
+                let fields: &[(usize, usize)] = match period {
+                    0 => &[(3, 0), (4, 0x20), (5, 0x30), (6, 0x40), (7, 0x70)],
+                    1 => &[(8, 0x70)],
+                    _ => &[(9, 0x70)],
+                };
+                if !fields.iter().any(|(i, _)| wanted & colour(*i) != 0) {
+                    continue;
+                }
+                let table = pointer(read(generator, 0x518 + period * 8))?;
+                let mut header = table.add(biome as usize * 16);
+                if read::<i32>(header, 8) <= 0 {
+                    header = table.add(0x120);
+                }
+                let row = record(header, read(planet, 0x1e34 + period * 4), 0xe0)?;
+                for &(i, offset) in fields {
+                    if wanted & colour(i) != 0 {
+                        facts.colours[i] = read::<[f32; 4]>(row, offset).map(f64::from);
+                    }
+                }
+            }
+        }
+        if wanted & colour(10) != 0 {
+            if generator.is_null() {
+                return Err("null water generator");
+            }
+            let header = pointer(read(generator, 0x530))?;
+            let row = record(header, read(planet, 0x3518), 0x80)?;
+            facts.colours[10] =
+                water_reflectance(read(row, 0x40), read(row, 0x50), read(row, 0x68))?;
+        }
+    }
+    facts.present = wanted;
+    Ok(facts)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn any_does_not_read_planet_or_generator() {
+        let facts = unsafe { capture(std::ptr::null(), std::ptr::null(), 0) }.unwrap();
+        assert_eq!(facts, Facts::default());
+    }
+    #[test]
+    fn palette_only_does_not_read_native_tables() {
+        let mut planet = [0u8; 16];
+        for (chunk, value) in planet.chunks_exact_mut(4).zip([0.1f32, 0.2, 0.3, 1.]) {
+            chunk.copy_from_slice(&value.to_ne_bytes());
+        }
+        let facts = unsafe { capture(planet.as_ptr(), std::ptr::null(), colour(0)) }.unwrap();
+        assert_eq!(facts.present, colour(0));
+        assert_eq!(facts.colours[0], [0.1f32, 0.2, 0.3, 1.].map(f64::from));
+    }
+    #[test]
+    fn invalid_optics_fail_explicitly() {
+        assert!(water_reflectance([1.; 3], [1.; 3], [1.; 2]).is_err());
+        assert!(water_reflectance([0.5; 3], [0.5; 3], [0., 1.]).is_err());
+        assert!(water_reflectance([f32::NAN; 3], [0.5; 3], [1.; 2]).is_err());
+    }
+}

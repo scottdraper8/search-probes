@@ -1,0 +1,505 @@
+<?xml version='1.0' encoding='utf-8'?>
+<Data template="cTkLocalisationTable">
+  <Property name="Table">
+    <Property name="Table" value="TkLocalisationEntry">
+      <Property name="Id" value="SQN_SP_CATEGORY" />
+      <Property name="BrazilianPortuguese" value="Search Probes" />
+      <Property name="Dutch" value="Search Probes" />
+      <Property name="English" value="Search Probes" />
+      <Property name="French" value="Search Probes" />
+      <Property name="German" value="Search Probes" />
+      <Property name="Italian" value="Search Probes" />
+      <Property name="Japanese" value="Search Probes" />
+      <Property name="Korean" value="Search Probes" />
+      <Property name="LatinAmericanSpanish" value="Search Probes" />
+      <Property name="Polish" value="Search Probes" />
+      <Property name="Portuguese" value="Search Probes" />
+      <Property name="Russian" value="Search Probes" />
+      <Property name="SimplifiedChinese" value="Search Probes" />
+      <Property name="Spanish" value="Search Probes" />
+      <Property name="TencentChinese" value="Search Probes" />
+      <Property name="TraditionalChinese" value="Search Probes" />
+      <Property name="USEnglish" value="Search Probes" />
+    </Property>
+    <Property name="Table" value="TkLocalisationEntry">
+      <Property name="Id" value="SQN_SP_CATEGORY_U" />
+      <Property name="BrazilianPortuguese" value="SEARCH PROBES" />
+      <Property name="Dutch" value="SEARCH PROBES" />
+      <Property name="English" value="SEARCH PROBES" />
+      <Property name="French" value="SEARCH PROBES" />
+      <Property name="German" value="SEARCH PROBES" />
+      <Property name="Italian" value="SEARCH PROBES" />
+      <Property name="Japanese" value="SEARCH PROBES" />
+      <Property name="Korean" value="SEARCH PROBES" />
+      <Property name="LatinAmericanSpanish" value="SEARCH PROBES" />
+      <Property name="Polish" value="SEARCH PROBES" />
+      <Property name="Portuguese" value="SEARCH PROBES" />
+      <Property name="Russian" value="SEARCH PROBES" />
+      <Property name="SimplifiedChinese" value="SEARCH PROBES" />
+      <Property name="Spanish" value="SEARCH PROBES" />
+      <Property name="TencentChinese" value="SEARCH PROBES" />
+      <Property name="TraditionalChinese" value="SEARCH PROBES" />
+      <Property name="USEnglish" value="SEARCH PROBES" />
+    </Property>
+    <Property name="Table" value="TkLocalisationEntry">
+      <Property name="Id" value="SQN_SP_BUTTON" />
+      <Property name="BrazilianPortuguese" value="Launch preset" />
+      <Property name="Dutch" value="Launch preset" />
+      <Property name="English" value="Launch preset" />
+      <Property name="French" value="Launch preset" />
+      <Property name="German" value="Launch preset" />
+      <Property name="Italian" value="Launch preset" />
+      <Property name="Japanese" value="Launch preset" />
+      <Property name="Korean" value="Launch preset" />
+      <Property name="LatinAmericanSpanish" value="Launch preset" />
+      <Property name="Polish" value="Launch preset" />
+      <Property name="Portuguese" value="Launch preset" />
+      <Property name="Russian" value="Launch preset" />
+      <Property name="SimplifiedChinese" value="Launch preset" />
+      <Property name="Spanish" value="Launch preset" />
+      <Property name="TencentChinese" value="Launch preset" />
+      <Property name="TraditionalChinese" value="Launch preset" />
+      <Property name="USEnglish" value="Launch preset" />
+    </Property>
+    <Property name="Table" value="TkLocalisationEntry">
+      <Property name="Id" value="SQN_SP_SHORT" />
+      <Property name="BrazilianPortuguese" value="Launch this saved Search Probes preset." />
+      <Property name="Dutch" value="Launch this saved Search Probes preset." />
+      <Property name="English" value="Launch this saved Search Probes preset." />
+      <Property name="French" value="Launch this saved Search Probes preset." />
+      <Property name="German" value="Launch this saved Search Probes preset." />
+      <Property name="Italian" value="Launch this saved Search Probes preset." />
+      <Property name="Japanese" value="Launch this saved Search Probes preset." />
+      <Property name="Korean" value="Launch this saved Search Probes preset." />
+      <Property name="LatinAmericanSpanish" value="Launch this saved Search Probes preset." />
+      <Property name="Polish" value="Launch this saved Search Probes preset." />
+      <Property name="Portuguese" value="Launch this saved Search Probes preset." />
+      <Property name="Russian" value="Launch this saved Search Probes preset." />
+      <Property name="SimplifiedChinese" value="Launch this saved Search Probes preset." />
+      <Property name="Spanish" value="Launch this saved Search Probes preset." />
+      <Property name="TencentChinese" value="Launch this saved Search Probes preset." />
+      <Property name="TraditionalChinese" value="Launch this saved Search Probes preset." />
+      <Property name="USEnglish" value="Launch this saved Search Probes preset." />
+    </Property>
+    <Property name="Table" value="TkLocalisationEntry">
+      <Property name="Id" value="SQN_SP_BODY" />
+      <Property name="BrazilianPortuguese" value="Press F7 to edit and name up to nine presets. Their numbered order matches these Guide slots. Launch a preset, then close the Guide to let the search run. Search Probes opens the results when ready. Choose a result to create a Galaxy Map destination. Empty slots open the editor." />
+      <Property name="Dutch" value="Press F7 to edit and name up to nine presets. Their numbered order matches these Guide slots. Launch a preset, then close the Guide to let the search run. Search Probes opens the results when ready. Choose a result to create a Galaxy Map destination. Empty slots open the editor." />
+      <Property name="English" value="Press F7 to edit and name up to nine presets. Their numbered order matches these Guide slots. Launch a preset, then close the Guide to let the search run. Search Probes opens the results when ready. Choose a result to create a Galaxy Map destination. Empty slots open the editor." />
+      <Property name="French" value="Press F7 to edit and name up to nine presets. Their numbered order matches these Guide slots. Launch a preset, then close the Guide to let the search run. Search Probes opens the results when ready. Choose a result to create a Galaxy Map destination. Empty slots open the editor." />
+      <Property name="German" value="Press F7 to edit and name up to nine presets. Their numbered order matches these Guide slots. Launch a preset, then close the Guide to let the search run. Search Probes opens the results when ready. Choose a result to create a Galaxy Map destination. Empty slots open the editor." />
+      <Property name="Italian" value="Press F7 to edit and name up to nine presets. Their numbered order matches these Guide slots. Launch a preset, then close the Guide to let the search run. Search Probes opens the results when ready. Choose a result to create a Galaxy Map destination. Empty slots open the editor." />
+      <Property name="Japanese" value="Press F7 to edit and name up to nine presets. Their numbered order matches these Guide slots. Launch a preset, then close the Guide to let the search run. Search Probes opens the results when ready. Choose a result to create a Galaxy Map destination. Empty slots open the editor." />
+      <Property name="Korean" value="Press F7 to edit and name up to nine presets. Their numbered order matches these Guide slots. Launch a preset, then close the Guide to let the search run. Search Probes opens the results when ready. Choose a result to create a Galaxy Map destination. Empty slots open the editor." />
+      <Property name="LatinAmericanSpanish" value="Press F7 to edit and name up to nine presets. Their numbered order matches these Guide slots. Launch a preset, then close the Guide to let the search run. Search Probes opens the results when ready. Choose a result to create a Galaxy Map destination. Empty slots open the editor." />
+      <Property name="Polish" value="Press F7 to edit and name up to nine presets. Their numbered order matches these Guide slots. Launch a preset, then close the Guide to let the search run. Search Probes opens the results when ready. Choose a result to create a Galaxy Map destination. Empty slots open the editor." />
+      <Property name="Portuguese" value="Press F7 to edit and name up to nine presets. Their numbered order matches these Guide slots. Launch a preset, then close the Guide to let the search run. Search Probes opens the results when ready. Choose a result to create a Galaxy Map destination. Empty slots open the editor." />
+      <Property name="Russian" value="Press F7 to edit and name up to nine presets. Their numbered order matches these Guide slots. Launch a preset, then close the Guide to let the search run. Search Probes opens the results when ready. Choose a result to create a Galaxy Map destination. Empty slots open the editor." />
+      <Property name="SimplifiedChinese" value="Press F7 to edit and name up to nine presets. Their numbered order matches these Guide slots. Launch a preset, then close the Guide to let the search run. Search Probes opens the results when ready. Choose a result to create a Galaxy Map destination. Empty slots open the editor." />
+      <Property name="Spanish" value="Press F7 to edit and name up to nine presets. Their numbered order matches these Guide slots. Launch a preset, then close the Guide to let the search run. Search Probes opens the results when ready. Choose a result to create a Galaxy Map destination. Empty slots open the editor." />
+      <Property name="TencentChinese" value="Press F7 to edit and name up to nine presets. Their numbered order matches these Guide slots. Launch a preset, then close the Guide to let the search run. Search Probes opens the results when ready. Choose a result to create a Galaxy Map destination. Empty slots open the editor." />
+      <Property name="TraditionalChinese" value="Press F7 to edit and name up to nine presets. Their numbered order matches these Guide slots. Launch a preset, then close the Guide to let the search run. Search Probes opens the results when ready. Choose a result to create a Galaxy Map destination. Empty slots open the editor." />
+      <Property name="USEnglish" value="Press F7 to edit and name up to nine presets. Their numbered order matches these Guide slots. Launch a preset, then close the Guide to let the search run. Search Probes opens the results when ready. Choose a result to create a Galaxy Map destination. Empty slots open the editor." />
+    </Property>
+    <Property name="Table" value="TkLocalisationEntry">
+      <Property name="Id" value="SQN_SP_NAV_MISSION_TITLE" />
+      <Property name="BrazilianPortuguese" value="Search Probe Target" />
+      <Property name="Dutch" value="Search Probe Target" />
+      <Property name="English" value="Search Probe Target" />
+      <Property name="French" value="Search Probe Target" />
+      <Property name="German" value="Search Probe Target" />
+      <Property name="Italian" value="Search Probe Target" />
+      <Property name="Japanese" value="Search Probe Target" />
+      <Property name="Korean" value="Search Probe Target" />
+      <Property name="LatinAmericanSpanish" value="Search Probe Target" />
+      <Property name="Polish" value="Search Probe Target" />
+      <Property name="Portuguese" value="Search Probe Target" />
+      <Property name="Russian" value="Search Probe Target" />
+      <Property name="SimplifiedChinese" value="Search Probe Target" />
+      <Property name="Spanish" value="Search Probe Target" />
+      <Property name="TencentChinese" value="Search Probe Target" />
+      <Property name="TraditionalChinese" value="Search Probe Target" />
+      <Property name="USEnglish" value="Search Probe Target" />
+    </Property>
+    <Property name="Table" value="TkLocalisationEntry">
+      <Property name="Id" value="SQN_SP_NAV_MISSION_DESC" />
+      <Property name="BrazilianPortuguese" value="A search probe has identified a navigation target." />
+      <Property name="Dutch" value="A search probe has identified a navigation target." />
+      <Property name="English" value="A search probe has identified a navigation target." />
+      <Property name="French" value="A search probe has identified a navigation target." />
+      <Property name="German" value="A search probe has identified a navigation target." />
+      <Property name="Italian" value="A search probe has identified a navigation target." />
+      <Property name="Japanese" value="A search probe has identified a navigation target." />
+      <Property name="Korean" value="A search probe has identified a navigation target." />
+      <Property name="LatinAmericanSpanish" value="A search probe has identified a navigation target." />
+      <Property name="Polish" value="A search probe has identified a navigation target." />
+      <Property name="Portuguese" value="A search probe has identified a navigation target." />
+      <Property name="Russian" value="A search probe has identified a navigation target." />
+      <Property name="SimplifiedChinese" value="A search probe has identified a navigation target." />
+      <Property name="Spanish" value="A search probe has identified a navigation target." />
+      <Property name="TencentChinese" value="A search probe has identified a navigation target." />
+      <Property name="TraditionalChinese" value="A search probe has identified a navigation target." />
+      <Property name="USEnglish" value="A search probe has identified a navigation target." />
+    </Property>
+    <Property name="Table" value="TkLocalisationEntry">
+      <Property name="Id" value="SQN_SP_NAV_MISSION_FLAVOUR" />
+      <Property name="BrazilianPortuguese" value="Follow Current Mission in the Galaxy Map and approach the marked planet." />
+      <Property name="Dutch" value="Follow Current Mission in the Galaxy Map and approach the marked planet." />
+      <Property name="English" value="Follow Current Mission in the Galaxy Map and approach the marked planet." />
+      <Property name="French" value="Follow Current Mission in the Galaxy Map and approach the marked planet." />
+      <Property name="German" value="Follow Current Mission in the Galaxy Map and approach the marked planet." />
+      <Property name="Italian" value="Follow Current Mission in the Galaxy Map and approach the marked planet." />
+      <Property name="Japanese" value="Follow Current Mission in the Galaxy Map and approach the marked planet." />
+      <Property name="Korean" value="Follow Current Mission in the Galaxy Map and approach the marked planet." />
+      <Property name="LatinAmericanSpanish" value="Follow Current Mission in the Galaxy Map and approach the marked planet." />
+      <Property name="Polish" value="Follow Current Mission in the Galaxy Map and approach the marked planet." />
+      <Property name="Portuguese" value="Follow Current Mission in the Galaxy Map and approach the marked planet." />
+      <Property name="Russian" value="Follow Current Mission in the Galaxy Map and approach the marked planet." />
+      <Property name="SimplifiedChinese" value="Follow Current Mission in the Galaxy Map and approach the marked planet." />
+      <Property name="Spanish" value="Follow Current Mission in the Galaxy Map and approach the marked planet." />
+      <Property name="TencentChinese" value="Follow Current Mission in the Galaxy Map and approach the marked planet." />
+      <Property name="TraditionalChinese" value="Follow Current Mission in the Galaxy Map and approach the marked planet." />
+      <Property name="USEnglish" value="Follow Current Mission in the Galaxy Map and approach the marked planet." />
+    </Property>
+    <Property name="Table" value="TkLocalisationEntry">
+      <Property name="Id" value="SQN_SP_NAV_MISSION_OBJ" />
+      <Property name="BrazilianPortuguese" value="Approach the search probe target planet" />
+      <Property name="Dutch" value="Approach the search probe target planet" />
+      <Property name="English" value="Approach the search probe target planet" />
+      <Property name="French" value="Approach the search probe target planet" />
+      <Property name="German" value="Approach the search probe target planet" />
+      <Property name="Italian" value="Approach the search probe target planet" />
+      <Property name="Japanese" value="Approach the search probe target planet" />
+      <Property name="Korean" value="Approach the search probe target planet" />
+      <Property name="LatinAmericanSpanish" value="Approach the search probe target planet" />
+      <Property name="Polish" value="Approach the search probe target planet" />
+      <Property name="Portuguese" value="Approach the search probe target planet" />
+      <Property name="Russian" value="Approach the search probe target planet" />
+      <Property name="SimplifiedChinese" value="Approach the search probe target planet" />
+      <Property name="Spanish" value="Approach the search probe target planet" />
+      <Property name="TencentChinese" value="Approach the search probe target planet" />
+      <Property name="TraditionalChinese" value="Approach the search probe target planet" />
+      <Property name="USEnglish" value="Approach the search probe target planet" />
+    </Property>
+    <Property name="Table" value="TkLocalisationEntry">
+      <Property name="Id" value="SQN_SP_NAV_MISSION_OBJ_TIP" />
+      <Property name="BrazilianPortuguese" value="Follow Current Mission in the Galaxy Map." />
+      <Property name="Dutch" value="Follow Current Mission in the Galaxy Map." />
+      <Property name="English" value="Follow Current Mission in the Galaxy Map." />
+      <Property name="French" value="Follow Current Mission in the Galaxy Map." />
+      <Property name="German" value="Follow Current Mission in the Galaxy Map." />
+      <Property name="Italian" value="Follow Current Mission in the Galaxy Map." />
+      <Property name="Japanese" value="Follow Current Mission in the Galaxy Map." />
+      <Property name="Korean" value="Follow Current Mission in the Galaxy Map." />
+      <Property name="LatinAmericanSpanish" value="Follow Current Mission in the Galaxy Map." />
+      <Property name="Polish" value="Follow Current Mission in the Galaxy Map." />
+      <Property name="Portuguese" value="Follow Current Mission in the Galaxy Map." />
+      <Property name="Russian" value="Follow Current Mission in the Galaxy Map." />
+      <Property name="SimplifiedChinese" value="Follow Current Mission in the Galaxy Map." />
+      <Property name="Spanish" value="Follow Current Mission in the Galaxy Map." />
+      <Property name="TencentChinese" value="Follow Current Mission in the Galaxy Map." />
+      <Property name="TraditionalChinese" value="Follow Current Mission in the Galaxy Map." />
+      <Property name="USEnglish" value="Follow Current Mission in the Galaxy Map." />
+    </Property>
+    <Property name="Table" value="TkLocalisationEntry">
+      <Property name="Id" value="SQN_SP_SYSTEM" />
+      <Property name="BrazilianPortuguese" value="Travel to the search probe target system" />
+      <Property name="Dutch" value="Travel to the search probe target system" />
+      <Property name="English" value="Travel to the search probe target system" />
+      <Property name="French" value="Travel to the search probe target system" />
+      <Property name="German" value="Travel to the search probe target system" />
+      <Property name="Italian" value="Travel to the search probe target system" />
+      <Property name="Japanese" value="Travel to the search probe target system" />
+      <Property name="Korean" value="Travel to the search probe target system" />
+      <Property name="LatinAmericanSpanish" value="Travel to the search probe target system" />
+      <Property name="Polish" value="Travel to the search probe target system" />
+      <Property name="Portuguese" value="Travel to the search probe target system" />
+      <Property name="Russian" value="Travel to the search probe target system" />
+      <Property name="SimplifiedChinese" value="Travel to the search probe target system" />
+      <Property name="Spanish" value="Travel to the search probe target system" />
+      <Property name="TencentChinese" value="Travel to the search probe target system" />
+      <Property name="TraditionalChinese" value="Travel to the search probe target system" />
+      <Property name="USEnglish" value="Travel to the search probe target system" />
+    </Property>
+    <Property name="Table" value="TkLocalisationEntry">
+      <Property name="Id" value="SQN_SP_PLANET" />
+      <Property name="BrazilianPortuguese" value="Approach the search probe target planet" />
+      <Property name="Dutch" value="Approach the search probe target planet" />
+      <Property name="English" value="Approach the search probe target planet" />
+      <Property name="French" value="Approach the search probe target planet" />
+      <Property name="German" value="Approach the search probe target planet" />
+      <Property name="Italian" value="Approach the search probe target planet" />
+      <Property name="Japanese" value="Approach the search probe target planet" />
+      <Property name="Korean" value="Approach the search probe target planet" />
+      <Property name="LatinAmericanSpanish" value="Approach the search probe target planet" />
+      <Property name="Polish" value="Approach the search probe target planet" />
+      <Property name="Portuguese" value="Approach the search probe target planet" />
+      <Property name="Russian" value="Approach the search probe target planet" />
+      <Property name="SimplifiedChinese" value="Approach the search probe target planet" />
+      <Property name="Spanish" value="Approach the search probe target planet" />
+      <Property name="TencentChinese" value="Approach the search probe target planet" />
+      <Property name="TraditionalChinese" value="Approach the search probe target planet" />
+      <Property name="USEnglish" value="Approach the search probe target planet" />
+    </Property>
+    <Property name="Table" value="TkLocalisationEntry">
+      <Property name="Id" value="SQN_SP_OSD" />
+      <Property name="BrazilianPortuguese" value="Search probe target selected" />
+      <Property name="Dutch" value="Search probe target selected" />
+      <Property name="English" value="Search probe target selected" />
+      <Property name="French" value="Search probe target selected" />
+      <Property name="German" value="Search probe target selected" />
+      <Property name="Italian" value="Search probe target selected" />
+      <Property name="Japanese" value="Search probe target selected" />
+      <Property name="Korean" value="Search probe target selected" />
+      <Property name="LatinAmericanSpanish" value="Search probe target selected" />
+      <Property name="Polish" value="Search probe target selected" />
+      <Property name="Portuguese" value="Search probe target selected" />
+      <Property name="Russian" value="Search probe target selected" />
+      <Property name="SimplifiedChinese" value="Search probe target selected" />
+      <Property name="Spanish" value="Search probe target selected" />
+      <Property name="TencentChinese" value="Search probe target selected" />
+      <Property name="TraditionalChinese" value="Search probe target selected" />
+      <Property name="USEnglish" value="Search probe target selected" />
+    </Property>
+    <Property name="Table" value="TkLocalisationEntry">
+      <Property name="Id" value="SQN_SP_MARKER" />
+      <Property name="BrazilianPortuguese" value="Search probe target" />
+      <Property name="Dutch" value="Search probe target" />
+      <Property name="English" value="Search probe target" />
+      <Property name="French" value="Search probe target" />
+      <Property name="German" value="Search probe target" />
+      <Property name="Italian" value="Search probe target" />
+      <Property name="Japanese" value="Search probe target" />
+      <Property name="Korean" value="Search probe target" />
+      <Property name="LatinAmericanSpanish" value="Search probe target" />
+      <Property name="Polish" value="Search probe target" />
+      <Property name="Portuguese" value="Search probe target" />
+      <Property name="Russian" value="Search probe target" />
+      <Property name="SimplifiedChinese" value="Search probe target" />
+      <Property name="Spanish" value="Search probe target" />
+      <Property name="TencentChinese" value="Search probe target" />
+      <Property name="TraditionalChinese" value="Search probe target" />
+      <Property name="USEnglish" value="Search probe target" />
+    </Property>
+    <Property name="Table" value="TkLocalisationEntry">
+      <Property name="Id" value="SQN_SP_GUIDE_TITLE" />
+      <Property name="BrazilianPortuguese" value="Launch Search Probe" />
+      <Property name="Dutch" value="Launch Search Probe" />
+      <Property name="English" value="Launch Search Probe" />
+      <Property name="French" value="Launch Search Probe" />
+      <Property name="German" value="Launch Search Probe" />
+      <Property name="Italian" value="Launch Search Probe" />
+      <Property name="Japanese" value="Launch Search Probe" />
+      <Property name="Korean" value="Launch Search Probe" />
+      <Property name="LatinAmericanSpanish" value="Launch Search Probe" />
+      <Property name="Polish" value="Launch Search Probe" />
+      <Property name="Portuguese" value="Launch Search Probe" />
+      <Property name="Russian" value="Launch Search Probe" />
+      <Property name="SimplifiedChinese" value="Launch Search Probe" />
+      <Property name="Spanish" value="Launch Search Probe" />
+      <Property name="TencentChinese" value="Launch Search Probe" />
+      <Property name="TraditionalChinese" value="Launch Search Probe" />
+      <Property name="USEnglish" value="Launch Search Probe" />
+    </Property>
+    <Property name="Table" value="TkLocalisationEntry">
+      <Property name="Id" value="SQN_SP_GUIDE_DESC" />
+      <Property name="BrazilianPortuguese" value="The saved preset runs while you play. Press F7 for progress and results." />
+      <Property name="Dutch" value="The saved preset runs while you play. Press F7 for progress and results." />
+      <Property name="English" value="The saved preset runs while you play. Press F7 for progress and results." />
+      <Property name="French" value="The saved preset runs while you play. Press F7 for progress and results." />
+      <Property name="German" value="The saved preset runs while you play. Press F7 for progress and results." />
+      <Property name="Italian" value="The saved preset runs while you play. Press F7 for progress and results." />
+      <Property name="Japanese" value="The saved preset runs while you play. Press F7 for progress and results." />
+      <Property name="Korean" value="The saved preset runs while you play. Press F7 for progress and results." />
+      <Property name="LatinAmericanSpanish" value="The saved preset runs while you play. Press F7 for progress and results." />
+      <Property name="Polish" value="The saved preset runs while you play. Press F7 for progress and results." />
+      <Property name="Portuguese" value="The saved preset runs while you play. Press F7 for progress and results." />
+      <Property name="Russian" value="The saved preset runs while you play. Press F7 for progress and results." />
+      <Property name="SimplifiedChinese" value="The saved preset runs while you play. Press F7 for progress and results." />
+      <Property name="Spanish" value="The saved preset runs while you play. Press F7 for progress and results." />
+      <Property name="TencentChinese" value="The saved preset runs while you play. Press F7 for progress and results." />
+      <Property name="TraditionalChinese" value="The saved preset runs while you play. Press F7 for progress and results." />
+      <Property name="USEnglish" value="The saved preset runs while you play. Press F7 for progress and results." />
+    </Property>
+    <Property name="Table" value="TkLocalisationEntry">
+      <Property name="Id" value="SQN_SP_SLOT1" />
+      <Property name="BrazilianPortuguese" value="Preset 1" />
+      <Property name="Dutch" value="Preset 1" />
+      <Property name="English" value="Preset 1" />
+      <Property name="French" value="Preset 1" />
+      <Property name="German" value="Preset 1" />
+      <Property name="Italian" value="Preset 1" />
+      <Property name="Japanese" value="Preset 1" />
+      <Property name="Korean" value="Preset 1" />
+      <Property name="LatinAmericanSpanish" value="Preset 1" />
+      <Property name="Polish" value="Preset 1" />
+      <Property name="Portuguese" value="Preset 1" />
+      <Property name="Russian" value="Preset 1" />
+      <Property name="SimplifiedChinese" value="Preset 1" />
+      <Property name="Spanish" value="Preset 1" />
+      <Property name="TencentChinese" value="Preset 1" />
+      <Property name="TraditionalChinese" value="Preset 1" />
+      <Property name="USEnglish" value="Preset 1" />
+    </Property>
+    <Property name="Table" value="TkLocalisationEntry">
+      <Property name="Id" value="SQN_SP_SLOT2" />
+      <Property name="BrazilianPortuguese" value="Preset 2" />
+      <Property name="Dutch" value="Preset 2" />
+      <Property name="English" value="Preset 2" />
+      <Property name="French" value="Preset 2" />
+      <Property name="German" value="Preset 2" />
+      <Property name="Italian" value="Preset 2" />
+      <Property name="Japanese" value="Preset 2" />
+      <Property name="Korean" value="Preset 2" />
+      <Property name="LatinAmericanSpanish" value="Preset 2" />
+      <Property name="Polish" value="Preset 2" />
+      <Property name="Portuguese" value="Preset 2" />
+      <Property name="Russian" value="Preset 2" />
+      <Property name="SimplifiedChinese" value="Preset 2" />
+      <Property name="Spanish" value="Preset 2" />
+      <Property name="TencentChinese" value="Preset 2" />
+      <Property name="TraditionalChinese" value="Preset 2" />
+      <Property name="USEnglish" value="Preset 2" />
+    </Property>
+    <Property name="Table" value="TkLocalisationEntry">
+      <Property name="Id" value="SQN_SP_SLOT3" />
+      <Property name="BrazilianPortuguese" value="Preset 3" />
+      <Property name="Dutch" value="Preset 3" />
+      <Property name="English" value="Preset 3" />
+      <Property name="French" value="Preset 3" />
+      <Property name="German" value="Preset 3" />
+      <Property name="Italian" value="Preset 3" />
+      <Property name="Japanese" value="Preset 3" />
+      <Property name="Korean" value="Preset 3" />
+      <Property name="LatinAmericanSpanish" value="Preset 3" />
+      <Property name="Polish" value="Preset 3" />
+      <Property name="Portuguese" value="Preset 3" />
+      <Property name="Russian" value="Preset 3" />
+      <Property name="SimplifiedChinese" value="Preset 3" />
+      <Property name="Spanish" value="Preset 3" />
+      <Property name="TencentChinese" value="Preset 3" />
+      <Property name="TraditionalChinese" value="Preset 3" />
+      <Property name="USEnglish" value="Preset 3" />
+    </Property>
+    <Property name="Table" value="TkLocalisationEntry">
+      <Property name="Id" value="SQN_SP_SLOT4" />
+      <Property name="BrazilianPortuguese" value="Preset 4" />
+      <Property name="Dutch" value="Preset 4" />
+      <Property name="English" value="Preset 4" />
+      <Property name="French" value="Preset 4" />
+      <Property name="German" value="Preset 4" />
+      <Property name="Italian" value="Preset 4" />
+      <Property name="Japanese" value="Preset 4" />
+      <Property name="Korean" value="Preset 4" />
+      <Property name="LatinAmericanSpanish" value="Preset 4" />
+      <Property name="Polish" value="Preset 4" />
+      <Property name="Portuguese" value="Preset 4" />
+      <Property name="Russian" value="Preset 4" />
+      <Property name="SimplifiedChinese" value="Preset 4" />
+      <Property name="Spanish" value="Preset 4" />
+      <Property name="TencentChinese" value="Preset 4" />
+      <Property name="TraditionalChinese" value="Preset 4" />
+      <Property name="USEnglish" value="Preset 4" />
+    </Property>
+    <Property name="Table" value="TkLocalisationEntry">
+      <Property name="Id" value="SQN_SP_SLOT5" />
+      <Property name="BrazilianPortuguese" value="Preset 5" />
+      <Property name="Dutch" value="Preset 5" />
+      <Property name="English" value="Preset 5" />
+      <Property name="French" value="Preset 5" />
+      <Property name="German" value="Preset 5" />
+      <Property name="Italian" value="Preset 5" />
+      <Property name="Japanese" value="Preset 5" />
+      <Property name="Korean" value="Preset 5" />
+      <Property name="LatinAmericanSpanish" value="Preset 5" />
+      <Property name="Polish" value="Preset 5" />
+      <Property name="Portuguese" value="Preset 5" />
+      <Property name="Russian" value="Preset 5" />
+      <Property name="SimplifiedChinese" value="Preset 5" />
+      <Property name="Spanish" value="Preset 5" />
+      <Property name="TencentChinese" value="Preset 5" />
+      <Property name="TraditionalChinese" value="Preset 5" />
+      <Property name="USEnglish" value="Preset 5" />
+    </Property>
+    <Property name="Table" value="TkLocalisationEntry">
+      <Property name="Id" value="SQN_SP_SLOT6" />
+      <Property name="BrazilianPortuguese" value="Preset 6" />
+      <Property name="Dutch" value="Preset 6" />
+      <Property name="English" value="Preset 6" />
+      <Property name="French" value="Preset 6" />
+      <Property name="German" value="Preset 6" />
+      <Property name="Italian" value="Preset 6" />
+      <Property name="Japanese" value="Preset 6" />
+      <Property name="Korean" value="Preset 6" />
+      <Property name="LatinAmericanSpanish" value="Preset 6" />
+      <Property name="Polish" value="Preset 6" />
+      <Property name="Portuguese" value="Preset 6" />
+      <Property name="Russian" value="Preset 6" />
+      <Property name="SimplifiedChinese" value="Preset 6" />
+      <Property name="Spanish" value="Preset 6" />
+      <Property name="TencentChinese" value="Preset 6" />
+      <Property name="TraditionalChinese" value="Preset 6" />
+      <Property name="USEnglish" value="Preset 6" />
+    </Property>
+    <Property name="Table" value="TkLocalisationEntry">
+      <Property name="Id" value="SQN_SP_SLOT7" />
+      <Property name="BrazilianPortuguese" value="Preset 7" />
+      <Property name="Dutch" value="Preset 7" />
+      <Property name="English" value="Preset 7" />
+      <Property name="French" value="Preset 7" />
+      <Property name="German" value="Preset 7" />
+      <Property name="Italian" value="Preset 7" />
+      <Property name="Japanese" value="Preset 7" />
+      <Property name="Korean" value="Preset 7" />
+      <Property name="LatinAmericanSpanish" value="Preset 7" />
+      <Property name="Polish" value="Preset 7" />
+      <Property name="Portuguese" value="Preset 7" />
+      <Property name="Russian" value="Preset 7" />
+      <Property name="SimplifiedChinese" value="Preset 7" />
+      <Property name="Spanish" value="Preset 7" />
+      <Property name="TencentChinese" value="Preset 7" />
+      <Property name="TraditionalChinese" value="Preset 7" />
+      <Property name="USEnglish" value="Preset 7" />
+    </Property>
+    <Property name="Table" value="TkLocalisationEntry">
+      <Property name="Id" value="SQN_SP_SLOT8" />
+      <Property name="BrazilianPortuguese" value="Preset 8" />
+      <Property name="Dutch" value="Preset 8" />
+      <Property name="English" value="Preset 8" />
+      <Property name="French" value="Preset 8" />
+      <Property name="German" value="Preset 8" />
+      <Property name="Italian" value="Preset 8" />
+      <Property name="Japanese" value="Preset 8" />
+      <Property name="Korean" value="Preset 8" />
+      <Property name="LatinAmericanSpanish" value="Preset 8" />
+      <Property name="Polish" value="Preset 8" />
+      <Property name="Portuguese" value="Preset 8" />
+      <Property name="Russian" value="Preset 8" />
+      <Property name="SimplifiedChinese" value="Preset 8" />
+      <Property name="Spanish" value="Preset 8" />
+      <Property name="TencentChinese" value="Preset 8" />
+      <Property name="TraditionalChinese" value="Preset 8" />
+      <Property name="USEnglish" value="Preset 8" />
+    </Property>
+    <Property name="Table" value="TkLocalisationEntry">
+      <Property name="Id" value="SQN_SP_SLOT9" />
+      <Property name="BrazilianPortuguese" value="Preset 9" />
+      <Property name="Dutch" value="Preset 9" />
+      <Property name="English" value="Preset 9" />
+      <Property name="French" value="Preset 9" />
+      <Property name="German" value="Preset 9" />
+      <Property name="Italian" value="Preset 9" />
+      <Property name="Japanese" value="Preset 9" />
+      <Property name="Korean" value="Preset 9" />
+      <Property name="LatinAmericanSpanish" value="Preset 9" />
+      <Property name="Polish" value="Preset 9" />
+      <Property name="Portuguese" value="Preset 9" />
+      <Property name="Russian" value="Preset 9" />
+      <Property name="SimplifiedChinese" value="Preset 9" />
+      <Property name="Spanish" value="Preset 9" />
+      <Property name="TencentChinese" value="Preset 9" />
+      <Property name="TraditionalChinese" value="Preset 9" />
+      <Property name="USEnglish" value="Preset 9" />
+    </Property>
+  </Property>
+</Data>

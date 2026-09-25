@@ -1,0 +1,311 @@
+<?xml version='1.0' encoding='utf-8'?>
+<Data template="cGcWiki">
+  <Property name="Categories">
+    <Property name="Categories" value="GcWikiCategory">
+      <Property name="CategoryID" value="SQN_SP_CATEGORY" />
+      <Property name="CategoryIDUpper" value="SQN_SP_CATEGORY_U" />
+      <Property name="IconOn" value="TkTextureResource">
+        <Property name="Filename" value="TEXTURES/UI/FRONTEND/ICONS/MISSIONS/MISSION.BLACKHOLE.ON.DDS" />
+      </Property>
+      <Property name="IconOff" value="TkTextureResource">
+        <Property name="Filename" value="TEXTURES/UI/FRONTEND/ICONS/MISSIONS/MISSION.BLACKHOLE.OFF.DDS" />
+      </Property>
+      <Property name="Topics">
+        <Property name="Topics" value="GcWikiTopic">
+          <Property name="TopicID" value="SQN_SP_SLOT1" />
+          <Property name="ShortDescriptionID" value="SQN_SP_SHORT" />
+          <Property name="Icon" value="TkTextureResource">
+            <Property name="Filename" value="TEXTURES/UI/HUD/ICONS/WIKI/EXPLORATION4.DDS" />
+          </Property>
+          <Property name="NotifyIcon" value="TkTextureResource">
+            <Property name="Filename" value="TEXTURES/UI/HUD/ICONS/WIKI/EXPLORATION2.DDS" />
+          </Property>
+          <Property name="Pages">
+            <Property name="Pages" value="GcWikiPage">
+              <Property name="PageID" value="SQN_SP_SLOT1" />
+              <Property name="Icon" value="TkTextureResource">
+                <Property name="Filename" value="TEXTURES/UI/HUD/ICONS/WIKI/EXPLORATION4.DDS" />
+              </Property>
+              <Property name="Content" value="SQN_SP_BODY" />
+              <Property name="VRContent" value="" />
+              <Property name="VRAnyHandControlContent" value="" />
+              <Property name="VRMoveControllerContent" value="" />
+              <Property name="ContentImage" value="TkTextureResource">
+                <Property name="Filename" value="" />
+              </Property>
+            </Property>
+          </Property>
+          <Property name="Mission" value="SQN_SP_P01" />
+          <Property name="MissionButtonText" value="SQN_SP_BUTTON" />
+          <Property name="Seen" value="false" />
+          <Property name="Unlocked" value="true" />
+          <Property name="ActionSet" value="GcActionSetType">
+            <Property name="ActionSetType" value="OnFootControls" />
+          </Property>
+        </Property>
+        <Property name="Topics" value="GcWikiTopic">
+          <Property name="TopicID" value="SQN_SP_SLOT2" />
+          <Property name="ShortDescriptionID" value="SQN_SP_SHORT" />
+          <Property name="Icon" value="TkTextureResource">
+            <Property name="Filename" value="TEXTURES/UI/HUD/ICONS/WIKI/EXPLORATION4.DDS" />
+          </Property>
+          <Property name="NotifyIcon" value="TkTextureResource">
+            <Property name="Filename" value="TEXTURES/UI/HUD/ICONS/WIKI/EXPLORATION2.DDS" />
+          </Property>
+          <Property name="Pages">
+            <Property name="Pages" value="GcWikiPage">
+              <Property name="PageID" value="SQN_SP_SLOT2" />
+              <Property name="Icon" value="TkTextureResource">
+                <Property name="Filename" value="TEXTURES/UI/HUD/ICONS/WIKI/EXPLORATION4.DDS" />
+              </Property>
+              <Property name="Content" value="SQN_SP_BODY" />
+              <Property name="VRContent" value="" />
+              <Property name="VRAnyHandControlContent" value="" />
+              <Property name="VRMoveControllerContent" value="" />
+              <Property name="ContentImage" value="TkTextureResource">
+                <Property name="Filename" value="" />
+              </Property>
+            </Property>
+          </Property>
+          <Property name="Mission" value="SQN_SP_P02" />
+          <Property name="MissionButtonText" value="SQN_SP_BUTTON" />
+          <Property name="Seen" value="false" />
+          <Property name="Unlocked" value="true" />
+          <Property name="ActionSet" value="GcActionSetType">
+            <Property name="ActionSetType" value="OnFootControls" />
+          </Property>
+        </Property>
+        <Property name="Topics" value="GcWikiTopic">
+          <Property name="TopicID" value="SQN_SP_SLOT3" />
+          <Property name="ShortDescriptionID" value="SQN_SP_SHORT" />
+          <Property name="Icon" value="TkTextureResource">
+            <Property name="Filename" value="TEXTURES/UI/HUD/ICONS/WIKI/EXPLORATION4.DDS" />
+          </Property>
+          <Property name="NotifyIcon" value="TkTextureResource">
+            <Property name="Filename" value="TEXTURES/UI/HUD/ICONS/WIKI/EXPLORATION2.DDS" />
+          </Property>
+          <Property name="Pages">
+            <Property name="Pages" value="GcWikiPage">
+              <Property name="PageID" value="SQN_SP_SLOT3" />
+              <Property name="Icon" value="TkTextureResource">
+                <Property name="Filename" value="TEXTURES/UI/HUD/ICONS/WIKI/EXPLORATION4.DDS" />
+              </Property>
+              <Property name="Content" value="SQN_SP_BODY" />
+              <Property name="VRContent" value="" />
+              <Property name="VRAnyHandControlContent" value="" />
+              <Property name="VRMoveControllerContent" value="" />
+              <Property name="ContentImage" value="TkTextureResource">
+                <Property name="Filename" value="" />
+              </Property>
+            </Property>
+          </Property>
+          <Property name="Mission" value="SQN_SP_P03" />
+          <Property name="MissionButtonText" value="SQN_SP_BUTTON" />
+          <Property name="Seen" value="false" />
+          <Property name="Unlocked" value="true" />
+          <Property name="ActionSet" value="GcActionSetType">
+            <Property name="ActionSetType" value="OnFootControls" />
+          </Property>
+        </Property>
+        <Property name="Topics" value="GcWikiTopic">
+          <Property name="TopicID" value="SQN_SP_SLOT4" />
+          <Property name="ShortDescriptionID" value="SQN_SP_SHORT" />
+          <Property name="Icon" value="TkTextureResource">
+            <Property name="Filename" value="TEXTURES/UI/HUD/ICONS/WIKI/EXPLORATION4.DDS" />
+          </Property>
+          <Property name="NotifyIcon" value="TkTextureResource">
+            <Property name="Filename" value="TEXTURES/UI/HUD/ICONS/WIKI/EXPLORATION2.DDS" />
+          </Property>
+          <Property name="Pages">
+            <Property name="Pages" value="GcWikiPage">
+              <Property name="PageID" value="SQN_SP_SLOT4" />
+              <Property name="Icon" value="TkTextureResource">
+                <Property name="Filename" value="TEXTURES/UI/HUD/ICONS/WIKI/EXPLORATION4.DDS" />
+              </Property>
+              <Property name="Content" value="SQN_SP_BODY" />
+              <Property name="VRContent" value="" />
+              <Property name="VRAnyHandControlContent" value="" />
+              <Property name="VRMoveControllerContent" value="" />
+              <Property name="ContentImage" value="TkTextureResource">
+                <Property name="Filename" value="" />
+              </Property>
+            </Property>
+          </Property>
+          <Property name="Mission" value="SQN_SP_P04" />
+          <Property name="MissionButtonText" value="SQN_SP_BUTTON" />
+          <Property name="Seen" value="false" />
+          <Property name="Unlocked" value="true" />
+          <Property name="ActionSet" value="GcActionSetType">
+            <Property name="ActionSetType" value="OnFootControls" />
+          </Property>
+        </Property>
+        <Property name="Topics" value="GcWikiTopic">
+          <Property name="TopicID" value="SQN_SP_SLOT5" />
+          <Property name="ShortDescriptionID" value="SQN_SP_SHORT" />
+          <Property name="Icon" value="TkTextureResource">
+            <Property name="Filename" value="TEXTURES/UI/HUD/ICONS/WIKI/EXPLORATION4.DDS" />
+          </Property>
+          <Property name="NotifyIcon" value="TkTextureResource">
+            <Property name="Filename" value="TEXTURES/UI/HUD/ICONS/WIKI/EXPLORATION2.DDS" />
+          </Property>
+          <Property name="Pages">
+            <Property name="Pages" value="GcWikiPage">
+              <Property name="PageID" value="SQN_SP_SLOT5" />
+              <Property name="Icon" value="TkTextureResource">
+                <Property name="Filename" value="TEXTURES/UI/HUD/ICONS/WIKI/EXPLORATION4.DDS" />
+              </Property>
+              <Property name="Content" value="SQN_SP_BODY" />
+              <Property name="VRContent" value="" />
+              <Property name="VRAnyHandControlContent" value="" />
+              <Property name="VRMoveControllerContent" value="" />
+              <Property name="ContentImage" value="TkTextureResource">
+                <Property name="Filename" value="" />
+              </Property>
+            </Property>
+          </Property>
+          <Property name="Mission" value="SQN_SP_P05" />
+          <Property name="MissionButtonText" value="SQN_SP_BUTTON" />
+          <Property name="Seen" value="false" />
+          <Property name="Unlocked" value="true" />
+          <Property name="ActionSet" value="GcActionSetType">
+            <Property name="ActionSetType" value="OnFootControls" />
+          </Property>
+        </Property>
+        <Property name="Topics" value="GcWikiTopic">
+          <Property name="TopicID" value="SQN_SP_SLOT6" />
+          <Property name="ShortDescriptionID" value="SQN_SP_SHORT" />
+          <Property name="Icon" value="TkTextureResource">
+            <Property name="Filename" value="TEXTURES/UI/HUD/ICONS/WIKI/EXPLORATION4.DDS" />
+          </Property>
+          <Property name="NotifyIcon" value="TkTextureResource">
+            <Property name="Filename" value="TEXTURES/UI/HUD/ICONS/WIKI/EXPLORATION2.DDS" />
+          </Property>
+          <Property name="Pages">
+            <Property name="Pages" value="GcWikiPage">
+              <Property name="PageID" value="SQN_SP_SLOT6" />
+              <Property name="Icon" value="TkTextureResource">
+                <Property name="Filename" value="TEXTURES/UI/HUD/ICONS/WIKI/EXPLORATION4.DDS" />
+              </Property>
+              <Property name="Content" value="SQN_SP_BODY" />
+              <Property name="VRContent" value="" />
+              <Property name="VRAnyHandControlContent" value="" />
+              <Property name="VRMoveControllerContent" value="" />
+              <Property name="ContentImage" value="TkTextureResource">
+                <Property name="Filename" value="" />
+              </Property>
+            </Property>
+          </Property>
+          <Property name="Mission" value="SQN_SP_P06" />
+          <Property name="MissionButtonText" value="SQN_SP_BUTTON" />
+          <Property name="Seen" value="false" />
+          <Property name="Unlocked" value="true" />
+          <Property name="ActionSet" value="GcActionSetType">
+            <Property name="ActionSetType" value="OnFootControls" />
+          </Property>
+        </Property>
+        <Property name="Topics" value="GcWikiTopic">
+          <Property name="TopicID" value="SQN_SP_SLOT7" />
+          <Property name="ShortDescriptionID" value="SQN_SP_SHORT" />
+          <Property name="Icon" value="TkTextureResource">
+            <Property name="Filename" value="TEXTURES/UI/HUD/ICONS/WIKI/EXPLORATION4.DDS" />
+          </Property>
+          <Property name="NotifyIcon" value="TkTextureResource">
+            <Property name="Filename" value="TEXTURES/UI/HUD/ICONS/WIKI/EXPLORATION2.DDS" />
+          </Property>
+          <Property name="Pages">
+            <Property name="Pages" value="GcWikiPage">
+              <Property name="PageID" value="SQN_SP_SLOT7" />
+              <Property name="Icon" value="TkTextureResource">
+                <Property name="Filename" value="TEXTURES/UI/HUD/ICONS/WIKI/EXPLORATION4.DDS" />
+              </Property>
+              <Property name="Content" value="SQN_SP_BODY" />
+              <Property name="VRContent" value="" />
+              <Property name="VRAnyHandControlContent" value="" />
+              <Property name="VRMoveControllerContent" value="" />
+              <Property name="ContentImage" value="TkTextureResource">
+                <Property name="Filename" value="" />
+              </Property>
+            </Property>
+          </Property>
+          <Property name="Mission" value="SQN_SP_P07" />
+          <Property name="MissionButtonText" value="SQN_SP_BUTTON" />
+          <Property name="Seen" value="false" />
+          <Property name="Unlocked" value="true" />
+          <Property name="ActionSet" value="GcActionSetType">
+            <Property name="ActionSetType" value="OnFootControls" />
+          </Property>
+        </Property>
+        <Property name="Topics" value="GcWikiTopic">
+          <Property name="TopicID" value="SQN_SP_SLOT8" />
+          <Property name="ShortDescriptionID" value="SQN_SP_SHORT" />
+          <Property name="Icon" value="TkTextureResource">
+            <Property name="Filename" value="TEXTURES/UI/HUD/ICONS/WIKI/EXPLORATION4.DDS" />
+          </Property>
+          <Property name="NotifyIcon" value="TkTextureResource">
+            <Property name="Filename" value="TEXTURES/UI/HUD/ICONS/WIKI/EXPLORATION2.DDS" />
+          </Property>
+          <Property name="Pages">
+            <Property name="Pages" value="GcWikiPage">
+              <Property name="PageID" value="SQN_SP_SLOT8" />
+              <Property name="Icon" value="TkTextureResource">
+                <Property name="Filename" value="TEXTURES/UI/HUD/ICONS/WIKI/EXPLORATION4.DDS" />
+              </Property>
+              <Property name="Content" value="SQN_SP_BODY" />
+              <Property name="VRContent" value="" />
+              <Property name="VRAnyHandControlContent" value="" />
+              <Property name="VRMoveControllerContent" value="" />
+              <Property name="ContentImage" value="TkTextureResource">
+                <Property name="Filename" value="" />
+              </Property>
+            </Property>
+          </Property>
+          <Property name="Mission" value="SQN_SP_P08" />
+          <Property name="MissionButtonText" value="SQN_SP_BUTTON" />
+          <Property name="Seen" value="false" />
+          <Property name="Unlocked" value="true" />
+          <Property name="ActionSet" value="GcActionSetType">
+            <Property name="ActionSetType" value="OnFootControls" />
+          </Property>
+        </Property>
+        <Property name="Topics" value="GcWikiTopic">
+          <Property name="TopicID" value="SQN_SP_SLOT9" />
+          <Property name="ShortDescriptionID" value="SQN_SP_SHORT" />
+          <Property name="Icon" value="TkTextureResource">
+            <Property name="Filename" value="TEXTURES/UI/HUD/ICONS/WIKI/EXPLORATION4.DDS" />
+          </Property>
+          <Property name="NotifyIcon" value="TkTextureResource">
+            <Property name="Filename" value="TEXTURES/UI/HUD/ICONS/WIKI/EXPLORATION2.DDS" />
+          </Property>
+          <Property name="Pages">
+            <Property name="Pages" value="GcWikiPage">
+              <Property name="PageID" value="SQN_SP_SLOT9" />
+              <Property name="Icon" value="TkTextureResource">
+                <Property name="Filename" value="TEXTURES/UI/HUD/ICONS/WIKI/EXPLORATION4.DDS" />
+              </Property>
+              <Property name="Content" value="SQN_SP_BODY" />
+              <Property name="VRContent" value="" />
+              <Property name="VRAnyHandControlContent" value="" />
+              <Property name="VRMoveControllerContent" value="" />
+              <Property name="ContentImage" value="TkTextureResource">
+                <Property name="Filename" value="" />
+              </Property>
+            </Property>
+          </Property>
+          <Property name="Mission" value="SQN_SP_P09" />
+          <Property name="MissionButtonText" value="SQN_SP_BUTTON" />
+          <Property name="Seen" value="false" />
+          <Property name="Unlocked" value="true" />
+          <Property name="ActionSet" value="GcActionSetType">
+            <Property name="ActionSetType" value="OnFootControls" />
+          </Property>
+        </Property>
+      </Property>
+      <Property name="Type" value="GcWikiTopicType">
+        <Property name="WikiTopicType" value="Guide" />
+      </Property>
+      <Property name="Items" />
+      <Property name="UnseenCount" value="0" />
+      <Property name="UnlockedCount" value="0" />
+    </Property>
+  </Property>
+</Data>
