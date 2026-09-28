@@ -111,8 +111,12 @@ impl Session {
         let plan = options.criteria.compile()?;
         let frontier = self.history.take(&plan, origin, restart);
         let results = if use_cache {
-            self.cache
-                .matching(&plan, origin.coordinates().galaxy, options.results)
+            self.cache.matching(
+                &plan,
+                origin.coordinates().galaxy,
+                origin.system(),
+                options.results,
+            )
         } else {
             Vec::new()
         };
@@ -282,6 +286,9 @@ impl Session {
             return Err("completed system still has unknown selected facts");
         }
         for index in 0..record.count() {
+            if address.system() == search.progress.origin.system() {
+                break;
+            }
             if evaluation.matches & (1 << index) == 0 {
                 continue;
             }

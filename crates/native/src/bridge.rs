@@ -25,7 +25,6 @@ pub struct Bridge {
     commands: Mutex<VecDeque<Command>>,
     changed: AtomicBool,
     stop: AtomicBool,
-    show: AtomicBool,
     transition: Mutex<u64>,
 }
 
@@ -37,7 +36,6 @@ impl Bridge {
             commands: Mutex::new(VecDeque::new()),
             changed: AtomicBool::new(true),
             stop: AtomicBool::new(false),
-            show: AtomicBool::new(false),
             transition: Mutex::new(crate::lifecycle_hook::epoch()),
         }
     }
@@ -77,9 +75,6 @@ impl Bridge {
             state.destination = None;
             state.cached_systems = 0;
         });
-    }
-    pub fn request_window(&self) {
-        self.show.store(true, Ordering::Release);
     }
     pub fn stop(&self) {
         self.stop.store(true, Ordering::Release);
@@ -156,15 +151,8 @@ impl Bridge {
                 || child
                     .as_ref()
                     .is_some_and(|process| process.id() == foreground);
-            let requested = self.show.swap(false, Ordering::AcqRel);
-            if (pressed && !down && ours) || requested {
-                self.update(|state| {
-                    if requested {
-                        state.show = state.show.wrapping_add(1);
-                    } else {
-                        state.toggle = state.toggle.wrapping_add(1);
-                    }
-                });
+            if pressed && !down && ours {
+                self.update(|state| state.toggle = state.toggle.wrapping_add(1));
                 if child.is_none() {
                     let state = self
                         .state

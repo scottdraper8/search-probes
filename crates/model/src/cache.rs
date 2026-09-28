@@ -143,14 +143,20 @@ impl Cache {
         self.order.push_back(address);
         Ok(())
     }
-    pub fn matching(&self, plan: &Plan, galaxy: u8, limit: usize) -> Vec<CachedMatch> {
+    pub fn matching(
+        &self,
+        plan: &Plan,
+        galaxy: u8,
+        excluded_system: Address,
+        limit: usize,
+    ) -> Vec<CachedMatch> {
         let mut result = Vec::new();
         let limit = limit.min(MAX_RESULTS);
         if limit == 0 {
             return result;
         }
         for address in self.order.iter().rev() {
-            if address.coordinates().galaxy != galaxy {
+            if address.coordinates().galaxy != galaxy || *address == excluded_system.system() {
                 continue;
             }
             let record = &self.records[address];
@@ -197,7 +203,7 @@ mod tests {
         cache.insert(address(1), entry).unwrap();
         let mut y = Criteria::default();
         y.choices.insert(Field::Sky, 32);
-        let result = cache.matching(&y.compile().unwrap(), 0, 100);
+        let result = cache.matching(&y.compile().unwrap(), 0, address(2), 100);
         assert_eq!(result.len(), 1);
         assert_eq!(result[0].address, address(1).planet(0).unwrap());
         assert!(result[0].name.is_none());
@@ -245,8 +251,11 @@ mod tests {
             cache.insert(address(i), record()).unwrap();
         }
         let plan = Criteria::default().compile().unwrap();
-        assert_eq!(cache.matching(&plan, 0, usize::MAX).len(), 100);
-        assert!(cache.matching(&plan, 1, 100).is_empty());
-        assert!(cache.matching(&plan, 0, 0).is_empty());
+        assert_eq!(
+            cache.matching(&plan, 0, address(101), usize::MAX).len(),
+            100
+        );
+        assert!(cache.matching(&plan, 1, address(101), 100).is_empty());
+        assert!(cache.matching(&plan, 0, address(101), 0).is_empty());
     }
 }

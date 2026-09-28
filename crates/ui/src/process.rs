@@ -2,14 +2,14 @@ use std::io;
 use windows_sys::Win32::{
     Foundation::{CloseHandle, ERROR_ALREADY_EXISTS, GetLastError, HANDLE, WAIT_TIMEOUT},
     System::Threading::{CreateMutexW, OpenProcess, PROCESS_SYNCHRONIZE, WaitForSingleObject},
-    UI::WindowsAndMessaging::{FindWindowW, SW_RESTORE, SetForegroundWindow, ShowWindow},
+    UI::WindowsAndMessaging::{FindWindowW, SW_SHOW, SetForegroundWindow, ShowWindow},
 };
 use windows_sys::Win32::{
     Foundation::{HWND, LPARAM, RECT},
     UI::WindowsAndMessaging::{
         EnumWindows, GWL_EXSTYLE, GWLP_HWNDPARENT, GetForegroundWindow, GetWindowLongPtrW,
-        GetWindowRect, GetWindowThreadProcessId, IsWindowVisible, SW_HIDE, SW_SHOWNOACTIVATE,
-        SetWindowLongPtrW, WS_EX_NOACTIVATE,
+        GetWindowRect, GetWindowThreadProcessId, IsWindowVisible, SW_HIDE, SetWindowLongPtrW,
+        WS_EX_NOACTIVATE,
     },
 };
 
@@ -32,14 +32,6 @@ pub fn single_instance() -> io::Result<Option<Handle>> {
     let duplicate = unsafe { GetLastError() } == ERROR_ALREADY_EXISTS;
     let handle = Handle(handle);
     if duplicate {
-        let title: Vec<_> = "Search Probes".encode_utf16().chain([0]).collect();
-        let window = unsafe { FindWindowW(std::ptr::null(), title.as_ptr()) };
-        if !window.is_null() {
-            unsafe {
-                ShowWindow(window, SW_RESTORE);
-                SetForegroundWindow(window);
-            }
-        }
         Ok(None)
     } else {
         Ok(Some(handle))
@@ -112,23 +104,35 @@ fn ui_window() -> io::Result<HWND> {
     Ok(window)
 }
 
-pub fn passive(pid: u32, visible: bool) -> io::Result<bool> {
+fn passive_windows(pid: u32) -> io::Result<(HWND, HWND)> {
     let ui = ui_window()?;
     let game = window(pid).ok_or_else(|| io::Error::other("The game window is unavailable"))?;
     unsafe {
         SetWindowLongPtrW(ui, GWLP_HWNDPARENT, game as isize);
         let style = GetWindowLongPtrW(ui, GWL_EXSTYLE);
         SetWindowLongPtrW(ui, GWL_EXSTYLE, style | WS_EX_NOACTIVATE as isize);
-        ShowWindow(ui, SW_HIDE);
+    }
+    Ok((ui, game))
+}
+
+pub fn focus_game(pid: u32) -> io::Result<()> {
+    let (_, game) = passive_windows(pid)?;
+    unsafe {
         SetForegroundWindow(game);
         if GetForegroundWindow() != game {
-            return Ok(false);
-        }
-        if visible {
-            ShowWindow(ui, SW_SHOWNOACTIVATE);
+            return Err(io::Error::other("No Man's Sky did not accept focus"));
         }
     }
-    Ok(visible)
+    Ok(())
+}
+
+pub fn hide(pid: u32) -> io::Result<()> {
+    let (ui, game) = passive_windows(pid)?;
+    unsafe {
+        ShowWindow(ui, SW_HIDE);
+        SetForegroundWindow(game);
+    }
+    Ok(())
 }
 
 pub fn interactive() -> io::Result<()> {
@@ -136,7 +140,7 @@ pub fn interactive() -> io::Result<()> {
     unsafe {
         let style = GetWindowLongPtrW(ui, GWL_EXSTYLE);
         SetWindowLongPtrW(ui, GWL_EXSTYLE, style & !(WS_EX_NOACTIVATE as isize));
-        ShowWindow(ui, SW_RESTORE);
+        ShowWindow(ui, SW_SHOW);
         SetForegroundWindow(ui);
     }
     Ok(())

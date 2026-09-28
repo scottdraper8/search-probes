@@ -1,11 +1,12 @@
 use crate::{
     address::Address,
+    cache::CachedMatch,
     session::Progress,
     settings::{MAX_RESULTS, Settings},
 };
 use serde::{Deserialize, Serialize};
 
-pub const PROTOCOL: u32 = 1;
+pub const PROTOCOL: u32 = 3;
 pub const MAX_COMMAND_BYTES: usize = 65_536;
 pub const MAX_STATE_BYTES: usize = 1_048_576;
 pub const MAX_PENDING_COMMANDS: usize = 64;
@@ -108,13 +109,13 @@ pub struct State {
     pub player: Option<Address>,
     pub settings: Settings,
     pub progress: Option<Progress>,
+    pub results: Vec<CachedMatch>,
     pub metrics: Metrics,
     pub cached_systems: usize,
     pub last_command: u64,
     pub error: Option<String>,
     pub destination: Option<Address>,
     pub toggle: u64,
-    pub show: u64,
 }
 
 impl State {
@@ -128,13 +129,13 @@ impl State {
             player: None,
             settings,
             progress: None,
+            results: Vec::new(),
             metrics: Metrics::default(),
             cached_systems: 0,
             last_command: 0,
             error: None,
             destination: None,
             toggle: 0,
-            show: 0,
         }
     }
 }

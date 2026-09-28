@@ -13,6 +13,7 @@ use std::{path::PathBuf, time::Duration};
 const CRITERIA_SPLIT_MIN_WIDTH: f32 = 820.0;
 const MAIN_SPLIT_MIN_WIDTH: f32 = 960.0;
 const SEARCH_PANEL_SPLIT_MIN_WIDTH: f32 = 800.0;
+const RESULT_CARD_MIN_WIDTH: f32 = 280.0;
 
 pub struct App {
     control: Control,
@@ -25,11 +26,9 @@ pub struct App {
     use_cache: bool,
     error: Option<String>,
     last_toggle: Option<u64>,
-    last_show: Option<u64>,
     visible: bool,
     exit: bool,
     owner: Option<crate::process::Owner>,
-    editing: bool,
     pending_search: Option<u64>,
 }
 
@@ -70,11 +69,9 @@ impl App {
             use_cache: true,
             error,
             last_toggle: None,
-            last_show: None,
             visible: true,
             exit: false,
             owner: None,
-            editing: true,
             pending_search: None,
         }
     }
@@ -95,19 +92,16 @@ impl App {
                     self.pending_search = Some(id);
                 }
                 if resume {
-                    self.resume_game(true);
+                    self.resume_game();
                 }
             }
             Err(error) => self.error = Some(error),
         }
     }
-    fn resume_game(&mut self, visible: bool) {
+    fn resume_game(&mut self) {
         if let Some(state) = &self.control.state {
-            match crate::process::passive(state.pid, visible) {
-                Ok(visible) => {
-                    self.visible = visible;
-                    self.editing = false;
-                }
+            match crate::process::focus_game(state.pid) {
+                Ok(()) => {}
                 Err(error) => {
                     self.error = Some(format!(
                         "Return to No Man's Sky to resume the search: {error}"
@@ -587,7 +581,7 @@ impl App {
                 _ => "Starting the game runtime…",
             });
         }
-        if let Some(progress) = state.progress {
+        if let Some(progress) = &state.progress {
             ui.label(format!(
                 "{} systems checked · {} results",
                 number(progress.systems),
@@ -651,62 +645,88 @@ impl App {
             if progress.history_evicted {
                 ui.small("Continuation for the oldest filter was removed from session history.");
             }
-            if let Some(error) = progress.error {
+            if let Some(error) = &progress.error {
                 ui.colored_label(Color32::LIGHT_RED, error);
             }
+        } else if state.results.is_empty() {
+            ui.label("Choose your criteria and start a search.");
+        }
+        if !state.results.is_empty() {
             ui.separator();
+            let current = state.player.map(|address| address.system());
+            let results: Vec<_> = state
+                .results
+                .iter()
+                .filter(|result| current != Some(result.address.system()))
+                .collect();
+            if results.is_empty() {
+                ui.label("The current system is omitted from the result list.");
+                return;
+            }
             egui::ScrollArea::vertical()
                 .id_salt("results")
                 .show(ui, |ui| {
-                    for result in progress.results {
-                        ui.push_id(result.address.raw(), |ui| {
-                            let coordinates = result.address.coordinates();
-                            ui.label(
-                                RichText::new(
-                                    result
-                                        .name
-                                        .as_deref()
-                                        .filter(|name| !name.is_empty())
-                                        .map(str::to_owned)
-                                        .unwrap_or_else(|| {
-                                            format!("Planet {}", coordinates.planet)
-                                        }),
-                                )
-                                .strong(),
-                            );
-                            ui.small(format!(
-                                "Galaxy {} · {}, {}, {} · System {}",
-                                u16::from(coordinates.galaxy) + 1,
-                                coordinates.x,
-                                coordinates.y,
-                                coordinates.z,
-                                coordinates.system
-                            ));
-                            ui.horizontal(|ui| {
-                                if ui
-                                    .add_enabled(
-                                        state.availability == Availability::Ready,
-                                        egui::Button::new("Set destination"),
-                                    )
-                                    .clicked()
-                                {
-                                    self.send(Action::Navigate {
-                                        address: result.address,
+                    let gap = ui.spacing().item_spacing.x;
+                    let available = ui.available_width();
+                    let columns = ((available + gap) / (RESULT_CARD_MIN_WIDTH + gap))
+                        .floor()
+                        .max(1.0) as usize;
+                    for (row, results) in results.chunks(columns).enumerate() {
+                        ui.columns(columns, |cards| {
+                            for (column, result) in results.iter().enumerate() {
+                                let index = row * columns + column;
+                                cards[column].push_id(result.address.raw(), |ui| {
+                                    egui::Frame::group(ui.style()).show(ui, |ui| {
+                                        ui.set_width(ui.available_width());
+                                        let coordinates = result.address.coordinates();
+                                        let name = result
+                                            .name
+                                            .as_deref()
+                                            .filter(|name| !name.is_empty())
+                                            .map(str::to_owned)
+                                            .unwrap_or_else(|| {
+                                                format!("Planet {}", coordinates.planet)
+                                            });
+                                        ui.label(
+                                            RichText::new(format!("{}. {name}", index + 1))
+                                                .strong(),
+                                        );
+                                        ui.small(format!(
+                                            "Galaxy {} · {}, {}, {} · System {}",
+                                            u16::from(coordinates.galaxy) + 1,
+                                            coordinates.x,
+                                            coordinates.y,
+                                            coordinates.z,
+                                            coordinates.system
+                                        ));
+                                        ui.horizontal_wrapped(|ui| {
+                                            if ui
+                                                .add_enabled(
+                                                    state.availability == Availability::Ready,
+                                                    egui::Button::new("Set destination"),
+                                                )
+                                                .clicked()
+                                            {
+                                                self.send(Action::Navigate {
+                                                    address: result.address,
+                                                });
+                                            }
+                                            if ui.button("Copy address").clicked() {
+                                                ui.ctx().copy_text(format!(
+                                                    "{:016X}",
+                                                    result.address.raw()
+                                                ));
+                                            }
+                                            if state.destination == Some(result.address) {
+                                                ui.label("Active destination");
+                                            }
+                                        });
                                     });
-                                }
-                                if ui.button("Copy address").clicked() {
-                                    ui.ctx().copy_text(format!("{:016X}", result.address.raw()));
-                                }
-                                if state.destination == Some(result.address) {
-                                    ui.label("Active destination");
-                                }
-                            });
-                            ui.separator();
+                                });
+                            }
                         });
                     }
                 });
-        } else {
-            ui.label("Choose your criteria and start a search.");
         }
     }
 }
@@ -719,7 +739,6 @@ impl eframe::App for App {
                 self.settings = state.settings.clone();
                 self.loaded_session = Some(state.session.clone());
                 self.last_toggle = None;
-                self.last_show = None;
                 self.selected_preset = None;
                 self.pending_search = None;
                 self.loaded_generation = None;
@@ -732,30 +751,16 @@ impl eframe::App for App {
                 self.pending_search = None;
                 self.loaded_generation = Some(state.generation);
             }
-            let show = self.last_show.is_some_and(|last| last != state.show);
-            if show {
-                self.settings = state.settings.clone();
-                self.selected_preset = self
-                    .settings
-                    .presets
-                    .iter()
-                    .position(|preset| preset.search == self.settings.search);
-                self.preset_name = self
-                    .selected_preset
-                    .map(|index| self.settings.presets[index].name.clone())
-                    .unwrap_or_default();
-            }
-            if show || self.last_toggle.is_some_and(|last| last != state.toggle) {
-                self.visible = show || !self.visible || !self.editing;
+            if self.last_toggle.is_some_and(|last| last != state.toggle) {
+                self.visible = !self.visible;
                 ctx.send_viewport_cmd(egui::ViewportCommand::Visible(self.visible));
                 if self.visible {
-                    self.editing = true;
                     if let Err(error) = crate::process::interactive() {
                         self.error = Some(error.to_string());
                     }
                     ctx.send_viewport_cmd(egui::ViewportCommand::Focus);
                 } else {
-                    let _ = crate::process::passive(state.pid, false);
+                    let _ = crate::process::hide(state.pid);
                 }
             }
             if self
@@ -765,7 +770,6 @@ impl eframe::App for App {
                 self.pending_search = None;
             }
             self.last_toggle = Some(state.toggle);
-            self.last_show = Some(state.show);
             if state.availability == Availability::Stopped {
                 self.exit = true;
             }
@@ -777,10 +781,7 @@ impl eframe::App for App {
             ctx.send_viewport_cmd(egui::ViewportCommand::Close);
         }
         if !self.exit && ctx.input(|input| input.viewport().close_requested()) {
-            self.resume_game(false);
             ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
-            ctx.send_viewport_cmd(egui::ViewportCommand::Visible(false));
-            self.visible = false;
         }
         ctx.request_repaint_after(Duration::from_millis(200));
     }

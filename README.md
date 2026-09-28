@@ -17,9 +17,11 @@ validated runtime environment. Native Windows desktop operation has not been tes
 
 ## Search
 
-Press **F7** in NMS to open Search Probes. Select criteria and start a search. Starting returns
-focus to NMS so gameplay can continue. Under Proton the controls may hide during a search;
-press F7 to reopen them. Pausing NMS or leaving gameplay pauses search progress.
+Press **F7** in NMS to open or hide Search Probes. This hotkey is the only action that changes the
+window's visibility. Window size, position and maximized state remain under the window manager and
+are not changed by search actions. Select criteria and start a search. Starting returns focus to NMS
+while the controls remain visible so gameplay and the search can continue. Pausing NMS or leaving
+gameplay pauses search progress.
 
 - **Systems to search:** 1,000; 10,000; 100,000; 1,000,000; 10,000,000; 100,000,000;
   1,000,000,000. The default is 10,000.
@@ -34,6 +36,10 @@ press F7 to reopen them. Pausing NMS or leaving gameplay pauses search progress.
 Search begins around the player's current region and traverses actual generated region lists
 outward. It is independent of the Galaxy Map's loaded search graph and does not move the player.
 Results follow traversal order and are not guaranteed to be the closest possible matches.
+The player's current system is omitted from cached and live results.
+Completed results remain visible through cancellation, travel and new-search startup. A completed
+search replaces them when it returns at least one new match. The current system is filtered from the
+visible cards without deleting it, so it can reappear after the player leaves.
 
 A repeated filter continues from its previous position within the same galaxy, even after moving
 elsewhere. Explicit restart begins around the current position. The latest 128 filter/galaxy

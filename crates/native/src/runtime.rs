@@ -40,7 +40,6 @@ pub fn report_startup_failure(error: &str) {
             }
             state.error = Some(message);
         });
-        bridge.request_window();
     }
 }
 
@@ -55,7 +54,6 @@ struct Runtime {
     navigation_polled: Option<Instant>,
     started: Option<Instant>,
     elapsed_ms: u64,
-    guide_search: bool,
 }
 
 pub fn initialize() -> Result<(), String> {
@@ -105,7 +103,6 @@ pub(crate) fn initialize_at(
                 state.availability = Availability::Unsupported;
                 state.error = Some(error.clone());
             });
-            bridge.request_window();
             return Err(error);
         }
     };
@@ -115,7 +112,6 @@ pub(crate) fn initialize_at(
             state.availability = Availability::Failed;
             state.error = Some(error.clone());
         });
-        bridge.request_window();
     }
     result
 }
@@ -168,7 +164,6 @@ fn attach(image: Image, bridge: Arc<Bridge>, settings: Settings) -> Result<(), S
         navigation_polled: None,
         started: None,
         elapsed_ms: 0,
-        guide_search: false,
     };
     let hooks: Result<(), String> = (|| {
         unsafe { lifecycle_hook::enable(base) }
@@ -235,7 +230,6 @@ impl Runtime {
         self.navigation_polled = None;
         self.started = None;
         self.elapsed_ms = 0;
-        self.guide_search = false;
     }
     fn tick(&mut self) {
         let available = self
@@ -298,7 +292,6 @@ impl Runtime {
         if let Some(request) = request.filter(|request| request.epoch == transition) {
             if let Err(error) = self.start_guide(request.slot, &snapshot) {
                 self.bridge.update(|state| state.error = Some(error.into()));
-                self.bridge.request_window();
             }
         }
         if self
@@ -336,22 +329,23 @@ impl Runtime {
             }
         }
         let statistics = self.scheduler.statistics();
-        if self.guide_search
-            && self
-                .scheduler
-                .session
-                .progress()
-                .is_none_or(|progress| progress.phase != Phase::Running)
-        {
-            self.guide_search = false;
-            self.bridge.request_window();
-        }
         let work = statistics.work;
         let object_tables = self.scheduler.object_statistics();
+        let progress = self.scheduler.session.progress().cloned();
+        let completed_results = progress
+            .as_ref()
+            .filter(|progress| {
+                matches!(progress.phase, Phase::Cached | Phase::Completed)
+                    && !progress.results.is_empty()
+            })
+            .map(|progress| progress.results.clone());
         self.bridge.update(|state| {
             state.availability = Availability::Ready;
             state.player = Some(snapshot.address);
-            state.progress = self.scheduler.session.progress().cloned();
+            state.progress = progress;
+            if let Some(results) = completed_results {
+                state.results = results;
+            }
             state.cached_systems = self.scheduler.session.cache_len();
             state.destination = self.navigation.destination();
             state.metrics = Metrics {
@@ -386,7 +380,6 @@ impl Runtime {
         self.scheduler.reset_statistics();
         self.started = Some(Instant::now());
         self.elapsed_ms = 0;
-        self.guide_search = true;
         self.bridge.update(|state| {
             state.settings = self.settings.clone();
             state.error = None;
@@ -415,7 +408,6 @@ impl Runtime {
                     use_cache,
                 )?;
                 self.bridge.cancel.store(false, Ordering::Release);
-                self.guide_search = false;
                 self.scheduler.reset_statistics();
                 self.started = Some(Instant::now());
                 self.elapsed_ms = 0;
@@ -443,12 +435,15 @@ impl Runtime {
                 self.elapsed_ms = 0;
             }
             Action::Navigate { address } => {
-                if !self.scheduler.session.progress().is_some_and(|progress| {
-                    progress
-                        .results
-                        .iter()
-                        .any(|result| result.address == address)
-                }) {
+                let displayed = self
+                    .bridge
+                    .state
+                    .lock()
+                    .map_err(|_| "runtime state poisoned")?
+                    .results
+                    .iter()
+                    .any(|result| result.address == address);
+                if !displayed || address.system() == snapshot.address.system() {
                     return Err("destination is not a current search result");
                 }
                 unsafe { self.navigation.start(&self.image, snapshot, address) }?;
