@@ -6,7 +6,7 @@ use crate::{
 };
 use serde::{Deserialize, Serialize};
 
-pub const PROTOCOL: u32 = 3;
+pub const PROTOCOL: u32 = 4;
 pub const MAX_COMMAND_BYTES: usize = 65_536;
 pub const MAX_STATE_BYTES: usize = 1_048_576;
 pub const MAX_PENDING_COMMANDS: usize = 64;
@@ -116,6 +116,7 @@ pub struct State {
     pub error: Option<String>,
     pub destination: Option<Address>,
     pub toggle: u64,
+    pub open: u64,
 }
 
 impl State {
@@ -136,6 +137,7 @@ impl State {
             error: None,
             destination: None,
             toggle: 0,
+            open: 0,
         }
     }
 }

@@ -124,7 +124,7 @@ impl Navigation {
         if !(1..=8).contains(&address.coordinates().planet) {
             return Err("navigation requires a planet address");
         }
-        let manager = snapshot.application + 0x837b40;
+        let manager = snapshot.application + 0x847bb0;
         if self.requested.is_some() || pending(manager)? {
             return Err("a Search Probe Target is still starting");
         }
@@ -134,7 +134,7 @@ impl Navigation {
             );
         }
         type Lookup = unsafe extern "system" fn(usize, *const u8, i32) -> usize;
-        let lookup = unsafe { std::mem::transmute::<usize, Lookup>(image.base() + 0x4e4510) };
+        let lookup = unsafe { std::mem::transmute::<usize, Lookup>(image.base() + 0x4e6bc0) };
         let name = fixed::<32>(TARGET_EVENT)?;
         let scan_manager = platform::pointer(snapshot.application + 0x4de450)?;
         let table = platform::pointer(scan_manager + 0x30)?;
@@ -145,13 +145,13 @@ impl Navigation {
                 "Search Probes navigation assets are not loaded. Enable mods in NMS and restart the game.",
             );
         }
-        if platform::read::<32>(event + 0x228)? != name || platform::u32_at(event + 0x47c)? != 4 {
+        if platform::read::<32>(event + 0x228)? != name || platform::u32_at(event + 0x48c)? != 4 {
             return Err("Search Probes navigation assets are missing or incompatible");
         }
-        if platform::u32_at(event + 0x420)? != 1 {
+        if platform::u32_at(event + 0x430)? != 1 {
             return Err("navigation definition must contain one destination");
         }
-        let entry = platform::pointer(event + 0x418)?;
+        let entry = platform::pointer(event + 0x428)?;
         let text = platform::pointer(entry)?;
         let previous = platform::read::<17>(text)?;
         if previous[16] != 0 || !previous[..16].iter().all(u8::is_ascii_hexdigit) {
@@ -164,7 +164,7 @@ impl Navigation {
             valid: bool,
         }
         type Start = unsafe extern "system" fn(usize, *const u8, *const Seed, bool, bool) -> bool;
-        let start = unsafe { std::mem::transmute::<usize, Start>(image.base() + 0x9b1950) };
+        let start = unsafe { std::mem::transmute::<usize, Start>(image.base() + 0x9b8e00) };
         let accepted = unsafe {
             start(
                 manager,
@@ -191,7 +191,7 @@ impl Navigation {
         image: &Image,
         snapshot: &Snapshot,
     ) -> Result<(), &'static str> {
-        let manager = snapshot.application + 0x837b40;
+        let manager = snapshot.application + 0x847bb0;
         let published = match navigation_hook::published() {
             Ok(address) => address,
             Err(error) => {
@@ -206,7 +206,7 @@ impl Navigation {
             if let Some((index, mission)) = mission.filter(|_| routed == Some(expected)) {
                 type Select = unsafe extern "system" fn(usize, usize, bool);
                 let select =
-                    unsafe { std::mem::transmute::<usize, Select>(image.base() + 0x9ba140) };
+                    unsafe { std::mem::transmute::<usize, Select>(image.base() + 0x9c15f0) };
                 unsafe { select(manager, mission, false) };
                 if platform::u32_at(manager + 0x250)? as usize != index {
                     return Err("NMS did not select Search Probe Target");

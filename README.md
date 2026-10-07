@@ -9,16 +9,16 @@ See [validation and performance](VALIDATION.md) for measured limits.
 
 ## Supported game
 
-The native interface targets **No Man's Sky 7.04**, Windows x64 Steam build **25442159**.
+The native interface targets **No Man's Sky 7.06**, Windows x64 Steam build **25732212**.
 The executable must match SHA-256
-`b7913f268dfc62386b6b68f524bfc8ade4a44a9f4fbad39085b7bf51be3680cb`.
+`13d5060d4efb9d2a6a6b1b349bc4257231056cc2a055df4bb15d816262cc3499`.
 An update stops native initialization until a matching version is validated. Proton is the
 validated runtime environment. Native Windows desktop operation has not been tested.
 
 ## Search
 
-Press **F7** in NMS to open or hide Search Probes. This hotkey is the only action that changes the
-window's visibility. Window size, position and maximized state remain under the window manager and
+Press **F7** in NMS to open or hide Search Probes. Guide completion and Guide launch errors also
+open the controls. Window size, position and maximized state remain under the window manager and
 are not changed by search actions. Select criteria and start a search. Starting returns focus to NMS
 while the controls remain visible so gameplay and the search can continue. Pausing NMS or leaving
 gameplay pauses search progress.
@@ -92,7 +92,9 @@ requires the Steam launch option `WINEDLLOVERRIDES="winmm=n,b" %command%`.
 Enable mods and Search Probes in NMS's mod settings, then restart NMS. Disabling asset mods leaves
 the DLL search controls available, but prevents Guide and navigation definitions from loading.
 
-For an update, replace the owned product files together. Older Python prerelease runtime folders
+For an update, replace the owned product files together. Remove the previous
+`SearchProbes/METADATA/SIMULATION/MISSIONS/TABLES/NPCMISSIONTABLE.EXML` if present; the destination
+mission now belongs to `WIKIMISSIONTABLE.EXML`. Older Python prerelease runtime folders
 must be removed, not merged into this package. Keep other mods and personal game saves intact.
 For Amethyst, the DLL and executable belong in its game root-file deployment; the asset directory
 belongs in its normal mod deployment. Deploy one consistent version in both locations.
@@ -111,8 +113,8 @@ must not be enabled in a release.
 cargo test --workspace
 cargo build --locked --release --target x86_64-pc-windows-gnu \
   -p search-probes-bootstrap -p search-probes-ui
-cargo run --locked -p search-probes-package -- package ./dist/SearchProbes-0.1.0
-cargo run --locked -p search-probes-package -- verify ./dist/SearchProbes-0.1.0
+cargo run --locked -p search-probes-package -- package ./dist/SearchProbes-0.1.1
+cargo run --locked -p search-probes-package -- verify ./dist/SearchProbes-0.1.1
 ```
 
 `tooling/windows.Containerfile` supplies the GNU cross compiler for Linux builds. The packager

@@ -26,6 +26,7 @@ pub struct App {
     use_cache: bool,
     error: Option<String>,
     last_toggle: Option<u64>,
+    last_open: Option<u64>,
     visible: bool,
     exit: bool,
     owner: Option<crate::process::Owner>,
@@ -69,6 +70,7 @@ impl App {
             use_cache: true,
             error,
             last_toggle: None,
+            last_open: None,
             visible: true,
             exit: false,
             owner: None,
@@ -739,6 +741,7 @@ impl eframe::App for App {
                 self.settings = state.settings.clone();
                 self.loaded_session = Some(state.session.clone());
                 self.last_toggle = None;
+                self.last_open = None;
                 self.selected_preset = None;
                 self.pending_search = None;
                 self.loaded_generation = None;
@@ -751,8 +754,13 @@ impl eframe::App for App {
                 self.pending_search = None;
                 self.loaded_generation = Some(state.generation);
             }
-            if self.last_toggle.is_some_and(|last| last != state.toggle) {
-                self.visible = !self.visible;
+            let open = self.last_open.is_some_and(|last| last != state.open);
+            if open || self.last_toggle.is_some_and(|last| last != state.toggle) {
+                self.visible = open || !self.visible;
+                if open {
+                    self.settings = state.settings.clone();
+                    self.selected_preset = None;
+                }
                 ctx.send_viewport_cmd(egui::ViewportCommand::Visible(self.visible));
                 if self.visible {
                     if let Err(error) = crate::process::interactive() {
@@ -770,6 +778,7 @@ impl eframe::App for App {
                 self.pending_search = None;
             }
             self.last_toggle = Some(state.toggle);
+            self.last_open = Some(state.open);
             if state.availability == Availability::Stopped {
                 self.exit = true;
             }

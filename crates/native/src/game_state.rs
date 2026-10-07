@@ -45,8 +45,8 @@ impl Epoch {
 impl Snapshot {
     pub fn read(image: &Image, transition: u64) -> Result<Self, &'static str> {
         let base = image.base();
-        let application = platform::pointer(base + 0x6e7aae8)?;
-        let root = platform::pointer(application + 0x71af70)?;
+        let application = platform::pointer(base + 0x6e8d708)?;
+        let root = platform::pointer(application + 0x72afb0)?;
         let raw = platform::read::<24>(application + 0xc1a0)?;
         let components: [i32; 6] = std::array::from_fn(|index| {
             i32::from_le_bytes(
@@ -92,7 +92,7 @@ impl Snapshot {
         {
             return Err("solar generator resources are not ready");
         }
-        let object_cache = platform::u32_at(base + 0x7376be8)?;
+        let object_cache = platform::u32_at(base + 0x7489858)?;
         if object_cache == 0 || object_cache == u32::MAX {
             return Err("object resources are not ready");
         }
@@ -100,7 +100,7 @@ impl Snapshot {
             transition,
             application,
             root,
-            language: platform::u32_at(base + 0x6e01558)?,
+            language: platform::u32_at(base + 0x6e14168)?,
             difficulty,
             object_cache,
             solar_resources,

@@ -41,13 +41,13 @@ pub unsafe fn enable(base: usize) -> Result<(), HookError> {
     let mut state = HOOK.lock().map_err(|_| HookError::StatePoisoned)?;
     if state.is_none() {
         let hook = unsafe {
-            ResidentHook::prepare(base + 0x2bd9250, detour as *const () as usize, &PREFIX)
+            ResidentHook::prepare(base + 0x2be4b00, detour as *const () as usize, &PREFIX)
         }?;
         ORIGINAL.store(hook.trampoline(), Ordering::Release);
-        APPLICATION.store(base + 0x6e7aab0, Ordering::Release);
+        APPLICATION.store(base + 0x6e8d6d0, Ordering::Release);
         *state = Some(hook);
     }
-    if APPLICATION.load(Ordering::Acquire) != base + 0x6e7aab0 {
+    if APPLICATION.load(Ordering::Acquire) != base + 0x6e8d6d0 {
         return Err(HookError::PrefixChanged);
     }
     if let Some(hook) = state.as_mut() {

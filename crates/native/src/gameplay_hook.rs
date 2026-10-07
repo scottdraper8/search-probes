@@ -81,7 +81,7 @@ pub unsafe fn enable(base: usize, callback: fn()) -> Result<(), HookError> {
     let mut state = HOOK.lock().map_err(|_| HookError::StatePoisoned)?;
     if state.is_none() {
         let hook = unsafe {
-            ResidentHook::prepare(base + 0x13eae90, detour as *const () as usize, &PREFIX)
+            ResidentHook::prepare(base + 0x13f54f0, detour as *const () as usize, &PREFIX)
         }?;
         if CALLBACK.set(callback).is_err() {
             return Err(HookError::StatePoisoned);

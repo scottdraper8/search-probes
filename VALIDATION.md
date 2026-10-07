@@ -7,7 +7,43 @@ on an i9-13900KF, with the permitted save's purple systems unlocked. Native Wind
 not been tested. Game updates require native-interface validation before the executable guard can
 be changed. Other native hook mods and alternate WinMM proxies are outside the tested scope.
 
-## Accepted behavior
+## Current 7.06 qualification
+
+Steam Proton acceptance uses the exact 7.06 executable and the backed-up Galaxies 1–50 save.
+The host reported degraded graphics-worker health, so this review makes no timing, memory,
+startup-duration, shutdown-duration, or throughput claims.
+
+- The 1,000-system blue-sky/floating-island query returns the same four addresses at 1, 2, 4, 8
+  and 16 workers, with 4,754 generated planets and 1,213 object scans. These are worker-parity
+  comparisons, not the historical independent native oracle.
+- Representative positive and negative controls cover Any, purple stars, Earthlike criteria,
+  anomaly multiselect, resource All/Any, weather/storm/flora/fauna and minimum planet count.
+  Any performs no optional metadata, colour or object acquisition.
+- Cold, cached and disjoint continuation searches pass. Cached matches perform zero generation.
+  Separate bounded searches traverse 21,000 systems while the fact cache stops at 16,384.
+  Cancellation and resumption preserve completed work and continuation.
+- Live solar/planet context bytes, the shared filename-map header and existing resource references
+  remain unchanged; newly loaded table references return to zero.
+- Remote navigation publishes the exact address, rejects duplicate selection and supports native
+  Log abandonment. Save reload preserves the destination and player identity while clearing facts,
+  object summaries and active progress. Previously completed visible cards intentionally remain.
+- Guide completion creates the results window and reopens an existing hidden window with the
+  preset criteria synchronized. Empty slots open the editor with an explanation. Ordinary Steam
+  self-start and native Quit to Desktop work.
+- The destination definition uses the nonprocedural Wiki mission table. Current NPC-table loading
+  forcibly enables procedural titles. Native labels, exact route, fresh creation, abandonment and
+  saved-route loading pass with the corrected definition. Authored mission leaves match the game
+  export after removing runtime-only flags and omitting the unused static marker tag.
+- Existing host Rust tests pass (70); the Windows GNU production build and package manifest pass.
+
+Local-planet arrival/completion, live travel during a search, every enum's positive case, and native
+Windows desktop were not repeated in this 7.06 review. Historical coverage below remains explicitly
+versioned. Default frame budgets are scheduling targets, not hard limits on a native call.
+
+## Historical 7.04 qualification
+
+The following corpus and measurements were collected on 7.04. They document the architecture
+and earlier coverage; they are not independent 7.06 reference or performance measurements.
 
 - Independent solar, planet, query and RNG contexts; bounded persistent worker pool, 1–16 workers.
 - One solar generation per searched system and at most one generation per required planet.
@@ -31,7 +67,7 @@ cover Atlas stations and black holes; other exposed native anomaly values have n
 Configuration invalidation is supported by inspected native fields and epoch comparison plus live
 save reload, not a live experiment for every possible language or difficulty change.
 
-## Measured performance
+## Historical 7.04 performance
 
 The same 1,000-system blue-sky/floating-island query produces nine identical matches across
 1, 2, 4, 8 and 16 workers. It generates 4,769 planets and evaluates 989 object-table selections.

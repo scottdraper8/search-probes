@@ -228,7 +228,7 @@ unsafe fn thread_runtime_state(base: usize) -> [u64; 8] {
     let vector: usize;
     unsafe {
         core::arch::asm!("mov {}, gs:[0x58]", out(reg) vector, options(nostack, readonly, preserves_flags));
-        let index = ((base + 0x6dfe068) as *const u32).read() as usize;
+        let index = ((base + 0x6e10c68) as *const u32).read() as usize;
         if vector == 0 || index >= 64 {
             return [index as u64, 0, 0, 0, 0, 0, 0, 0];
         }
@@ -240,18 +240,18 @@ unsafe fn thread_runtime_state(base: usize) -> [u64; 8] {
         [
             index as u64,
             module as u64,
-            ((module + 0x30) as *const u8).read() as u64,
-            ((module + 0x34) as *const u32).read() as u64,
-            ((module + 0x38) as *const u32).read() as u64,
+            ((module + 0x1940) as *const u8).read() as u64,
+            ((module + 0x1944) as *const u32).read() as u64,
+            ((module + 0x1948) as *const u32).read() as u64,
             ((crt + 0x218) as *const u32).read() as u64,
-            ((base + 0x527f521) as *const u8).read() as u64,
-            ((base + 0x4ff7d50 + 0x38) as *const u32).read() as u64,
+            ((base + 0x5292041) as *const u8).read() as u64,
+            ((base + 0x500a050 + 0x38) as *const u32).read() as u64,
         ]
     }
 }
 
 /// # Safety
-/// Caller verifies the mapped 7.04 image and provides sixteen writable u64 values. This probe
+/// Caller verifies the mapped 7.06 image and provides sixteen writable u64 values. This probe
 /// reads thread/allocator metadata only; it does not call native generation on its new thread.
 #[unsafe(no_mangle)]
 pub unsafe extern "system" fn sqn_thread_runtime_probe(base: usize, output: *mut u64) -> i32 {

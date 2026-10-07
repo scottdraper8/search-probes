@@ -384,8 +384,8 @@ mod tests {
     #[test]
     fn archive_names_preserve_the_complete_version() {
         assert_eq!(
-            archive_path(Path::new("dist/SearchProbes-0.1.0")),
-            Path::new("dist/SearchProbes-0.1.0.zip")
+            archive_path(Path::new("dist/SearchProbes-0.1.1")),
+            Path::new("dist/SearchProbes-0.1.1.zip")
         );
     }
     struct Directory(PathBuf);

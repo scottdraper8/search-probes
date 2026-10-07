@@ -31,22 +31,22 @@ pub struct RegionSystem {
 
 impl RegionGenerator {
     /// # Safety
-    /// Requires a verified 7.04 image. Calls are confined to a loaded gameplay callback.
+    /// Requires a verified 7.06 image. Calls are confined to a loaded gameplay callback.
     pub unsafe fn from_verified_image(base: usize) -> Result<Self, &'static str> {
         unsafe {
             for (rva, prefix) in [
-                (0x4c3090, &[0x66, 0x0f, 0x6f, 0x05][..]),
-                (0x135d7b0, &[0x48, 0x8b, 0xc4][..]),
-                (0x4c2e90, &[0x48, 0x89, 0x5c, 0x24, 0x08][..]),
+                (0x4c5620, &[0x66, 0x0f, 0x6f, 0x05][..]),
+                (0x1367810, &[0x48, 0x8b, 0xc4][..]),
+                (0x4c5420, &[0x48, 0x89, 0x5c, 0x24, 0x08][..]),
             ] {
                 if std::slice::from_raw_parts((base + rva) as *const u8, prefix.len()) != prefix {
                     return Err("native region function prefix mismatch");
                 }
             }
             Ok(Self {
-                construct: std::mem::transmute::<usize, Lifecycle>(base + 0x4c3090),
-                populate: std::mem::transmute::<usize, Populate>(base + 0x135d7b0),
-                destroy: std::mem::transmute::<usize, Lifecycle>(base + 0x4c2e90),
+                construct: std::mem::transmute::<usize, Lifecycle>(base + 0x4c5620),
+                populate: std::mem::transmute::<usize, Populate>(base + 0x1367810),
+                destroy: std::mem::transmute::<usize, Lifecycle>(base + 0x4c5420),
                 _thread_bound: PhantomData,
             })
         }

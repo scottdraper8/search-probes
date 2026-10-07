@@ -1786,7 +1786,7 @@ checksum = "94143f37725109f92c262ed2cf5e59bce7498c01bcc1502d7b9afe439a4e9f49"
 
 [[package]]
 name = "search-probes-bootstrap"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "search-probes-native",
  "windows-sys 0.61.2",
@@ -1794,7 +1794,7 @@ dependencies = [
 
 [[package]]
 name = "search-probes-model"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "serde",
  "serde_json",
@@ -1803,7 +1803,7 @@ dependencies = [
 
 [[package]]
 name = "search-probes-native"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "iced-x86",
  "search-probes-model",
@@ -1814,7 +1814,7 @@ dependencies = [
 
 [[package]]
 name = "search-probes-package"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "quick-xml",
  "search-probes-model",
@@ -1825,7 +1825,7 @@ dependencies = [
 
 [[package]]
 name = "search-probes-ui"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "eframe",
  "search-probes-model",

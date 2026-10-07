@@ -2,17 +2,24 @@ use crate::{Result, files};
 use quick_xml::{Reader, events::Event};
 use std::{collections::BTreeSet, path::Path};
 
-fn properties(path: &Path) -> Result<Vec<(String, String)>> {
+fn properties(path: &Path, mission: Option<&str>) -> Result<Vec<(String, String)>> {
     let bytes = std::fs::read(path)?;
     let mut reader = Reader::from_reader(bytes.as_slice());
     let mut result = Vec::new();
+    let mut depth = 0;
+    let mut selected = None;
     loop {
-        match reader.read_event()? {
+        let event = reader.read_event()?;
+        if matches!(event, Event::Start(_)) {
+            depth += 1;
+        }
+        match event {
             Event::Start(element) | Event::Empty(element)
                 if element.name().as_ref() == b"Property" =>
             {
                 let mut name = None;
                 let mut value = None;
+                let mut id = None;
                 for attribute in element.attributes() {
                     let attribute = attribute?;
                     let text = attribute
@@ -24,12 +31,24 @@ fn properties(path: &Path) -> Result<Vec<(String, String)>> {
                     match attribute.key.as_ref() {
                         b"name" => name = Some(text),
                         b"value" => value = Some(text),
+                        b"_id" => id = Some(text),
                         _ => {}
                     }
                 }
-                if let (Some(name), Some(value)) = (name, value) {
-                    result.push((name, value));
+                if mission.is_some() && id.as_deref() == mission {
+                    selected = Some(depth);
                 }
+                if mission.is_none() || selected.is_some() {
+                    if let (Some(name), Some(value)) = (name, value) {
+                        result.push((name, value));
+                    }
+                }
+            }
+            Event::End(_) => {
+                if selected == Some(depth) {
+                    selected = None;
+                }
+                depth -= 1;
             }
             Event::Eof => break,
             _ => {}
@@ -42,7 +61,6 @@ pub fn validate(root: &Path) -> Result<()> {
     let expected: BTreeSet<_> = [
         "LocTable.MXML",
         "METADATA/REALITY/WIKI.EXML",
-        "METADATA/SIMULATION/MISSIONS/TABLES/NPCMISSIONTABLE.EXML",
         "METADATA/SIMULATION/MISSIONS/TABLES/WIKIMISSIONTABLE.EXML",
     ]
     .into_iter()
@@ -58,12 +76,10 @@ pub fn validate(root: &Path) -> Result<()> {
     if actual != expected {
         return Err("unexpected asset inventory".into());
     }
-    let wiki = properties(&root.join("METADATA/REALITY/WIKI.EXML"))?;
-    let guide =
-        properties(&root.join("METADATA/SIMULATION/MISSIONS/TABLES/WIKIMISSIONTABLE.EXML"))?;
-    let navigation =
-        properties(&root.join("METADATA/SIMULATION/MISSIONS/TABLES/NPCMISSIONTABLE.EXML"))?;
-    let localization = properties(&root.join("LocTable.MXML"))?;
+    let wiki = properties(&root.join("METADATA/REALITY/WIKI.EXML"), None)?;
+    let table = root.join("METADATA/SIMULATION/MISSIONS/TABLES/WIKIMISSIONTABLE.EXML");
+    let navigation = properties(&table, Some("SQN_SP_NAV"))?;
+    let localization = properties(&root.join("LocTable.MXML"), None)?;
     let values = |items: &[(String, String)], key: &str| -> Vec<String> {
         items
             .iter()
@@ -74,6 +90,15 @@ pub fn validate(root: &Path) -> Result<()> {
     let missions: Vec<_> = (0..search_probes_model::settings::MAX_PRESETS)
         .map(search_probes_model::guide::mission)
         .collect::<std::result::Result<_, _>>()?;
+    let mut guide = Vec::new();
+    for mission in &missions {
+        guide.extend(properties(&table, Some(mission))?);
+    }
+    let mut expected = missions.clone();
+    expected.push("SQN_SP_NAV".into());
+    if values(&properties(&table, None)?, "MissionID") != expected {
+        return Err("unexpected mission table entries".into());
+    }
     if values(&wiki, "Mission") != missions
         || values(&guide, "MissionID") != missions
         || !values(&guide, "Name").is_empty()

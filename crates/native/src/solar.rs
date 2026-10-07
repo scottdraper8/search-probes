@@ -10,6 +10,7 @@ struct Storage([u8; 0x6e0]);
 pub struct SolarContext {
     storage: Box<Storage>,
     resource_cache: *mut u8,
+    allocator: *mut u8,
     release: ReleaseResource,
     deallocate: Deallocate,
     _gameplay: PhantomData<Rc<()>>,
@@ -17,7 +18,7 @@ pub struct SolarContext {
 
 impl SolarContext {
     /// # Safety
-    /// The caller verifies the exact 7.04 image and holds initialized game resources through drop.
+    /// The caller verifies the exact 7.06 image and holds initialized game resources through drop.
     /// Use the gameplay thread or an audited scoped worker with valid NMS allocator TLS.
     pub unsafe fn new(base: usize) -> Result<Self, &'static str> {
         unsafe fn checked(base: usize, va: usize, prefix: &[u8]) -> Result<usize, &'static str> {
@@ -30,22 +31,23 @@ impl SolarContext {
         unsafe {
             let initialize = std::mem::transmute::<usize, Initialize>(checked(
                 base,
-                0x14163d4c0,
+                0x141649ae0,
                 &[0x48, 0x89, 0x5c, 0x24, 0x10],
             )?);
             let release = std::mem::transmute::<usize, ReleaseResource>(checked(
                 base,
-                0x1404b0c10,
+                0x1404b2df0,
                 &[0x40, 0x53, 0x56, 0x57, 0x48, 0x83, 0xec, 0x20],
             )?);
             let deallocate = std::mem::transmute::<usize, Deallocate>(checked(
                 base,
-                0x142beef00,
-                &[0x48, 0x8d, 0x0d, 0x49, 0x8e, 0x40, 0x02],
+                0x142c1f570,
+                &[0x48, 0x85, 0xd2, 0x0f, 0x84],
             )?);
             let mut result = Self {
                 storage: Box::new(Storage([0; 0x6e0])),
-                resource_cache: (base + 0x7376810) as *mut u8,
+                resource_cache: (base + 0x7489480) as *mut u8,
+                allocator: (base + 0x500a050) as *mut u8,
                 release,
                 deallocate,
                 _gameplay: PhantomData,
@@ -87,7 +89,7 @@ impl Drop for SolarContext {
             for (header, inline) in [(0x500, 0), (0x5e0, 0x520), (0x6b0, 0x5f0)] {
                 let allocation = ptr.add(header + 8).cast::<*mut u8>().read_unaligned();
                 if !allocation.is_null() && allocation != ptr.add(inline) {
-                    (self.deallocate)(ptr.add(header), allocation, -1);
+                    (self.deallocate)(self.allocator, allocation, -1);
                 }
             }
         }

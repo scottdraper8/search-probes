@@ -22,7 +22,7 @@ unsafe extern "system" fn detour(planet: *mut u8) {
 }
 
 /// # Safety
-/// Requires the verified 7.04 image and initialized runtime, outside DllMain. Module and trampoline
+/// Requires the verified 7.06 image and initialized runtime, outside DllMain. Module and trampoline
 /// remain resident until process exit so in-flight detours stay valid.
 pub unsafe fn enable(base: usize) -> Result<(), HookError> {
     let mut state = HOOK.lock().map_err(|_| HookError::StatePoisoned)?;
