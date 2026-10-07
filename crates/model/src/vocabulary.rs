@@ -41,7 +41,7 @@ pub const BUILDING_DENSITY_LEVELS: &[&str] = &[
     "GasGiant",
 ];
 pub const RESOURCE_LEVELS: &[&str] = &["Low", "High"];
-pub const SYSTEM_CLASSES: &[&str] = &["Default", "Initial", "Anomaly", "GameStart"];
+pub const SENTINEL_LEVELS: &[&str] = &["Low / absent", "Standard", "Aggressive", "Corrupted"];
 pub const TERRAIN_SETTINGS: &[&str] = &[
     "FloatingIslands",
     "GrandCanyon",
@@ -80,7 +80,6 @@ pub const HUE_FAMILIES: &[&str] = &[
 ];
 pub const STORM_FREQUENCIES: &[&str] = &["None", "Low", "High", "Always"];
 pub const WEATHER_INTENSITIES: &[&str] = &["Default", "Extreme"];
-pub const WEATHER_CONDITIONS: &[&str] = &["None", "Non-extreme", "Extreme"];
 pub const WEATHER_TYPES: &[&str] = &[
     "Clear",
     "Dust",
@@ -101,9 +100,9 @@ pub const WEATHER_TYPES: &[&str] = &[
     "GasGiant",
 ];
 pub const RACE_ENUM: &[&str] = &[
-    "Traders",
-    "Warriors",
-    "Explorers",
+    "Gek",
+    "Vy'keen",
+    "Korvax",
     "Robots",
     "Atlas",
     "Diplomats",
@@ -145,11 +144,12 @@ pub const BIOME_SUBTYPES: &[&str] = &[
     "Remix_D",
 ];
 pub const ANOMALIES: &[&str] = &[
-    "AtlasStation",
+    "Atlas station",
     "AtlasStationFinal",
-    "BlackHole",
+    "Black hole",
     "MiniStation",
     "BackgroundSwarmHive",
+    "None",
 ];
 macro_rules! resources {
     ($($id:literal => $label:literal),+ $(,)?) => {

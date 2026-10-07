@@ -84,6 +84,15 @@ impl Facts {
 
     pub fn evaluate(&self, predicate: Predicate) -> Verdict {
         let accepted = match predicate {
+            Predicate::Choice(choices) if choices.field() == Field::Race => self
+                .get(Field::Population)
+                .and_then(|population| match population {
+                    1 => Some(choices.accepts(7)),
+                    0 | 2 => self
+                        .get(Field::Race)
+                        .map(|race| race != 7 && choices.accepts(race)),
+                    _ => None,
+                }),
             Predicate::Choice(choices) => self
                 .get(choices.field())
                 .map(|value| choices.accepts(value)),
@@ -216,6 +225,41 @@ mod tests {
         assert_eq!(plan.planet_match(&facts), Verdict::Match);
         facts.set(Field::Biome, 1);
         assert_eq!(plan.planet_match(&facts), Verdict::NoMatch);
+    }
+
+    #[test]
+    fn dominant_lifeform_distinguishes_empty_abandoned_and_unknown_systems() {
+        for (mask, population, race, expected) in [
+            (128, Some(1), Some(0), Verdict::Match),
+            (128, Some(1), None, Verdict::Match),
+            (1, Some(1), Some(0), Verdict::NoMatch),
+            (1, Some(0), Some(0), Verdict::Match),
+            (2, Some(2), Some(1), Verdict::Match),
+            (2, Some(2), Some(2), Verdict::NoMatch),
+            (128, Some(2), Some(1), Verdict::NoMatch),
+            (128, Some(0), Some(7), Verdict::NoMatch),
+            (129, Some(1), Some(2), Verdict::Match),
+            (129, Some(0), Some(0), Verdict::Match),
+            (129, Some(0), Some(2), Verdict::NoMatch),
+            (1, None, Some(0), Verdict::Unknown),
+            (1, Some(0), None, Verdict::Unknown),
+        ] {
+            let mut criteria = Criteria::default();
+            criteria.choices.insert(Field::Race, mask);
+            let plan = criteria.compile().unwrap();
+            let mut facts = Facts::default();
+            if let Some(population) = population {
+                facts.set(Field::Population, population);
+            }
+            if let Some(race) = race {
+                facts.set(Field::Race, race);
+            }
+            assert_eq!(
+                plan.system_match(&facts),
+                expected,
+                "mask={mask}, population={population:?}, race={race:?}"
+            );
+        }
     }
 
     #[test]

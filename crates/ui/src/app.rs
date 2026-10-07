@@ -1,7 +1,7 @@
 use crate::control::Control;
 use eframe::egui::{self, Color32, RichText, Ui};
 use search_probes_model::{
-    criteria::{Criteria, Field, PlanetFlag, ResourceMode, SystemFlag},
+    criteria::{Criteria, Field, GiantFilter, PlanetFlag, ResourceMode, SystemFlag},
     protocol::{Action, Availability},
     session::Phase,
     settings::{BUDGET_LABELS, BUDGETS, MAX_PRESETS, MAX_RESULTS, Preset, Settings, validate_name},
@@ -361,15 +361,13 @@ impl App {
                 )
                 .default_open(true)
                 .show(ui, |ui| {
+                    giant_filter_row(ui, criteria, input_width);
                     system_flag_rows(
                         ui,
                         criteria,
                         &[
                             SystemFlag::Rgb,
-                            SystemFlag::GasGiant,
-                            SystemFlag::Giant,
-                            SystemFlag::NonGasGiant,
-                            SystemFlag::Normal,
+                            SystemFlag::Dead,
                             SystemFlag::Relic,
                             SystemFlag::Waterworld,
                             SystemFlag::Weird,
@@ -392,7 +390,7 @@ impl App {
                             })
                             .show_ui(ui, |ui| {
                                 ui.selectable_value(&mut minimum, 0, "Any");
-                                for count in 1..=8 {
+                                for count in 1..=6 {
                                     ui.selectable_value(&mut minimum, count, count.to_string());
                                 }
                             });
@@ -409,12 +407,7 @@ impl App {
                         choice_rows(
                             ui,
                             criteria,
-                            &[
-                                Field::Population,
-                                Field::Anomaly,
-                                Field::Star,
-                                Field::SystemClass,
-                            ],
+                            &[Field::Population, Field::Anomaly, Field::Star],
                             input_width,
                         );
                     });
@@ -432,7 +425,6 @@ impl App {
                 .show(ui, |ui| {
                     choice_rows(ui, criteria, &[Field::Biome, Field::Subtype], input_width);
                     planet_flag_rows(ui, criteria, &[PlanetFlag::Rgb], input_width);
-                    planet_flag_rows(ui, criteria, &[PlanetFlag::ExtremeHazard], input_width);
                     choice_rows(ui, criteria, &[Field::Flora], input_width);
                 });
 
@@ -462,17 +454,8 @@ impl App {
                 egui::CollapsingHeader::new(RichText::new("Conditions").size(16.0).strong())
                     .default_open(true)
                     .show(ui, |ui| {
-                        planet_flag_rows(
-                            ui,
-                            criteria,
-                            &[
-                                PlanetFlag::CorruptSentinels,
-                                PlanetFlag::DeepWater,
-                                PlanetFlag::ExtremeSentinels,
-                                PlanetFlag::Sentinels,
-                            ],
-                            input_width,
-                        );
+                        sentinel_row(ui, criteria, input_width);
+                        planet_flag_rows(ui, criteria, &[PlanetFlag::DeepWater], input_width);
                         planet_flag_rows(ui, criteria, &[PlanetFlag::Water], input_width);
                     });
 
@@ -530,7 +513,13 @@ impl App {
                         });
                         filter_row(ui, "Resources", input_width, |ui| {
                             let mut selected = u64::from(criteria.resources.selected);
-                            choices(ui, "resources", &mut selected, RESOURCE_LABELS, input_width);
+                            choices(
+                                ui,
+                                "resources",
+                                &mut selected,
+                                RESOURCE_LABELS.iter().copied().enumerate(),
+                                input_width,
+                            );
                             criteria.resources.selected = selected as u32;
                         });
                     });
@@ -538,11 +527,27 @@ impl App {
                 egui::CollapsingHeader::new(RichText::new("Type").size(16.0).strong())
                     .default_open(true)
                     .show(ui, |ui| {
-                        planet_flag_rows(ui, criteria, &[PlanetFlag::NonGasGiant], input_width);
-                        planet_flag_rows(ui, criteria, &[PlanetFlag::Infested], input_width);
-                        planet_flag_rows(ui, criteria, &[PlanetFlag::Normal], input_width);
+                        if let Some(required) =
+                            criteria.planets.get(&PlanetFlag::NonGasGiant).copied()
+                        {
+                            ui.horizontal_wrapped(|ui| {
+                                ui.label(if required {
+                                    "Saved rule: require a non-gas giant."
+                                } else {
+                                    "Saved rule: exclude non-gas giants."
+                                });
+                                if ui.button("Clear saved rule").clicked() {
+                                    criteria.planets.remove(&PlanetFlag::NonGasGiant);
+                                }
+                            });
+                        }
+                        planet_flag_rows(
+                            ui,
+                            criteria,
+                            &[PlanetFlag::Dead, PlanetFlag::Weird, PlanetFlag::Infested],
+                            input_width,
+                        );
                         choice_rows(ui, criteria, &[Field::Size], input_width);
-                        planet_flag_rows(ui, criteria, &[PlanetFlag::Prime], input_width);
                         planet_flag_rows(ui, criteria, &[PlanetFlag::Relic], input_width);
                     });
 
@@ -551,12 +556,7 @@ impl App {
                     .show(ui, |ui| {
                         planet_flag_rows(ui, criteria, &[PlanetFlag::ExtremeWeather], input_width);
                         planet_flag_rows(ui, criteria, &[PlanetFlag::Paradise], input_width);
-                        choice_rows(
-                            ui,
-                            criteria,
-                            &[Field::WeatherConditions, Field::StormFrequency],
-                            input_width,
-                        );
+                        choice_rows(ui, criteria, &[Field::StormFrequency], input_width);
                         choice_rows(
                             ui,
                             criteria,
@@ -906,15 +906,21 @@ fn choices(
     ui: &mut Ui,
     id: impl std::hash::Hash + std::fmt::Debug,
     mask: &mut u64,
-    options: &[&str],
+    options: impl Iterator<Item = (usize, &'static str)> + Clone,
     width: f32,
 ) {
-    let text = if *mask == 0 {
+    let available_mask = options
+        .clone()
+        .fold(0u64, |mask, (index, _)| mask | (1 << index));
+    let text = if *mask & !available_mask != 0 {
+        "Unavailable selection".to_owned()
+    } else if *mask == 0 {
         "Any".to_owned()
     } else if mask.count_ones() == 1 {
         options
-            .get(mask.trailing_zeros() as usize)
-            .unwrap_or(&"Unknown")
+            .clone()
+            .find_map(|(index, label)| (index == mask.trailing_zeros() as usize).then_some(label))
+            .unwrap_or("Unknown")
             .to_string()
     } else {
         format!("{} selected", mask.count_ones())
@@ -924,12 +930,16 @@ fn choices(
         .width(width)
         .close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside)
         .show_ui(ui, |ui| {
+            if *mask & !available_mask != 0 {
+                ui.label("Choose Any or a listed option to replace the unavailable selection.");
+            }
             if ui.selectable_label(*mask == 0, "Any").clicked() {
                 *mask = 0;
             }
-            for (index, &label) in options.iter().enumerate() {
+            for (index, label) in options {
                 let mut selected = *mask & (1 << index) != 0;
                 if ui.checkbox(&mut selected, label).changed() {
+                    *mask &= available_mask;
                     if selected {
                         *mask |= 1 << index;
                     } else {
@@ -973,7 +983,7 @@ fn choice_row(ui: &mut Ui, criteria: &mut Criteria, field: Field, input_width: f
             ui,
             ("choice", field),
             &mut mask,
-            field.options(),
+            field.available_options(),
             input_width,
         );
     });
@@ -1008,6 +1018,46 @@ fn system_flag_rows(ui: &mut Ui, criteria: &mut Criteria, flags: &[SystemFlag], 
             criteria.systems.insert(flag, value);
         } else {
             criteria.systems.remove(&flag);
+        }
+    }
+}
+
+fn sentinel_row(ui: &mut Ui, criteria: &mut Criteria, input_width: f32) {
+    let original = criteria.sentinel_choices().unwrap_or(1 << 4);
+    let mut selected = original;
+    filter_row(ui, "Sentinels", input_width, |ui| {
+        choices(
+            ui,
+            "sentinels",
+            &mut selected,
+            Field::Sentinels.available_options(),
+            input_width,
+        );
+    });
+    if selected != original {
+        criteria.set_sentinel_choices(selected);
+    }
+}
+
+fn giant_filter_row(ui: &mut Ui, criteria: &mut Criteria, input_width: f32) {
+    let original = criteria.giant_filter();
+    let mut selected = original;
+    filter_row(ui, "Contains a giant planet", input_width, |ui| {
+        egui::ComboBox::from_id_salt("system_giant")
+            .width(input_width)
+            .selected_text(selected.map_or("Custom saved selection", GiantFilter::label))
+            .show_ui(ui, |ui| {
+                if original.is_none() {
+                    ui.label("Choose an option to replace the saved combination of giant filters.");
+                }
+                for &filter in GiantFilter::ALL {
+                    ui.selectable_value(&mut selected, Some(filter), filter.label());
+                }
+            });
+    });
+    if selected != original {
+        if let Some(filter) = selected {
+            criteria.set_giant_filter(filter);
         }
     }
 }

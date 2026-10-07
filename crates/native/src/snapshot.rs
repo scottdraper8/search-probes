@@ -40,7 +40,6 @@ impl Snapshot {
         for (field, offset) in [
             (Field::Economy, 0x2520),
             (Field::Wealth, 0x2524),
-            (Field::SystemClass, 0x252c),
             (Field::Conflict, 0x2530),
             (Field::Race, 0x2534),
             (Field::Star, 0x2550),
@@ -126,8 +125,6 @@ impl Snapshot {
             (PlanetFlag::ExtremeSentinels, 0x128 + difficulty),
             (PlanetFlag::CorruptSentinels, 0x12c + difficulty),
             (PlanetFlag::ExtremeWeather, 0x130),
-            (PlanetFlag::ExtremeHazard, 0x131),
-            (PlanetFlag::Prime, 0x132),
             (PlanetFlag::CreatureDiscovery, 0x138),
             (PlanetFlag::WeirdCreatureDiscovery, 0x139),
             (PlanetFlag::CreatureTaming, 0x13a),
@@ -135,14 +132,24 @@ impl Snapshot {
         ] {
             planet.set_planet_flag(flag, bytes[query + offset] != 0);
         }
+        let sentinel_level = match (
+            planet.planet_flag(PlanetFlag::Sentinels),
+            planet.planet_flag(PlanetFlag::ExtremeSentinels),
+            planet.planet_flag(PlanetFlag::CorruptSentinels),
+        ) {
+            (Some(false), Some(false), Some(false)) => 0,
+            (Some(true), Some(false), Some(false)) => 1,
+            (Some(true), Some(true), Some(false)) => 2,
+            (Some(true), Some(false), Some(true)) => 3,
+            _ => return Err("inconsistent native sentinel classification"),
+        };
+        planet.set(Field::Sentinels, sentinel_level);
         for (flag, value) in [
             (PlanetFlag::Infested, subtype == 24),
             (PlanetFlag::Relic, biome == 7 && subtype == 3),
             (PlanetFlag::Rgb, (8..=10).contains(&biome)),
-            (
-                PlanetFlag::Normal,
-                biome != 6 && biome != 7 && subtype != 24,
-            ),
+            (PlanetFlag::Dead, biome == 6),
+            (PlanetFlag::Weird, biome == 7),
             (
                 PlanetFlag::NonGasGiant,
                 planet.get(Field::Size) == Some(4) && biome != 15,
@@ -164,7 +171,8 @@ impl Snapshot {
                 let value = match flag {
                     SystemFlag::GasGiant => planet.get(Field::Biome).map(|value| value == 15),
                     SystemFlag::Waterworld => planet.get(Field::Biome).map(|value| value == 14),
-                    SystemFlag::Weird => planet.get(Field::Biome).map(|value| value == 7),
+                    SystemFlag::Dead => planet.planet_flag(PlanetFlag::Dead),
+                    SystemFlag::Weird => planet.planet_flag(PlanetFlag::Weird),
                     SystemFlag::ExtremeStorms => match (
                         planet.planet_flag(PlanetFlag::ExtremeWeather),
                         planet.get(Field::StormFrequency),
@@ -177,7 +185,6 @@ impl Snapshot {
                     SystemFlag::Water => planet.planet_flag(PlanetFlag::Water),
                     SystemFlag::DeepWater => planet.planet_flag(PlanetFlag::DeepWater),
                     SystemFlag::Infested => planet.planet_flag(PlanetFlag::Infested),
-                    SystemFlag::Normal => planet.planet_flag(PlanetFlag::Normal),
                     SystemFlag::Relic => planet.planet_flag(PlanetFlag::Relic),
                     SystemFlag::Rgb => planet.planet_flag(PlanetFlag::Rgb),
                     SystemFlag::CorruptSentinels => {
@@ -211,11 +218,15 @@ pub fn apply_capture(
     }
     if captured.present & capture::METADATA != 0 {
         let m = &captured.metadata;
+        if m.sentinel_levels[difficulty] > 3 {
+            return Err("invalid native sentinel level");
+        }
         for (field, value) in [
             (Field::Flora, m.life_level),
             (Field::Fauna, m.creature_life_level),
             (Field::Buildings, m.building_density),
             (Field::ResourceRichness, m.resource_level),
+            (Field::Sentinels, m.sentinel_levels[difficulty]),
         ] {
             facts.set(field, value);
         }
@@ -225,18 +236,6 @@ pub fn apply_capture(
         facts.set(Field::StormFrequency, captured.weather[0]);
         facts.set(Field::WeatherIntensity, captured.weather[1]);
         facts.set(Field::WeatherType, captured.weather[2]);
-        if let Some(extreme) = facts.planet_flag(PlanetFlag::ExtremeWeather) {
-            facts.set(
-                Field::WeatherConditions,
-                if captured.weather[0] == 0 {
-                    0
-                } else if extreme {
-                    2
-                } else {
-                    1
-                },
-            );
-        }
     }
     if captured.present & (capture::WEATHER | capture::METADATA)
         == capture::WEATHER | capture::METADATA
@@ -265,6 +264,84 @@ pub fn apply_capture(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn sentinel_levels_decode_native_query_flags_and_match_raw_metadata_for_each_difficulty() {
+        let levels = [0u32, 1, 2, 3];
+        let mut bytes = vec![0u8; QUERY_SIZE];
+        for (d, &level) in levels.iter().enumerate() {
+            bytes[PLANET_QUERY_OFFSET + 0x124 + d] = u8::from(level != 0);
+            bytes[PLANET_QUERY_OFFSET + 0x128 + d] = u8::from(level == 2);
+            bytes[PLANET_QUERY_OFFSET + 0x12c + d] = u8::from(level == 3);
+        }
+        for (difficulty, &level) in levels.iter().enumerate() {
+            let mut snapshot = Snapshot {
+                system: Facts::default(),
+                planets: [Facts::default(); 8],
+                count: 1,
+            };
+            snapshot.read_planet(&bytes, 0, difficulty).unwrap();
+            assert_eq!(snapshot.planets[0].get(Field::Sentinels), Some(level));
+            snapshot.aggregate();
+            assert_eq!(
+                snapshot.system.system_flag(SystemFlag::CorruptSentinels),
+                Some(level == 3)
+            );
+            let captured = capture::Facts {
+                present: capture::METADATA,
+                metadata: capture::Metadata {
+                    sentinel_levels: levels,
+                    ..Default::default()
+                },
+                ..Default::default()
+            };
+            let mut facts = Facts::default();
+            apply_capture(&mut facts, &captured, difficulty).unwrap();
+            assert_eq!(
+                facts.get(Field::Sentinels),
+                snapshot.planets[0].get(Field::Sentinels)
+            );
+        }
+        let mut snapshot = Snapshot {
+            system: Facts::default(),
+            planets: [Facts::default(); 8],
+            count: 1,
+        };
+        let mut bytes = vec![0u8; QUERY_SIZE];
+        bytes[PLANET_QUERY_OFFSET + 0x128] = 1;
+        assert!(snapshot.read_planet(&bytes, 0, 0).is_err());
+        let captured = capture::Facts {
+            present: capture::METADATA,
+            metadata: capture::Metadata {
+                sentinel_levels: [4; 4],
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+        assert!(apply_capture(&mut Facts::default(), &captured, 0).is_err());
+    }
+
+    #[test]
+    fn solar_population_decodes_empty_and_abandoned_flags() {
+        let race = 2u32;
+        for (empty, abandoned, population) in [
+            (false, false, 0),
+            (true, false, 1),
+            (false, true, 2),
+            (true, true, 1),
+        ] {
+            let mut bytes = vec![0u8; QUERY_SIZE];
+            bytes[METADATA_OFFSET + 0x2544..METADATA_OFFSET + 0x2548]
+                .copy_from_slice(&1u32.to_le_bytes());
+            bytes[METADATA_OFFSET + 0x2534..METADATA_OFFSET + 0x2538]
+                .copy_from_slice(&race.to_le_bytes());
+            bytes[PLANET_INPUT_OFFSET + 0x4f] = u8::from(empty);
+            bytes[PLANET_INPUT_OFFSET + 0x4e] = u8::from(abandoned);
+            let snapshot = Snapshot::solar(&bytes).unwrap();
+            assert_eq!(snapshot.system.get(Field::Race), Some(race));
+            assert_eq!(snapshot.system.get(Field::Population), Some(population));
+        }
+    }
 
     #[test]
     fn aggregate_negatives_wait_for_every_planet() {

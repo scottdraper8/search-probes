@@ -28,6 +28,12 @@ gameplay pauses search progress.
 - **Results:** 1–100 matches. A search ends at its result cap, budget, or galaxy exhaustion.
 - Select multiple values in a field to accept any selected value. All selected fields must match.
   **Any** omits that predicate and its optional acquisition work.
+- **Dominant lifeform:** Gek, Vy'keen, Korvax, or None. None matches empty, uninhabited
+  systems. Abandoned systems retain their species; use **Population → Abandoned** to find them.
+- **Sentinels:** Low / absent, Standard, Aggressive, or Corrupted, using the current combat
+  difficulty's native level. Low / absent does not guarantee that no sentinel can ever appear.
+- Unavailable saved choices appear as **Unavailable selection**;
+  choose Any or a listed option to replace them.
 - Resources have explicit **All** and **Any** selection modes.
 - **Cancel** keeps completed matches and the continuation position.
 - Worker count and the gameplay time budget control the search's share of processing time.
