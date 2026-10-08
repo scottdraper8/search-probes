@@ -26,7 +26,7 @@ pub struct App {
     use_cache: bool,
     error: Option<String>,
     last_toggle: Option<u64>,
-    last_open: Option<u64>,
+    published_settings: Option<Settings>,
     visible: bool,
     exit: bool,
     owner: Option<crate::process::Owner>,
@@ -70,7 +70,7 @@ impl App {
             use_cache: true,
             error,
             last_toggle: None,
-            last_open: None,
+            published_settings: None,
             visible: true,
             exit: false,
             owner: None,
@@ -79,37 +79,14 @@ impl App {
     }
     fn send(&mut self, action: Action) {
         let pending = matches!(&action, Action::Start { .. } | Action::Continue { .. });
-        let resume = matches!(
-            &action,
-            Action::Start { .. }
-                | Action::Continue { .. }
-                | Action::Cancel {}
-                | Action::Navigate { .. }
-                | Action::ClearHistory {}
-        );
         match self.control.send(action) {
             Ok(id) => {
                 self.error = None;
                 if pending {
                     self.pending_search = Some(id);
                 }
-                if resume {
-                    self.resume_game();
-                }
             }
             Err(error) => self.error = Some(error),
-        }
-    }
-    fn resume_game(&mut self) {
-        if let Some(state) = &self.control.state {
-            match crate::process::focus_game(state.pid) {
-                Ok(()) => {}
-                Err(error) => {
-                    self.error = Some(format!(
-                        "Return to No Man's Sky to resume the search: {error}"
-                    ))
-                }
-            }
         }
     }
     fn preset_controls(&mut self, ui: &mut Ui) {
@@ -424,7 +401,6 @@ impl App {
                 .default_open(true)
                 .show(ui, |ui| {
                     choice_rows(ui, criteria, &[Field::Biome, Field::Subtype], input_width);
-                    planet_flag_rows(ui, criteria, &[PlanetFlag::Rgb], input_width);
                     choice_rows(ui, criteria, &[Field::Flora], input_width);
                 });
 
@@ -435,6 +411,7 @@ impl App {
                             ui,
                             criteria,
                             &[
+                                Field::WorldColourFilter,
                                 Field::Cloud,
                                 Field::Sky,
                                 Field::Grass,
@@ -741,7 +718,7 @@ impl eframe::App for App {
                 self.settings = state.settings.clone();
                 self.loaded_session = Some(state.session.clone());
                 self.last_toggle = None;
-                self.last_open = None;
+                self.published_settings = None;
                 self.selected_preset = None;
                 self.pending_search = None;
                 self.loaded_generation = None;
@@ -754,13 +731,16 @@ impl eframe::App for App {
                 self.pending_search = None;
                 self.loaded_generation = Some(state.generation);
             }
-            let open = self.last_open.is_some_and(|last| last != state.open);
-            if open || self.last_toggle.is_some_and(|last| last != state.toggle) {
-                self.visible = open || !self.visible;
-                if open {
-                    self.settings = state.settings.clone();
-                    self.selected_preset = None;
-                }
+            if self.published_settings.as_ref() != Some(&state.settings) {
+                self.settings = state.settings.clone();
+                self.published_settings = Some(state.settings.clone());
+                self.selected_preset = None;
+            }
+            if self
+                .last_toggle
+                .is_some_and(|last| state.toggle.wrapping_sub(last) & 1 != 0)
+            {
+                self.visible = !self.visible;
                 ctx.send_viewport_cmd(egui::ViewportCommand::Visible(self.visible));
                 if self.visible {
                     if let Err(error) = crate::process::interactive() {
@@ -778,7 +758,6 @@ impl eframe::App for App {
                 self.pending_search = None;
             }
             self.last_toggle = Some(state.toggle);
-            self.last_open = Some(state.open);
             if state.availability == Availability::Stopped {
                 self.exit = true;
             }
@@ -893,7 +872,10 @@ fn filter_row(ui: &mut Ui, label: &str, control_width: f32, add_control: impl Fn
                 egui::vec2(label_width, row_height),
                 egui::Layout::left_to_right(egui::Align::Center),
                 |label_ui| {
-                    label_ui.add(egui::Label::new(label).wrap());
+                    let response = label_ui.add(egui::Label::new(label).wrap());
+                    if label == Field::Grass.label() {
+                        response.on_hover_text("Main grass colour in daylight; secondary patches do not qualify. Night, storms and nearby lights can change the colour you see.");
+                    }
                 },
             );
             row.add_space((row_width - label_width - control_width).max(0.0));
@@ -977,7 +959,14 @@ fn choice_rows(ui: &mut Ui, criteria: &mut Criteria, fields: &[Field], input_wid
 }
 
 fn choice_row(ui: &mut Ui, criteria: &mut Criteria, field: Field, input_width: f32) {
-    let mut mask = criteria.choices.get(&field).copied().unwrap_or(0);
+    let original = if field == Field::Biome {
+        criteria
+            .biome_choices()
+            .unwrap_or(1 << field.options().len())
+    } else {
+        criteria.choices.get(&field).copied().unwrap_or(0)
+    };
+    let mut mask = original;
     filter_row(ui, field.label(), input_width, |ui| {
         choices(
             ui,
@@ -987,10 +976,14 @@ fn choice_row(ui: &mut Ui, criteria: &mut Criteria, field: Field, input_width: f
             input_width,
         );
     });
-    if mask == 0 {
-        criteria.choices.remove(&field);
-    } else {
-        criteria.choices.insert(field, mask);
+    if mask != original {
+        if field == Field::Biome {
+            criteria.set_biome_choices(mask);
+        } else if mask == 0 {
+            criteria.choices.remove(&field);
+        } else {
+            criteria.choices.insert(field, mask);
+        }
     }
 }
 

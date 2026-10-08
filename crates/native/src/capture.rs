@@ -57,6 +57,7 @@ pub struct Facts {
     pub screen_filter: i32,
     pub name: [u8; 128],
     pub colours: [[f64; 4]; COLOUR_COUNT],
+    pub grass_terrain: [[f64; 4]; 2],
 }
 
 impl Default for Facts {
@@ -69,6 +70,7 @@ impl Default for Facts {
             screen_filter: -1,
             name: [0; 128],
             colours: [[0.; 4]; COLOUR_COUNT],
+            grass_terrain: [[0.; 4]; 2],
         }
     }
 }
@@ -169,8 +171,12 @@ pub unsafe fn capture(
         if wanted & NAME != 0 {
             facts.name = read(planet, 0x3a4e);
         }
-        if wanted & SCREEN_FILTER != 0 {
+        if wanted & (SCREEN_FILTER | colour(0)) != 0 {
             facts.screen_filter = read(planet, 0x1e44);
+        }
+        if wanted & colour(0) != 0 {
+            facts.grass_terrain =
+                [1, 3].map(|index| read::<[f32; 4]>(planet, 0x1e60 + index * 16).map(f64::from));
         }
         for i in 0..3 {
             if wanted & colour(i) != 0 {
@@ -226,7 +232,12 @@ pub unsafe fn capture(
                 water_reflectance(read(row, 0x40), read(row, 0x50), read(row, 0x68))?;
         }
     }
-    facts.present = wanted;
+    facts.present = wanted
+        | if wanted & colour(0) != 0 {
+            SCREEN_FILTER
+        } else {
+            0
+        };
     Ok(facts)
 }
 
@@ -240,13 +251,37 @@ mod tests {
     }
     #[test]
     fn palette_only_does_not_read_native_tables() {
-        let mut planet = [0u8; 16];
-        for (chunk, value) in planet.chunks_exact_mut(4).zip([0.1f32, 0.2, 0.3, 1.]) {
+        let mut planet = [0u8; 0x80];
+        for (chunk, value) in planet[0x70..]
+            .as_chunks_mut::<4>()
+            .0
+            .iter_mut()
+            .zip([0.1f32, 0.2, 0.3, 1.])
+        {
             chunk.copy_from_slice(&value.to_ne_bytes());
         }
-        let facts = unsafe { capture(planet.as_ptr(), std::ptr::null(), colour(0)) }.unwrap();
-        assert_eq!(facts.present, colour(0));
-        assert_eq!(facts.colours[0], [0.1f32, 0.2, 0.3, 1.].map(f64::from));
+        let facts = unsafe { capture(planet.as_ptr(), std::ptr::null(), colour(1)) }.unwrap();
+        assert_eq!(facts.present, colour(1));
+        assert_eq!(facts.colours[1], [0.1f32, 0.2, 0.3, 1.].map(f64::from));
+    }
+    #[test]
+    fn grass_reads_render_bound_tiles_and_selected_grading() {
+        let mut planet = vec![0; 0x3ae0];
+        for (slot, rgba) in [(1, [0.2f32, 0.3, 0.4, 1.]), (3, [0.5f32, 0.6, 0.7, 1.])] {
+            for (i, v) in rgba.iter().enumerate() {
+                let offset = 0x1e60 + slot * 16 + i * 4;
+                planet[offset..offset + 4].copy_from_slice(&v.to_ne_bytes());
+            }
+        }
+        planet[0x1e44..0x1e48].copy_from_slice(&13i32.to_ne_bytes());
+        let captured = unsafe { capture(planet.as_ptr(), std::ptr::null(), colour(0)) }.unwrap();
+        assert_eq!(
+            captured.grass_terrain,
+            [[0.2f32, 0.3, 0.4, 1.], [0.5f32, 0.6, 0.7, 1.]].map(|c| c.map(f64::from))
+        );
+        assert_eq!(captured.screen_filter, 13);
+        assert_eq!(captured.present, colour(0) | SCREEN_FILTER);
+        assert_eq!(captured.colours[0], [0.; 4]);
     }
     #[test]
     fn invalid_optics_fail_explicitly() {

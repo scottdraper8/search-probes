@@ -75,3 +75,5 @@ mod lifecycle_probe;
 
 #[cfg(all(windows, feature = "investigation"))]
 mod runtime_probe;
+
+pub mod colour_lut;

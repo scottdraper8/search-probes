@@ -9,6 +9,7 @@ pub enum Stage {
     Query,
     Metadata,
     Weather,
+    ScreenFilter,
     Colour,
     Objects,
 }
@@ -47,7 +48,7 @@ fields! {
     WeatherType => ("Weather type",WEATHER_TYPES,Weather),
     StormFrequency => ("Storm frequency",STORM_FREQUENCIES,Weather),
     WeatherIntensity => ("Weather intensity",WEATHER_INTENSITIES,Weather),
-    Grass => ("Grass colour",HUE_FAMILIES,Colour),
+    Grass => ("Grass colour",GRASS_COLOURS,Objects),
     Plant => ("Plant colour",HUE_FAMILIES,Colour),
     Leaf => ("Leaf colour",HUE_FAMILIES,Colour),
     Cloud => ("Cloud colour",HUE_FAMILIES,Colour),
@@ -58,6 +59,7 @@ fields! {
     Sunset => ("Sunset colour",HUE_FAMILIES,Colour),
     NightSky => ("Night sky colour",HUE_FAMILIES,Colour),
     WaterColour => ("Water colour",HUE_FAMILIES,Colour),
+    WorldColourFilter => ("World colour filter",WORLD_FILTERS,ScreenFilter),
 }
 
 impl Field {
@@ -69,7 +71,8 @@ impl Field {
             .filter(move |(index, _)| match self {
                 Self::Race => matches!(index, 0 | 1 | 2 | 7),
                 Self::Anomaly => matches!(index, 0 | 2 | 5),
-                Self::Biome => *index != 11,
+                Self::Biome => !(8..=11).contains(index),
+                Self::Grass => *index != 8,
                 Self::Terrain => !(10..=20).contains(index),
                 _ => true,
             })
@@ -97,6 +100,12 @@ impl Field {
         if choice >= self.options().len() {
             return None;
         }
+        if self == Self::WorldColourFilter {
+            return WORLD_FILTER_VALUES.get(choice).copied();
+        }
+        if self == Self::Biome && choice == 16 {
+            return None;
+        }
         Some(if self == Self::Anomaly && choice == 5 {
             0
         } else {
@@ -105,7 +114,12 @@ impl Field {
     }
 
     fn choice_index(self, native_value: u32) -> Option<u32> {
-        if self == Self::Anomaly {
+        if self == Self::WorldColourFilter {
+            WORLD_FILTER_VALUES
+                .iter()
+                .position(|&value| value == native_value)
+                .map(|index| index as u32)
+        } else if self == Self::Anomaly {
             match native_value {
                 0 => Some(5),
                 1..=5 => Some(native_value - 1),
@@ -146,7 +160,7 @@ flags! { PlanetFlag {
     ExtremeWeather => ("Extreme weather",Query),
     Infested => ("Infested",Query),
     Relic => ("Relic",Query),
-    Rgb => ("Chromatic biome",Query),
+    Rgb => ("Mega-exotic biome",Query),
     CreatureDiscovery => ("Suitable for creature discovery",Query),
     WeirdCreatureDiscovery => ("Suitable for unusual creature discovery",Query),
     CreatureTaming => ("Suitable for creature taming",Query),
@@ -169,7 +183,7 @@ flags! { SystemFlag {
     Weird => ("Contains a weird / exotic planet",Query),
     Infested => ("Contains an infested planet",Query),
     Relic => ("Contains a relic planet",Query),
-    Rgb => ("Contains a chromatic biome",Query),
+    Rgb => ("Contains a mega-exotic biome",Query),
     CorruptSentinels => ("Contains corrupt sentinels",Query),
     ExtremeStorms => ("Contains extreme storms",Query),
     Dead => ("Contains a dead planet",Query),
@@ -269,6 +283,11 @@ where
             choices.remove(&Field::Terrain);
         }
     }
+    if let Some(mask) = choices.get_mut(&Field::Grass)
+        && *mask & (1 << 8) != 0
+    {
+        *mask = (*mask & !(1 << 8)) | (1 << 9) | (1 << 10);
+    }
     Ok(choices)
 }
 
@@ -301,6 +320,22 @@ impl Choices {
         self.mask
     }
     pub fn accepts(self, native_value: u32) -> bool {
+        if self.field == Field::Grass && native_value & GRASS_COLOUR_SET != 0 {
+            let mut mask = self.mask as u32;
+            if mask & (1 << 8) != 0 {
+                mask |= (1 << 9) | (1 << 10);
+            }
+            return native_value & mask & !GRASS_COLOUR_SET != 0;
+        }
+        if self.field == Field::Biome && native_value >= 16 {
+            return false;
+        }
+        if self.field == Field::Biome
+            && (8..=10).contains(&native_value)
+            && self.mask & (1 << 16) != 0
+        {
+            return true;
+        }
         let Some(index) = self.field.choice_index(native_value) else {
             return false;
         };
@@ -334,6 +369,7 @@ pub struct Requirements {
     pub planet_query: bool,
     pub metadata: bool,
     pub weather: bool,
+    pub screen_filter: bool,
     pub colours: u16,
     pub objects: bool,
 }
@@ -346,6 +382,41 @@ pub struct Plan {
 }
 
 impl Criteria {
+    pub fn biome_choices(&self) -> Option<u64> {
+        let selected = self.choices.get(&Field::Biome).copied().unwrap_or(0);
+        if selected >> BIOMES.len() != 0 {
+            return None;
+        }
+        let mega = 0b111 << 8;
+        let mut accepted = selected & !(1 << 16);
+        if selected & (1 << 16) != 0 {
+            accepted |= mega;
+        }
+        if let Some(&required) = self.planets.get(&PlanetFlag::Rgb) {
+            if selected == 0 {
+                accepted = (1 << 16) - 1;
+            }
+            accepted &= if required { mega } else { !mega };
+            if accepted == 0 {
+                return None;
+            }
+        }
+        if accepted & mega == mega {
+            Some((accepted & !mega) | (1 << 16))
+        } else {
+            Some(accepted)
+        }
+    }
+
+    pub fn set_biome_choices(&mut self, mask: u64) {
+        self.planets.remove(&PlanetFlag::Rgb);
+        if mask == 0 {
+            self.choices.remove(&Field::Biome);
+        } else {
+            self.choices.insert(Field::Biome, mask);
+        }
+    }
+
     pub fn sentinel_choices(&self) -> Option<u64> {
         let selected = self.choices.get(&Field::Sentinels).copied().unwrap_or(0);
         if selected >> SENTINEL_LEVELS.len() != 0 {
@@ -480,6 +551,7 @@ impl Criteria {
                 || *predicate == Predicate::Planet(PlanetFlag::Paradise, true)
                 || *predicate == Predicate::Planet(PlanetFlag::Paradise, false);
             plan.requirements.weather |= predicate.stage() == Stage::Weather;
+            plan.requirements.screen_filter |= predicate.stage() == Stage::ScreenFilter;
             plan.requirements.objects |= predicate.stage() == Stage::Objects;
         }
         plan.system
@@ -497,6 +569,28 @@ mod tests {
     use super::*;
 
     #[test]
+    fn grass_matches_appearance_sets_and_migrates_old_neutral_choices() {
+        let criteria: Criteria = serde_json::from_str(r#"{"choices":{"grass":256}}"#).unwrap();
+        assert_eq!(criteria.choices[&Field::Grass], (1 << 9) | (1 << 10));
+        let plan = criteria.compile().unwrap();
+        assert!(plan.requirements.objects);
+        assert_eq!(plan.requirements.colours, 1);
+        for (colours, expected) in [(0, false), (1 << 3, false), (1 << 9, true), (1 << 10, true)] {
+            let mut facts = crate::facts::Facts::default();
+            facts.set(Field::Grass, GRASS_COLOUR_SET | colours);
+            assert_eq!(
+                plan.planet_match(&facts) == crate::facts::Verdict::Match,
+                expected
+            );
+            assert!(plan.missing_planet_requirements(&facts) == Requirements::default());
+        }
+        assert!(
+            !Field::Grass
+                .available_options()
+                .any(|(_, label)| label == "Neutral")
+        );
+    }
+    #[test]
     fn filtered_menus_keep_native_selection_indices() {
         assert_eq!(
             Field::Race.available_options().collect::<Vec<_>>(),
@@ -507,16 +601,13 @@ mod tests {
             [(0, "Atlas station"), (2, "Black hole"), (5, "None")]
         );
         assert_eq!(
-            Field::Biome
-                .available_options()
-                .skip(10)
-                .collect::<Vec<_>>(),
+            Field::Biome.available_options().skip(8).collect::<Vec<_>>(),
             [
-                (10, "Blue"),
                 (12, "Swamp"),
                 (13, "Lava"),
                 (14, "Waterworld"),
-                (15, "GasGiant")
+                (15, "GasGiant"),
+                (16, "Mega-exotic")
             ]
         );
         assert_eq!(
@@ -719,6 +810,84 @@ mod tests {
         }
         assert!(!choices.accepts(5));
         assert!(!plan.requirements.planet_query);
+    }
+
+    #[test]
+    fn mega_exotic_groups_native_biomes_and_preserves_saved_restrictions() {
+        for (json, accepted) in [
+            (r#"{"choices":{"biome":65536}}"#, vec![8, 9, 10]),
+            (r#"{"choices":{"biome":1792}}"#, vec![8, 9, 10]),
+            (r#"{"planets":{"rgb":true}}"#, vec![8, 9, 10]),
+            (
+                r#"{"choices":{"biome":512},"planets":{"rgb":true}}"#,
+                vec![9],
+            ),
+            (
+                r#"{"planets":{"rgb":false}}"#,
+                vec![0, 1, 2, 3, 4, 5, 6, 7, 11, 12, 13, 14, 15],
+            ),
+        ] {
+            let criteria: Criteria = serde_json::from_str(json).unwrap();
+            let displayed = criteria.biome_choices().unwrap();
+            if accepted == [8, 9, 10] {
+                assert_eq!(displayed, 1 << 16);
+            }
+            let plan = criteria.compile().unwrap();
+            let mut edited = criteria.clone();
+            edited.set_biome_choices(displayed);
+            let edited_plan = edited.compile().unwrap();
+            assert!(!edited.planets.contains_key(&PlanetFlag::Rgb));
+            for native in 0..16 {
+                let mut facts = crate::facts::Facts::default();
+                facts.set(Field::Biome, native);
+                facts.set_planet_flag(PlanetFlag::Rgb, (8..=10).contains(&native));
+                assert_eq!(
+                    plan.planet_match(&facts) == crate::facts::Verdict::Match,
+                    accepted.contains(&native)
+                );
+                assert_eq!(edited_plan.planet_match(&facts), plan.planet_match(&facts));
+            }
+        }
+        let mut conflicting: Criteria =
+            serde_json::from_str(r#"{"choices":{"biome":1},"planets":{"rgb":true,"water":true}}"#)
+                .unwrap();
+        assert_eq!(conflicting.biome_choices(), None);
+        conflicting.set_biome_choices(0);
+        assert_eq!(conflicting.biome_choices(), Some(0));
+        assert_eq!(
+            conflicting.planets,
+            BTreeMap::from([(PlanetFlag::Water, true)])
+        );
+    }
+
+    #[test]
+    fn world_filter_masks_use_generated_values_and_acquire_only_selected_data() {
+        let mut criteria = Criteria::default();
+        criteria
+            .choices
+            .insert(Field::WorldColourFilter, (1 << 8) | (1 << 36) | (1 << 41));
+        let plan = criteria.compile().unwrap();
+        assert!(plan.requirements.screen_filter);
+        assert!(!plan.requirements.weather);
+        assert_eq!(plan.requirements.colours, 0);
+        let mut facts = crate::facts::Facts::default();
+        assert!(plan.missing_planet_requirements(&facts).screen_filter);
+        for native in 0..85 {
+            facts.set(Field::WorldColourFilter, native);
+            assert_eq!(
+                plan.planet_match(&facts) == crate::facts::Verdict::Match,
+                [13, 78, 83].contains(&native)
+            );
+            assert!(!plan.missing_planet_requirements(&facts).screen_filter);
+        }
+        criteria
+            .choices
+            .insert(Field::WorldColourFilter, 1 << WORLD_FILTERS.len());
+        assert!(criteria.compile().is_err());
+        criteria.choices.insert(Field::WorldColourFilter, 0);
+        assert!(!criteria.compile().unwrap().requirements.screen_filter);
+        assert_eq!(Field::WorldColourFilter.native_value(36), Some(78));
+        assert_eq!(WORLD_FILTER_VALUES.len(), WORLD_FILTERS.len());
     }
 
     #[test]

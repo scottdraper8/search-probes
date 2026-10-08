@@ -15,6 +15,7 @@ pub const BIOMES: &[&str] = &[
     "Lava",
     "Waterworld",
     "GasGiant",
+    "Mega-exotic",
 ];
 pub const STAR_TYPES: &[&str] = &["Yellow", "Green", "Blue", "Red", "Purple"];
 pub const WEALTH_CLASSES: &[&str] = &["Poor", "Average", "Wealthy", "Pirate"];
@@ -78,6 +79,11 @@ pub const TERRAIN_SETTINGS: &[&str] = &[
 pub const HUE_FAMILIES: &[&str] = &[
     "Red", "Orange", "Yellow", "Green", "Cyan", "Blue", "Purple", "Magenta", "Neutral",
 ];
+pub const GRASS_COLOURS: &[&str] = &[
+    "Red", "Orange", "Yellow", "Green", "Cyan", "Blue", "Purple", "Magenta", "Neutral", "Black",
+    "White",
+];
+pub const GRASS_COLOUR_SET: u32 = 1 << 31;
 pub const STORM_FREQUENCIES: &[&str] = &["None", "Low", "High", "Always"];
 pub const WEATHER_INTENSITIES: &[&str] = &["Default", "Extreme"];
 pub const WEATHER_TYPES: &[&str] = &[
@@ -189,3 +195,53 @@ resources! {
     "YELLOW2" => "Copper",
 }
 pub const CONFLICT_LEVELS: &[&str] = &["Low", "Medium", "High", "Pirate"];
+
+pub const WORLD_FILTERS: &[&str] = &[
+    "Default",
+    "Frozen",
+    "Toxic",
+    "Radioactive",
+    "Scorched",
+    "Scorched storm",
+    "Barren",
+    "Selective grey with warm accents",
+    "Cool shadows, warm highlights",
+    "Red/orange remapping",
+    "Hue shift with violet shadows",
+    "Red-biased remapping",
+    "Dark grey/red",
+    "Amber/sepia",
+    "Muted colours, warm highlights",
+    "Vintage",
+    "Green",
+    "Vibrant",
+    "Vibrant bright",
+    "Vibrant warm",
+    "Vintage bright",
+    "Autumn",
+    "Colour touch B",
+    "Colour touch C",
+    "Extreme sepia",
+    "Solarise",
+    "Two tone",
+    "Amber",
+    "Red",
+    "Hue shift A",
+    "Hue shift B",
+    "Hue shift C",
+    "Hue shift D",
+    "Warm stripe",
+    "Retro A",
+    "Retro B",
+    "Retro C",
+    "Retro D",
+    "Retro E",
+    "Retro F",
+    "Retro G",
+    "Corrupted Sentinels",
+];
+
+pub const WORLD_FILTER_VALUES: &[u32] = &[
+    0, 2, 4, 6, 8, 9, 10, 12, 13, 14, 15, 16, 17, 18, 19, 20, 27, 42, 43, 44, 45, 51, 57, 58, 60,
+    61, 63, 69, 70, 71, 72, 73, 74, 75, 76, 77, 78, 79, 80, 81, 82, 83,
+];

@@ -136,6 +136,7 @@ impl Plan {
             needed.metadata |= predicate.stage() == Stage::Metadata
                 || matches!(predicate, Predicate::Planet(PlanetFlag::Paradise, _));
             needed.weather |= predicate.stage() == Stage::Weather;
+            needed.screen_filter |= predicate.stage() == Stage::ScreenFilter;
             needed.objects |= predicate.stage() == Stage::Objects;
             if let Predicate::Choice(choices) = predicate {
                 if let Some(index) = choices.field().colour_index() {

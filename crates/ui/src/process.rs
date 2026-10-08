@@ -7,9 +7,7 @@ use windows_sys::Win32::{
 use windows_sys::Win32::{
     Foundation::{HWND, LPARAM, RECT},
     UI::WindowsAndMessaging::{
-        EnumWindows, GWL_EXSTYLE, GWLP_HWNDPARENT, GetForegroundWindow, GetWindowLongPtrW,
-        GetWindowRect, GetWindowThreadProcessId, IsWindowVisible, SW_HIDE, SetWindowLongPtrW,
-        WS_EX_NOACTIVATE,
+        EnumWindows, GetWindowRect, GetWindowThreadProcessId, IsWindowVisible, SW_HIDE,
     },
 };
 
@@ -104,30 +102,9 @@ fn ui_window() -> io::Result<HWND> {
     Ok(window)
 }
 
-fn passive_windows(pid: u32) -> io::Result<(HWND, HWND)> {
+pub fn hide(pid: u32) -> io::Result<()> {
     let ui = ui_window()?;
     let game = window(pid).ok_or_else(|| io::Error::other("The game window is unavailable"))?;
-    unsafe {
-        SetWindowLongPtrW(ui, GWLP_HWNDPARENT, game as isize);
-        let style = GetWindowLongPtrW(ui, GWL_EXSTYLE);
-        SetWindowLongPtrW(ui, GWL_EXSTYLE, style | WS_EX_NOACTIVATE as isize);
-    }
-    Ok((ui, game))
-}
-
-pub fn focus_game(pid: u32) -> io::Result<()> {
-    let (_, game) = passive_windows(pid)?;
-    unsafe {
-        SetForegroundWindow(game);
-        if GetForegroundWindow() != game {
-            return Err(io::Error::other("No Man's Sky did not accept focus"));
-        }
-    }
-    Ok(())
-}
-
-pub fn hide(pid: u32) -> io::Result<()> {
-    let (ui, game) = passive_windows(pid)?;
     unsafe {
         ShowWindow(ui, SW_HIDE);
         SetForegroundWindow(game);
@@ -138,8 +115,6 @@ pub fn hide(pid: u32) -> io::Result<()> {
 pub fn interactive() -> io::Result<()> {
     let ui = ui_window()?;
     unsafe {
-        let style = GetWindowLongPtrW(ui, GWL_EXSTYLE);
-        SetWindowLongPtrW(ui, GWL_EXSTYLE, style & !(WS_EX_NOACTIVATE as isize));
         ShowWindow(ui, SW_SHOW);
         SetForegroundWindow(ui);
     }

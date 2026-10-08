@@ -17,11 +17,11 @@ validated runtime environment. Native Windows desktop operation has not been tes
 
 ## Search
 
-Press **F7** in NMS to open or hide Search Probes. Guide completion and Guide launch errors also
-open the controls. Window size, position and maximized state remain under the window manager and
-are not changed by search actions. Select criteria and start a search. Starting returns focus to NMS
-while the controls remain visible so gameplay and the search can continue. Pausing NMS or leaving
-gameplay pauses search progress.
+Press **F7** in NMS or Search Probes to open or hide the controls. Search actions, results and errors
+do not change window visibility or focus. The desktop UI requests an always-on-top window;
+fullscreen stacking under Proton still depends on the desktop window manager. Window size, position
+and maximized state remain under the window manager. Select criteria and start a search. Pausing
+NMS or leaving gameplay pauses search progress; return to the game when needed.
 
 - **Systems to search:** 1,000; 10,000; 100,000; 1,000,000; 10,000,000; 100,000,000;
   1,000,000,000. The default is 10,000.
@@ -30,6 +30,17 @@ gameplay pauses search progress.
   **Any** omits that predicate and its optional acquisition work.
 - **Dominant lifeform:** Gek, Vy'keen, Korvax, or None. None matches empty, uninhabited
   systems. Abandoned systems retain their species; use **Population → Abandoned** to find them.
+- **Biome → Mega-exotic:** combines the game’s Red, Green and Blue biome families.
+  The separate Chromatic biome control is removed.
+- **World colour filter:** matches the assigned world grading, independently of biome.
+  Any accepts every filter; Default specifically requires default grading. The menu lists the
+  filters used by current planet definitions plus the corrupted-Sentinel grading override.
+  Descriptions for the eight Weird effects come from their colour transformations; other options
+  retain readable game filter names.
+- **Grass colour:** includes Black and White and checks for grass cover. It estimates the main
+  grass colour in daylight from its material tint and world grading. Secondary patches do not
+  qualify; night, storms and nearby lights can change the visible colour. Desert scrub, mushrooms
+  and vegetation around buildings are excluded.
 - **Sentinels:** Low / absent, Standard, Aggressive, or Corrupted, using the current combat
   difficulty's native level. Low / absent does not guarantee that no sentinel can ever appear.
 - Unavailable saved choices appear as **Unavailable selection**;
@@ -62,8 +73,8 @@ replaces that page with new matches; continuing a partial page adds matches. The
 cache holds up to 1,024 small object-table summaries, with no retained native pointers. Both caches
 clear on save reload, relevant native configuration changes, or explicit history clearing.
 
-Colours describe generated inputs rather than rendered pixels. Lighting, grading, vegetation
-variation and reflections can change the appearance. Floating islands checks the generated
+Grass colour estimates daylight appearance. Other colours describe generated palette inputs.
+Lighting, vegetation variation and reflections can change the appearance. Floating islands checks the generated
 object flag. Expensive criteria take more work than basic system filters.
 
 Choose **Set destination** on a result to create a **Search Probe Target** mission. Select Current Mission
@@ -75,8 +86,8 @@ a different destination. Navigation stays in the current galaxy.
 Save up to nine named presets in the Rust UI. Their numbered order corresponds to **Preset 1**
 through **Preset 9** in Catalogue & Guide → Search Probes. Saving updates that slot immediately.
 Removing a preset shifts the following slots. Launch a slot and return to gameplay to let the search
-run. Results open in the Rust UI; choose the result you want to navigate to. Empty slots open the
-controls with an explanation.
+run. Press **F7** to view results and choose a destination. Empty slots report an explanation in the
+controls; they do not open the window.
 
 Settings are stored in `%LOCALAPPDATA%\SearchProbes\settings.json` inside the game's Windows or
 Proton user profile. A valid previous version is kept as `settings.backup.json`. Unreadable

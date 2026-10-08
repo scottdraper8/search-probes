@@ -1,5 +1,5 @@
 use crate::{
-    capture,
+    capture, colour_lut,
     object_cache::ObjectTableCache,
     object_flags::ObjectTables,
     planet_query_context::PlanetQueryContext,
@@ -10,8 +10,9 @@ use crate::{
 use search_probes_model::{
     address::Address,
     cache::{MAX_NAME_BYTES, SystemRecord},
-    criteria::{Plan, PlanetFlag},
+    criteria::{Field, Plan, PlanetFlag},
     facts::Verdict,
+    vocabulary::GRASS_COLOUR_SET,
 };
 use std::sync::atomic::{AtomicBool, Ordering};
 
@@ -174,7 +175,12 @@ impl<'cache> Generator<'cache> {
                         capture::METADATA
                     } else {
                         0
-                    } | if needed.weather { capture::WEATHER } else { 0 };
+                    } | if needed.weather { capture::WEATHER } else { 0 }
+                        | if needed.screen_filter {
+                            capture::SCREEN_FILTER
+                        } else {
+                            0
+                        };
                     if metadata != 0 {
                         let details = capture::capture(live, generator, metadata)?;
                         apply_capture(facts, &details, difficulty)?;
@@ -183,10 +189,14 @@ impl<'cache> Generator<'cache> {
                             return Ok(());
                         }
                     }
+                    let mut grass_capture = None;
                     if needed.colours != 0 {
                         let details =
                             capture::capture(live, generator, u32::from(needed.colours) << 8)?;
                         apply_capture(facts, &details, difficulty)?;
+                        if needed.colours & 1 != 0 {
+                            grass_capture = Some(details);
+                        }
                         outcome.work.colour_captures += 1;
                         if plan.planet_match(facts) == Verdict::NoMatch {
                             return Ok(());
@@ -201,6 +211,18 @@ impl<'cache> Generator<'cache> {
                             PlanetFlag::FloatingIslands,
                             flags.floating_islands != 0,
                         );
+                        if let Some(grass) = grass_capture {
+                            let colours = if flags.ground_grass != 0 {
+                                let lut = colour_lut::get(grass.screen_filter)?;
+                                search_probes_model::grass::primary_colour(
+                                    grass.grass_terrain[0],
+                                    |rgb| lut.sample(rgb),
+                                )?
+                            } else {
+                                GRASS_COLOUR_SET
+                            };
+                            facts.set(Field::Grass, colours);
+                        }
                         outcome.work.object_scans += 1;
                     }
                     match plan.planet_match(facts) {

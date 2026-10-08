@@ -232,6 +232,14 @@ pub fn apply_capture(
         }
         facts.set_planet_flag(PlanetFlag::Scrap, m.has_scrap != 0);
     }
+    if captured.present & capture::SCREEN_FILTER != 0 {
+        let value =
+            u32::try_from(captured.screen_filter).map_err(|_| "invalid native screen filter")?;
+        if value >= 85 {
+            return Err("invalid native screen filter");
+        }
+        facts.set(Field::WorldColourFilter, value);
+    }
     if captured.present & capture::WEATHER != 0 {
         facts.set(Field::StormFrequency, captured.weather[0]);
         facts.set(Field::WeatherIntensity, captured.weather[1]);
@@ -251,11 +259,12 @@ pub fn apply_capture(
         );
     }
     for &field in Field::ALL {
-        if let Some(index) = field.colour_index() {
-            if captured.present & capture::colour(index) != 0 {
-                let colour = captured.colours[index];
-                facts.set(field, hue([colour[0], colour[1], colour[2]])?);
-            }
+        if let Some(index) = field.colour_index()
+            && field != Field::Grass
+            && captured.present & capture::colour(index) != 0
+        {
+            let colour = captured.colours[index];
+            facts.set(field, hue([colour[0], colour[1], colour[2]])?);
         }
     }
     Ok(())
@@ -356,6 +365,45 @@ mod tests {
         snapshot.planets[1].set_planet_flag(PlanetFlag::Water, true);
         snapshot.aggregate();
         assert_eq!(snapshot.system.system_flag(SystemFlag::Water), Some(true));
+    }
+
+    #[test]
+    fn world_filter_reads_generated_weather_and_stays_independent_of_biome_and_weather_type() {
+        let mut planet = vec![0u8; 0x3ae0];
+        let mut facts = Facts::default();
+        facts.set(Field::Biome, 9);
+        for (filter, weather_type, expected_choice) in
+            [(0i32, 2u32, 0), (13, 4, 8), (79, 5, 37), (83, 1, 41)]
+        {
+            planet[0x1e44..0x1e48].copy_from_slice(&filter.to_le_bytes());
+            planet[0x1e54..0x1e58].copy_from_slice(&weather_type.to_le_bytes());
+            let details = unsafe {
+                capture::capture(planet.as_ptr(), std::ptr::null(), capture::SCREEN_FILTER)
+            }
+            .unwrap();
+            apply_capture(&mut facts, &details, 0).unwrap();
+            assert_eq!(facts.get(Field::WorldColourFilter), Some(filter as u32));
+            assert_eq!(facts.get(Field::WeatherType), None);
+            let mut criteria = search_probes_model::criteria::Criteria::default();
+            criteria
+                .choices
+                .insert(Field::WorldColourFilter, 1 << expected_choice);
+            let plan = criteria.compile().unwrap();
+            assert_eq!(
+                plan.planet_match(&facts),
+                search_probes_model::facts::Verdict::Match
+            );
+            assert!(!plan.missing_planet_requirements(&facts).screen_filter);
+            assert_eq!(facts.get(Field::Biome), Some(9));
+        }
+        for invalid in [-1i32, 85, i32::MAX] {
+            planet[0x1e44..0x1e48].copy_from_slice(&invalid.to_le_bytes());
+            let details = unsafe {
+                capture::capture(planet.as_ptr(), std::ptr::null(), capture::SCREEN_FILTER)
+            }
+            .unwrap();
+            assert!(apply_capture(&mut facts, &details, 0).is_err());
+        }
     }
 
     #[test]

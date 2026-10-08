@@ -25,7 +25,6 @@ pub struct Bridge {
     commands: Mutex<VecDeque<Command>>,
     changed: AtomicBool,
     stop: AtomicBool,
-    open_ui: AtomicBool,
     transition: Mutex<u64>,
 }
 
@@ -37,7 +36,6 @@ impl Bridge {
             commands: Mutex::new(VecDeque::new()),
             changed: AtomicBool::new(true),
             stop: AtomicBool::new(false),
-            open_ui: AtomicBool::new(false),
             transition: Mutex::new(crate::lifecycle_hook::epoch()),
         }
     }
@@ -50,9 +48,6 @@ impl Bridge {
             .lock()
             .unwrap_or_else(|error| error.into_inner())
             .pop_front()
-    }
-    pub fn open_ui(&self) {
-        self.open_ui.store(true, Ordering::Release);
     }
     pub fn observe_transition(&self, current: u64) {
         let mut previous = self
@@ -156,15 +151,8 @@ impl Bridge {
                 || child
                     .as_ref()
                     .is_some_and(|process| process.id() == foreground);
-            let open = self.open_ui.swap(false, Ordering::AcqRel);
-            if open || (pressed && !down && ours) {
-                self.update(|state| {
-                    if open {
-                        state.open = state.open.wrapping_add(1);
-                    } else {
-                        state.toggle = state.toggle.wrapping_add(1);
-                    }
-                });
+            if pressed && !down && ours {
+                self.update(|state| state.toggle = state.toggle.wrapping_add(1));
                 if child.is_none() {
                     let state = self
                         .state

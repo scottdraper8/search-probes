@@ -10,6 +10,7 @@ pub const MAX_FILENAME_BYTES: usize = 256;
 pub struct TableFacts {
     pub floating_islands: bool,
     pub objects: u32,
+    pub ground_grass: bool,
 }
 
 #[derive(Clone, Copy, Debug, Default)]
@@ -99,6 +100,7 @@ mod tests {
                                 Ok(Some(TableFacts {
                                     floating_islands: true,
                                     objects: 42,
+                                    ground_grass: true,
                                 }))
                             })
                             .unwrap()

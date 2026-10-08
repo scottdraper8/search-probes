@@ -54,7 +54,6 @@ struct Runtime {
     navigation_polled: Option<Instant>,
     started: Option<Instant>,
     elapsed_ms: u64,
-    guide_pending: bool,
 }
 
 pub fn initialize() -> Result<(), String> {
@@ -165,7 +164,6 @@ fn attach(image: Image, bridge: Arc<Bridge>, settings: Settings) -> Result<(), S
         navigation_polled: None,
         started: None,
         elapsed_ms: 0,
-        guide_pending: false,
     };
     let hooks: Result<(), String> = (|| {
         unsafe { lifecycle_hook::enable(base) }
@@ -232,7 +230,6 @@ impl Runtime {
         self.navigation_polled = None;
         self.started = None;
         self.elapsed_ms = 0;
-        self.guide_pending = false;
     }
     fn tick(&mut self) {
         let available = self
@@ -294,7 +291,6 @@ impl Runtime {
         }
         if let Some(request) = request.filter(|request| request.epoch == transition) {
             if let Err(error) = self.start_guide(request.slot, &snapshot) {
-                self.bridge.open_ui();
                 self.bridge.update(|state| state.error = Some(error.into()));
             }
         }
@@ -336,13 +332,6 @@ impl Runtime {
         let work = statistics.work;
         let object_tables = self.scheduler.object_statistics();
         let progress = self.scheduler.session.progress().cloned();
-        let guide_finished = self.guide_pending
-            && progress
-                .as_ref()
-                .is_some_and(|progress| progress.phase != Phase::Running);
-        if guide_finished {
-            self.guide_pending = false;
-        }
         let completed_results = progress
             .as_ref()
             .filter(|progress| {
@@ -376,9 +365,6 @@ impl Runtime {
                 elapsed_ms: self.elapsed_ms,
             };
         });
-        if guide_finished {
-            self.bridge.open_ui();
-        }
     }
     fn start_guide(&mut self, slot: usize, snapshot: &Snapshot) -> Result<(), &'static str> {
         let preset = self
@@ -394,7 +380,6 @@ impl Runtime {
         self.scheduler.reset_statistics();
         self.started = Some(Instant::now());
         self.elapsed_ms = 0;
-        self.guide_pending = true;
         self.bridge.update(|state| {
             state.settings = self.settings.clone();
             state.error = None;
@@ -426,19 +411,16 @@ impl Runtime {
                 self.scheduler.reset_statistics();
                 self.started = Some(Instant::now());
                 self.elapsed_ms = 0;
-                self.guide_pending = false;
                 self.settings = settings;
                 self.bridge
                     .update(|state| state.settings = self.settings.clone());
             }
             Action::Continue { results } => {
                 self.scheduler.session.continue_live(results)?;
-                self.guide_pending = false;
                 self.bridge.cancel.store(false, Ordering::Release);
                 self.started = Some(Instant::now());
             }
             Action::Cancel {} => {
-                self.guide_pending = false;
                 self.bridge.cancel.store(true, Ordering::Release);
                 self.scheduler.session.cancel();
             }
@@ -448,7 +430,6 @@ impl Runtime {
                     .update(|state| state.settings = self.settings.clone());
             }
             Action::ClearHistory {} => {
-                self.guide_pending = false;
                 self.scheduler.reset();
                 self.started = None;
                 self.elapsed_ms = 0;
