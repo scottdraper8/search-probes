@@ -228,7 +228,7 @@ unsafe extern "system" fn building_detour(
                 .and_then(|planet| unsafe { planet_address(planet) });
             if actual != Ok(selection.target.address) {
                 fail(
-                    "NMS could not place a marker on the selected planet. Abandon Search Probe Target in the Log before retrying.",
+                    "NMS could not place a marker on the selected planet. Abandon Search Probes in the Log before retrying.",
                 );
                 return 0;
             }

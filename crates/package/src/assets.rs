@@ -130,6 +130,10 @@ pub fn validate(root: &Path) -> Result<()> {
         };
         if values(&target, "MissionID") != [kind.mission()]
             || values(&target, "Name") != [kind.event()]
+            || values(&target, "UseScanEventDetailsInLogInfo") != ["true"]
+            || values(&target, "ObjectivesCanBeFormattedBySequences") != ["true"]
+            || values(&target, "FormattableObjective") != values(&target, "ObjectiveID")
+            || values(&target, "FormattableObjectiveTip") != values(&target, "ObjectiveTipID")
             || values(&target, "UAsList") != ["0000000000000000"]
             || values(&target, "SolarSystemLocation") != ["FromList"]
             || values(&target, "SearchType") != [search]

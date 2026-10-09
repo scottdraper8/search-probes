@@ -6,8 +6,8 @@ type Generate = unsafe extern "system" fn(*const u8, u64, *mut u8, *mut u8);
 /// Requires the verified 7.06 image and its initialized application on the gameplay thread.
 /// The native generator reads shared naming tables; all output and RNG storage belongs to this call.
 pub unsafe fn generate(base: usize, address: Address) -> Result<String, &'static str> {
-    let function = base + 0xe872c0;
-    let prefix = [0x48, 0x89, 0x5c, 0x24, 0x10, 0x4c, 0x89, 0x44, 0x24, 0x18];
+    let function = base + 0xe84710;
+    let prefix = [0x48, 0x89, 0x5c, 0x24, 0x18, 0x4c, 0x89, 0x4c, 0x24, 0x20];
     if unsafe { std::slice::from_raw_parts(function as *const u8, prefix.len()) } != prefix {
         return Err("system name generator prefix mismatch");
     }

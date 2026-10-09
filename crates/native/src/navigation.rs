@@ -47,7 +47,7 @@ fn active(manager: usize) -> Result<Option<(usize, usize)>, &'static str> {
         let progress = platform::u32_at(mission + 0x48)? as i32;
         if progress >= 0 && (progress as u32) < stages {
             if result.replace((index, mission)).is_some() {
-                return Err("multiple Search Probe Target missions are active");
+                return Err("multiple Search Probes navigation missions are active");
             }
         }
     }
@@ -94,16 +94,16 @@ fn route(application: usize) -> Result<Option<Target>, &'static str> {
         if platform::read::<32>(record + 0x10)? != fixed::<32>(kind.event().as_bytes())?
             || platform::u32_at(record + 0x64)? != 3
         {
-            return Err("unexpected Search Probe Target route");
+            return Err("unexpected Search Probes route");
         }
         let address = Address::from_raw(u64::from_le_bytes(platform::read(record + 0x50)?))?;
         let seed = u64::from_le_bytes(platform::read(record + 0x58)?);
         let target = crate::destination::from_seed(kind, seed)?;
         if target.address != address {
-            return Err("Search Probe Target route does not match its selected destination");
+            return Err("Search Probes route does not match its selected destination");
         }
         if result.replace(target).is_some() {
-            return Err("multiple Search Probe Target routes are active");
+            return Err("multiple Search Probes routes are active");
         }
     }
     Ok(result)
@@ -136,11 +136,11 @@ impl Navigation {
         }
         let manager = snapshot.application + 0x847bb0;
         if self.requested.is_some() || pending(manager)? {
-            return Err("a Search Probe Target is still starting");
+            return Err("a Search Probes destination is still starting");
         }
         if active(manager)?.is_some() {
             return Err(
-                "abandon Search Probe Target in the Log before choosing another destination",
+                "abandon the Search Probes mission in the Log before choosing another destination",
             );
         }
         type Lookup = unsafe extern "system" fn(usize, *const u8, i32) -> usize;
@@ -188,7 +188,7 @@ impl Navigation {
             )
         };
         if !accepted {
-            return Err("NMS declined the Search Probe Target request");
+            return Err("NMS declined the Search Probes request");
         }
         self.requested = Some((target, Instant::now()));
         Ok(())
@@ -219,7 +219,7 @@ impl Navigation {
                     unsafe { std::mem::transmute::<usize, Select>(image.base() + 0x9c15f0) };
                 unsafe { select(manager, mission, false) };
                 if platform::u32_at(manager + 0x250)? as usize != index {
-                    return Err("NMS did not select Search Probe Target");
+                    return Err("NMS did not select Search Probes");
                 }
                 self.requested = None;
             } else if published == Some(expected) && mission.is_none() && !pending(manager)? {
@@ -227,7 +227,7 @@ impl Navigation {
             } else if started.elapsed() > Duration::from_secs(30) {
                 self.requested = None;
                 return Err(
-                    "NMS has not activated the destination. Check Search Probe Target in the Log.",
+                    "NMS has not activated the destination. Check Search Probes in the Log.",
                 );
             }
         }

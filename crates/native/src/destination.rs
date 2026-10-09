@@ -7,7 +7,7 @@ pub fn from_seed(kind: TargetKind, seed: u64) -> Result<Target, &'static str> {
     let address = Address::from_raw(seed)?;
     let target = Target { address, kind };
     if target.validate().is_err() {
-        return Err("Invalid Search Probe Target destination. Abandon the mission in the Log.");
+        return Err("Invalid Search Probes destination. Abandon the mission in the Log.");
     }
     Ok(target)
 }

@@ -125,7 +125,14 @@ cover live and cached result parity, generated-name retention, cancellation, pla
 identity and coordinate exports. Native mission definitions pass the pinned compiler round trip with separate planet and system
 scan conditions. System destinations use the game's local scan-event condition to complete on arrival.
 Operator testing confirms system destination cards and native completion on arrival in an empty
-system. A fresh-process check of named system cards and inhabited-system arrival remains pending.
+system. Read-only capture and isolated execution of the native system-name routine reproduce
+Vustvuet for the operator's visited result, matching Discoveries. The ten captured result addresses
+all produce bounded system names. The operator confirms corrected names in the fresh process.
+
+Navigation titles distinguish system and planet destinations. Descriptions, instructions and HUD
+objectives use native scan-target name substitutions; mission ID and seed select the saved route.
+The authored Log and sequence-formatting settings pass asset-contract and pinned compiler checks.
+The operator confirms the mission wording in game; a separate saved-mission reload check remains pending.
 
 ## Search-engine 7.06 qualification before the overlay refactor
 

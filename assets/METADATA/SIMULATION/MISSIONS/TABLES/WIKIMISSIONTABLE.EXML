@@ -1922,7 +1922,7 @@
         <Property name="Format" value="" />
         <Property name="Count" value="1" />
       </Property>
-      <Property name="UseScanEventDetailsInLogInfo" value="false" />
+      <Property name="UseScanEventDetailsInLogInfo" value="true" />
       <Property name="UseFirstPurpleSystemDetailsInLogInfo" value="false" />
       <Property name="MissionIcon" value="TkTextureResource">
         <Property name="Filename" value="TEXTURES/UI/HUD/ICONS/MISSIONS/DEFAULT.DDS" />
@@ -2438,9 +2438,9 @@
                 <Property name="InputButton" value="None" />
               </Property>
               <Property name="ObjectiveFormatting" value="GcObjectiveTextFormatOptions">
-                <Property name="ObjectivesCanBeFormattedBySequences" value="false" />
-                <Property name="FormattableObjective" value="" />
-                <Property name="FormattableObjectiveTip" value="" />
+                <Property name="ObjectivesCanBeFormattedBySequences" value="true" />
+                <Property name="FormattableObjective" value="SQN_SP_NAV_MISSION_OBJ" />
+                <Property name="FormattableObjectiveTip" value="SQN_SP_NAV_MISSION_OBJ_TIP" />
               </Property>
               <Property name="SeasonalObjectiveOverrides" value="GcSeasonalObjectiveOverrides">
                 <Property name="ApplicableSeasonNumbers" />
@@ -2619,7 +2619,7 @@
         <Property name="Format" value="" />
         <Property name="Count" value="1" />
       </Property>
-      <Property name="UseScanEventDetailsInLogInfo" value="false" />
+      <Property name="UseScanEventDetailsInLogInfo" value="true" />
       <Property name="UseFirstPurpleSystemDetailsInLogInfo" value="false" />
       <Property name="MissionIcon" value="TkTextureResource">
         <Property name="Filename" value="TEXTURES/UI/HUD/ICONS/MISSIONS/DEFAULT.DDS" />
@@ -3135,9 +3135,9 @@
                 <Property name="InputButton" value="None" />
               </Property>
               <Property name="ObjectiveFormatting" value="GcObjectiveTextFormatOptions">
-                <Property name="ObjectivesCanBeFormattedBySequences" value="false" />
-                <Property name="FormattableObjective" value="" />
-                <Property name="FormattableObjectiveTip" value="" />
+                <Property name="ObjectivesCanBeFormattedBySequences" value="true" />
+                <Property name="FormattableObjective" value="SQN_SP_SYSTEM_MISSION_OBJ" />
+                <Property name="FormattableObjectiveTip" value="SQN_SP_SYSTEM_MISSION_OBJ_TIP" />
               </Property>
               <Property name="SeasonalObjectiveOverrides" value="GcSeasonalObjectiveOverrides">
                 <Property name="ApplicableSeasonNumbers" />
