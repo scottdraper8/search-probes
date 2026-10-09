@@ -7,7 +7,103 @@ on an i9-13900KF, with the permitted save's purple systems unlocked. Native Wind
 not been tested. Game updates require native-interface validation before the executable guard can
 be changed. Other native hook mods and alternate WinMM proxies are outside the tested scope.
 
-## Current 7.06 qualification
+## Overlay qualification
+
+The 0.2.0 overlay is being qualified against 7.06 on Steam Proton. Actual in-game rendering passes
+on the 3840×2160 SDR B8G8R8A8_UNORM swapchain through the game's Streamline dispatcher.
+Operator checks pass opening with F7, switching to another application and back, a bounded search
+returning results without hiding the overlay, subsequent F7 hide/reopen, overlay resizing and
+scrolling, and keyboard/mouse capture. The captured search used a 1,000-system budget and stopped
+at ten results after two systems. The operator also confirms cancellation and the production overlay
+working after restart. Swapchain recreation remains pending. The HDR10 and scRGB graphics compositor passes offscreen Vulkan pixel tests for background
+preservation, white/black levels, partial-alpha blending, gamut conversion and extended-range
+highlights. This exercises the actual graphics pipeline and image transfers on the Intel Arc A770,
+independently of NMS, with Khronos synchronization validation enabled and zero validation errors.
+Visual NMS HDR, native Windows, frame generation and coexistence with other graphics overlays
+remain unqualified.
+
+The production Windows build and all 106 workspace tests pass. Package verification checks all file
+hashes and archive contents. Desktop HDR was enabled during the live checks, but NMS's captured
+swapchain was SDR and its saved HDR mode was Off; desktop HDR alone does not qualify game HDR output.
+
+Vegetation emission checks use the production archive reader, scene/entity parser and material-mask
+reader against current vanilla assets. All spawnable surface-table selections complete without
+unresolved glow facts. Loaded-world captures identify glowing grass and flora on Dorent Mito and
+Exleywoo Major, and glowing grass with non-glowing flora on Tapons, agreeing with operator
+observations. The grass shader gates its emission by night and a moving pulse. Ordinary grass and
+non-emissive trees provide negative controls. Model tests cover independent Require/Exclude
+predicates and unknown facts; cache tests cover upgrading summaries acquired before glow was
+requested. Visual filters assume standard game assets. Asset format and bounds checks remain
+enforced. A fresh-process native search for Black grass, Require glowing grass and Exclude glowing
+flora completes with Olarac Minor after 1,560 systems; the operator confirms no freeze. It uses 16
+workers, performs cold object loads and reports no search error. Other glow combinations remain
+unqualified. An isolated Proton asset replay produces identical facts for 100 models while reducing
+cold model-resolution time from 98.0 seconds to 0.64 seconds. This measures the asset path, not
+whole-search throughput. The focused vegetation contract records the scope and separate
+atmospheric-bubble evidence.
+
+Grass classification replay uses production capture, texture decoding, world LUTs and compiled
+predicates over eight retained loaded worlds. Ohnniat XVII's confirmed grass shader tint reproduces
+the reported Black false positive; the corrected rule rejects Black, Grey and White across all nine
+possible cross-grass materials. The same outcome holds with its source tint scaled from 0.8 to 1.2.
+Neutral-grey probing of the same LUT identifies the mild warm cast. Bradford adaptation for hue
+naming classifies Ohnniat XVII as Green across all nine materials and the brightness variations,
+rejecting Yellow and every neutral choice. Sybarryil remains Green, Antwithe Guro White, Ladonnea
+Delta Magenta, Ixha
+Delta and Apaeumasan Gaha Black, and Iomi 84/C9 Black/Grey. The source and graded main tint guard
+against texture-darkened colour being mistaken for neutral. Separate graded-material qualification
+keeps slight tints without accepting every muted colour. Neutral brightness overlaps remain intact. Olarac Minor’s Vibrant bright LUT clips the estimated
+dark green tint to a neutral shadow. Three linear-exposure daylight probes preserve its consistent
+Green identity, rejecting Black, Grey and White across nine source-brightness variations. The other
+seven reference classifications are unchanged. Synthetic controls cover shadow clipping across six
+hue families without undoing real desaturation or highlight clipping; the actual monochrome LUT
+still produces a neutral result. All 85 vanilla LUTs resolve. Fresh native population validation of
+this daylight-probe correction remains pending.
+
+All twelve vanilla grass texture medians agree with an independent Pillow decoder, covering BC1
+and BC7. Unit controls cover transparent padding, linear sampling, truncated/unsupported textures,
+material disagreement, grassless facts and separate Grey/Black/White predicates. Colour controls
+span the hue circle, several lightness/texture-brightness levels, hue removal and colour introduction
+through grading. Mild warm/cool cast controls preserve named hues, including true yellow and
+yellow-green; strong colour effects and hue rotations remain effective. Adaptation math matches
+independent published D50-to-D65 reference vectors. Shared archive bounds remain enforced. These synthetic controls
+and seven observed worlds do not establish population-wide precision or recall.
+
+Grass acquisition rejects impossible main-tint hues before object-table scans. Its cached colour
+bounds can reject a criterion but cannot establish grass presence or a positive match; surviving
+candidates still acquire the selected tables and material brightness. Other cheap palette colours
+and floating-island rejection precede material classification. Common tint/grading work is prepared
+once per planet. Object-table cache hits use shared reads; misses retain exclusive loading.
+
+Paired release microbenchmarks on the healthy Linux host preserve all seven reference outcomes and
+220,320 classifications across all 85 vanilla LUT entries. At 16 workers, cached object lookups
+improve from 218 to 69 ns per lookup (about 3.2×); one-worker reads increase from 28 to 30 ns.
+Nine-material coloured-reference classification improves about 13×, and the neutral cross-grass
+reference about 2.1×. Single-material neutral cases increase by roughly 30 ns. System-fact retention
+adds about 0.2 µs per new record in the host harness; a full 16,384-record no-match startup scan takes
+about 1.3 ms. These component measurements exclude native generation, cold asset loading and
+in-game frame pacing. They do not establish a whole-search speedup or the effect of rarer matches.
+A paired native before/after performance check remains pending.
+
+The reported glow/grass-colour query passes a fresh native search after installation. Texture
+medians are an appearance estimate, not rendered surface coverage; scene lighting, exposure, procedural texture
+recolouring, distance-dependent blending and HDR grading are not reproduced.
+
+Passive capture of a same-system flight between two planets reproduces false session resets as the
+live generator's pending-task count changes. Application, lifecycle, language, difficulty, resource
+identities and all other generator configuration bytes remain stable. Replaying all nineteen captured
+snapshots through the corrected production identity function preserves one configuration identity;
+the old comparison produces fifteen. The pending-task vector and RNG are excluded from session
+identity, while borrowed resource pointers, vector headers and generation options remain checked.
+Regression tests cover both sides of that boundary. A fresh in-game flight with an active search
+remains pending after installation; captured replay does not establish that live acceptance.
+
+Coordinate export tests cover the reported internal-address example, signed region bounds, leading
+zeroes, selected planet identity and galaxy omission. Result cards expose separate twelve-digit
+portal-code and colon-separated galactic-coordinate clipboard actions. The supplied example agrees
+with the external portal converter in both directions; a fresh in-game button click remains pending.
+
+## Search-engine 7.06 qualification before the overlay refactor
 
 Steam Proton acceptance uses the exact 7.06 executable and the backed-up Galaxies 1–50 save.
 The host reported degraded graphics-worker health, so this review makes no timing, memory,
@@ -27,9 +123,9 @@ startup-duration, shutdown-duration, or throughput claims.
 - Remote navigation publishes the exact address, rejects duplicate selection and supports native
   Log abandonment. Save reload preserves the destination and player identity while clearing facts,
   object summaries and active progress. Previously completed visible cards intentionally remain.
-- Guide completion creates the results window and reopens an existing hidden window with the
-  preset criteria synchronized. Empty slots open the editor with an explanation. Ordinary Steam
-  self-start and native Quit to Desktop work.
+- Guide preset routing, empty-slot errors, ordinary Steam self-start and native Quit to Desktop
+  passed for the earlier standalone UI. Overlay visibility now changes only through F7; the earlier
+  automatic window-opening behavior is removed.
 - The destination definition uses the nonprocedural Wiki mission table. Current NPC-table loading
   forcibly enables procedural titles. Native labels, exact route, fresh creation, abandonment and
   saved-route loading pass with the corrected definition. Authored mission leaves match the game
@@ -61,7 +157,7 @@ and earlier coverage; they are not independent 7.06 reference or performance mea
 - Save reload clears search facts, object-table summaries, results and continuation.
 - Ordinary Steam startup and native Quit to Desktop work without a development injector.
 
-The host suite has 70 Rust tests. The parent repository retains native probes, screenshots, exact
+That release’s host suite had 70 Rust tests. The parent repository retains native probes, screenshots, exact
 run identities and raw results in its Search Probes Rust release plan. Positive anomaly controls
 cover Atlas stations and black holes; other exposed native anomaly values have negative controls.
 Configuration invalidation is supported by inspected native fields and epoch comparison plus live

@@ -55,7 +55,7 @@ fn start() {
     {
         return;
     }
-    if std::thread::Builder::new()
+    match std::thread::Builder::new()
         .name("Search Probes startup".into())
         .spawn(
             || match std::panic::catch_unwind(search_probes_native::runtime::initialize) {
@@ -65,10 +65,14 @@ fn start() {
                     "Search Probes initialization panicked. Restart the game.",
                 ),
             },
-        )
-        .is_err()
-    {
-        STARTED.store(false, Ordering::Release);
+        ) {
+        // NMS initializes Vulkan after this startup call; dispatch capture must be installed first.
+        Ok(startup) => {
+            let _ = startup.join();
+        }
+        Err(_) => {
+            STARTED.store(false, Ordering::Release);
+        }
     }
 }
 

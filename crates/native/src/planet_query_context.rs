@@ -3,12 +3,23 @@ use std::{marker::PhantomData, rc::Rc};
 const CONTEXT_SIZE: usize = 0xc10;
 const RNG_START: usize = 0xba4;
 const RNG_END: usize = 0xbac;
-const DESCRIPTION_CACHE_START: usize = 0xbb0;
+pub(crate) const CONFIGURATION_SIZE: usize = 0xbb0;
+const DESCRIPTION_CACHE_START: usize = CONFIGURATION_SIZE;
 type Deallocate = unsafe extern "system" fn(*mut u8, *mut u8, i32);
 const RESOURCE_POINTER_OFFSETS: [usize; 18] = [
     0, 8, 0x50, 0x58, 0x60, 0x68, 0x70, 0x78, 0x80, 0x4f8, 0x510, 0x518, 0x520, 0x528, 0x530,
     0x538, 0x540, 0x548,
 ];
+
+#[cfg(any(windows, test))]
+pub(crate) fn configuration_identity(
+    mut configuration: [u8; CONFIGURATION_SIZE],
+) -> [u8; CONFIGURATION_SIZE] {
+    // The live generator's pending-task vector is not borrowed by query contexts.
+    configuration[0xb90..0xba0].fill(0);
+    configuration[RNG_START..RNG_END].fill(0);
+    configuration
+}
 
 #[repr(C, align(16))]
 struct Storage([u8; CONTEXT_SIZE]);
@@ -130,6 +141,41 @@ impl Drop for PlanetQueryContext {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn loading_tasks_and_rng_preserve_configuration_identity() {
+        let mut configuration = [0x5a; CONFIGURATION_SIZE];
+        let expected = configuration_identity(configuration);
+        for (capacity, count, pointer, rng) in [
+            (0u32, 0u32, 0u64, 1u64),
+            (511, 173, 0x12345678, 0xfedcba98),
+            (511, 142, 0x12345678, 0xfedcba97),
+            (1024, 0, 0x87654321, 0),
+        ] {
+            configuration[0xb90..0xb94].copy_from_slice(&capacity.to_le_bytes());
+            configuration[0xb94..0xb98].copy_from_slice(&count.to_le_bytes());
+            configuration[0xb98..0xba0].copy_from_slice(&pointer.to_le_bytes());
+            configuration[RNG_START..RNG_END].copy_from_slice(&rng.to_le_bytes());
+            assert_eq!(configuration_identity(configuration), expected);
+        }
+    }
+
+    #[test]
+    fn resource_and_generation_option_changes_invalidate_configuration_identity() {
+        let configuration = [0x5a; CONFIGURATION_SIZE];
+        let expected = configuration_identity(configuration);
+        for offset in RESOURCE_POINTER_OFFSETS.into_iter().chain([
+            0x10, 0x660, 0xa7f, 0x88, 0x8c, 0x90, 0xb80, 0xb84, 0xb88, 0xba0,
+        ]) {
+            let mut changed = configuration;
+            changed[offset] ^= 1;
+            assert_ne!(
+                configuration_identity(changed),
+                expected,
+                "offset {offset:#x}"
+            );
+        }
+    }
 
     unsafe extern "system" fn record_release(allocator: *mut u8, pointer: *mut u8, tag: i32) {
         assert_eq!(tag, -1);

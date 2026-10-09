@@ -1,9 +1,12 @@
 #![deny(unsafe_op_in_unsafe_fn)]
 
+pub mod bioluminescence;
 pub mod capture;
 pub mod capture_session;
 #[cfg(any(windows, test))]
 mod destination;
+mod game_assets;
+pub mod grass_appearance;
 pub mod hook_code;
 pub mod object_cache;
 mod object_flags;
@@ -60,7 +63,9 @@ pub mod lifecycle_hook;
 pub mod platform;
 
 #[cfg(windows)]
-pub mod bridge;
+mod control_worker;
+#[cfg(windows)]
+pub mod overlay;
 
 #[cfg(windows)]
 pub mod navigation;

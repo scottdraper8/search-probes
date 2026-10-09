@@ -1,5 +1,5 @@
 use crate::{
-    bridge::Bridge,
+    control_worker,
     game_state::{Epoch, Snapshot},
     gameplay_hook, guide_hook,
     identity::Image,
@@ -10,18 +10,19 @@ use crate::{
     workers::Workers,
 };
 use search_probes_model::{
-    protocol::{Action, Availability, Command, Metrics, State},
+    controls::Controls,
+    runtime::{Action, Availability, Command, Metrics, State},
     session::Phase,
     settings::Settings,
     storage,
 };
 use std::{
     sync::{Arc, Mutex, OnceLock, atomic::Ordering},
-    time::{Duration, Instant, SystemTime, UNIX_EPOCH},
+    time::{Duration, Instant},
 };
 
 static RUNTIME: OnceLock<Mutex<Runtime>> = OnceLock::new();
-static BRIDGE: OnceLock<Arc<Bridge>> = OnceLock::new();
+static CONTROLS: OnceLock<Arc<Controls>> = OnceLock::new();
 
 pub fn report_startup_failure(error: &str) {
     let message: String = error.chars().take(4096).collect();
@@ -32,9 +33,9 @@ pub fn report_startup_failure(error: &str) {
             16384,
         );
     }
-    if let Some(bridge) = BRIDGE.get() {
-        bridge.cancel.store(true, Ordering::Release);
-        bridge.update(|state| {
+    if let Some(controls) = CONTROLS.get() {
+        controls.cancel.store(true, Ordering::Release);
+        controls.update(|state| {
             if state.availability != Availability::Unsupported {
                 state.availability = Availability::Failed;
             }
@@ -45,7 +46,7 @@ pub fn report_startup_failure(error: &str) {
 
 struct Runtime {
     image: Image,
-    bridge: Arc<Bridge>,
+    controls: Arc<Controls>,
     pool: Workers,
     scheduler: Scheduler,
     settings: Settings,
@@ -65,50 +66,35 @@ pub fn initialize() -> Result<(), String> {
         return Ok(());
     }
     let directory = storage::user_directory().map_err(|error| error.to_string())?;
-    let ui = executable
-        .parent()
-        .ok_or("NMS has no installation directory")?
-        .join("SearchProbes")
-        .join("SearchProbes.exe");
-    initialize_at(directory, ui)
+    initialize_at(directory)
 }
 
-pub(crate) fn initialize_at(
-    directory: std::path::PathBuf,
-    ui: std::path::PathBuf,
-) -> Result<(), String> {
+pub(crate) fn initialize_at(directory: std::path::PathBuf) -> Result<(), String> {
     let loaded = storage::load_settings(&directory);
     let settings = loaded.as_ref().cloned().unwrap_or_default();
-    let session = format!(
-        "{}-{}",
-        std::process::id(),
-        SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_nanos()
-    );
-    let mut state = State::new(session, std::process::id(), settings.clone());
+    let mut state = State::new(settings.clone());
     state.error = loaded
         .err()
         .map(|error| format!("Cannot load settings: {error}. The original file was preserved."));
-    let bridge = Arc::new(Bridge::new(state));
-    BRIDGE
-        .set(bridge.clone())
+    let controls = Arc::new(Controls::new(state));
+    CONTROLS
+        .set(controls.clone())
         .map_err(|_| "Search Probes is already initialized")?;
-    bridge.clone().start(directory, ui)?;
+    control_worker::start(controls.clone(), directory)?;
     let image = match Image::verify() {
         Ok(image) => image,
         Err(error) => {
-            bridge.update(|state| {
+            controls.update(|state| {
                 state.availability = Availability::Unsupported;
                 state.error = Some(error.clone());
             });
             return Err(error);
         }
     };
-    let result = attach(image, bridge.clone(), settings);
+    crate::overlay::attach(controls.clone())?;
+    let result = attach(image, controls.clone(), settings);
     if let Err(error) = &result {
-        bridge.update(|state| {
+        controls.update(|state| {
             state.availability = Availability::Failed;
             state.error = Some(error.clone());
         });
@@ -118,18 +104,20 @@ pub(crate) fn initialize_at(
 
 #[cfg(feature = "investigation")]
 pub(crate) fn stop() -> Result<(), String> {
-    if let Some(bridge) = BRIDGE.get() {
-        bridge.cancel.store(true, Ordering::Release);
-        bridge.stop();
+    if let Some(controls) = CONTROLS.get() {
+        controls.cancel.store(true, Ordering::Release);
     }
     if let Some(runtime) = RUNTIME.get() {
         let mut runtime = runtime.lock().map_err(|_| "runtime poisoned")?;
         runtime.scheduler.session.cancel();
         runtime
-            .bridge
+            .controls
             .update(|state| state.availability = Availability::Stopped);
     }
     let mut errors = Vec::new();
+    if let Err(error) = crate::overlay::stop() {
+        errors.push(error);
+    }
     for result in unsafe {
         [
             gameplay_hook::disable(),
@@ -150,11 +138,11 @@ pub(crate) fn stop() -> Result<(), String> {
     }
 }
 
-fn attach(image: Image, bridge: Arc<Bridge>, settings: Settings) -> Result<(), String> {
+fn attach(image: Image, controls: Arc<Controls>, settings: Settings) -> Result<(), String> {
     let base = image.base();
     let runtime = Runtime {
         image,
-        bridge: bridge.clone(),
+        controls: controls.clone(),
         pool: Workers::new(16)
             .map_err(|error| format!("Cannot start search workers: {error:?}"))?,
         scheduler: Scheduler::default(),
@@ -177,13 +165,13 @@ fn attach(image: Image, bridge: Arc<Bridge>, settings: Settings) -> Result<(), S
         RUNTIME
             .set(Mutex::new(runtime))
             .map_err(|_| "Search Probes is already attached")?;
-        bridge.update(|state| state.availability = Availability::MainMenu);
+        controls.update(|state| state.availability = Availability::MainMenu);
         unsafe { gameplay_hook::enable(base, frame) }
             .map_err(|error| format!("Cannot schedule gameplay searches: {error:?}"))?;
         Ok(())
     })();
     if let Err(mut error) = hooks {
-        bridge.cancel.store(true, Ordering::Release);
+        controls.cancel.store(true, Ordering::Release);
         for rollback in unsafe {
             [
                 gameplay_hook::disable(),
@@ -209,9 +197,9 @@ fn frame() {
     match runtime.lock() {
         Ok(mut runtime) => runtime.tick(),
         Err(_) => {
-            if let Some(bridge) = BRIDGE.get() {
-                bridge.cancel.store(true, Ordering::Release);
-                bridge.update(|state| {
+            if let Some(controls) = CONTROLS.get() {
+                controls.cancel.store(true, Ordering::Release);
+                controls.update(|state| {
                     state.availability = Availability::Failed;
                     state.error = Some(
                         "Search Probes stopped after an internal failure. Restart the game.".into(),
@@ -233,7 +221,7 @@ impl Runtime {
     }
     fn tick(&mut self) {
         let available = self
-            .bridge
+            .controls
             .state
             .lock()
             .unwrap_or_else(|error| error.into_inner())
@@ -245,16 +233,16 @@ impl Runtime {
             return;
         }
         let transition = lifecycle_hook::epoch();
-        self.bridge.observe_transition(transition);
+        self.controls.observe_transition(transition);
         let snapshot = match Snapshot::read(&self.image, transition) {
             Ok(snapshot) => snapshot,
             Err(_) => {
                 if self.epoch.take().is_some() {
                     self.reset();
-                    self.bridge
+                    self.controls
                         .update(|state| state.generation = state.generation.wrapping_add(1));
                 }
-                self.bridge.update(|state| {
+                self.controls.update(|state| {
                     state.availability = Availability::MainMenu;
                     state.player = None;
                     state.progress = None;
@@ -267,31 +255,32 @@ impl Runtime {
         if self.epoch.as_ref() != Some(&snapshot.epoch) {
             self.reset();
             self.epoch = Some(snapshot.epoch.clone());
-            self.bridge.update(|state| {
+            self.controls.update(|state| {
                 state.generation = state.generation.wrapping_add(1);
                 state.progress = None;
                 state.cached_systems = 0;
                 state.destination = None;
             });
         }
-        while let Some(command) = self.bridge.pop() {
+        while let Some(command) = self.controls.pop() {
             let id = command.id;
             let result = self.command(command, &snapshot);
-            self.bridge.update(|state| {
+            self.controls.update(|state| {
                 state.last_command = state.last_command.max(id);
                 state.error = result.err().map(str::to_owned);
             });
         }
         let (request, overflow) = guide_hook::take();
         if overflow {
-            self.bridge.update(|state| {
+            self.controls.update(|state| {
                 state.error =
                     Some("A Guide request is already pending. Launch one preset at a time.".into())
             });
         }
         if let Some(request) = request.filter(|request| request.epoch == transition) {
             if let Err(error) = self.start_guide(request.slot, &snapshot) {
-                self.bridge.update(|state| state.error = Some(error.into()));
+                self.controls
+                    .update(|state| state.error = Some(error.into()));
             }
         }
         if self
@@ -300,7 +289,8 @@ impl Runtime {
         {
             self.navigation_polled = Some(Instant::now());
             if let Err(error) = unsafe { self.navigation.update(&self.image, &snapshot) } {
-                self.bridge.update(|state| state.error = Some(error.into()));
+                self.controls
+                    .update(|state| state.error = Some(error.into()));
             }
         }
         if let Err(error) = unsafe {
@@ -311,11 +301,12 @@ impl Runtime {
                 snapshot.difficulty,
                 self.settings.workers,
                 Duration::from_millis(u64::from(self.settings.frame_budget_ms)),
-                &self.bridge.cancel,
+                &self.controls.cancel,
             )
         } {
             self.scheduler.session.fail(error);
-            self.bridge.update(|state| state.error = Some(error.into()));
+            self.controls
+                .update(|state| state.error = Some(error.into()));
         }
         if let Some(started) = self.started {
             self.elapsed_ms = started.elapsed().as_millis().min(u64::MAX as u128) as u64;
@@ -339,7 +330,7 @@ impl Runtime {
                     && !progress.results.is_empty()
             })
             .map(|progress| progress.results.clone());
-        self.bridge.update(|state| {
+        self.controls.update(|state| {
             state.availability = Availability::Ready;
             state.player = Some(snapshot.address);
             state.progress = progress;
@@ -376,11 +367,11 @@ impl Runtime {
             .session
             .start(preset.search.clone(), snapshot.address, false, true)?;
         self.settings.search = preset.search.clone();
-        self.bridge.cancel.store(false, Ordering::Release);
+        self.controls.cancel.store(false, Ordering::Release);
         self.scheduler.reset_statistics();
         self.started = Some(Instant::now());
         self.elapsed_ms = 0;
-        self.bridge.update(|state| {
+        self.controls.update(|state| {
             state.settings = self.settings.clone();
             state.error = None;
         });
@@ -389,11 +380,11 @@ impl Runtime {
     fn command(&mut self, command: Command, snapshot: &Snapshot) -> Result<(), &'static str> {
         {
             let state = self
-                .bridge
+                .controls
                 .state
                 .lock()
                 .map_err(|_| "runtime state poisoned")?;
-            command.validate(&state.session, state.generation)?;
+            command.validate(state.generation)?;
         }
         match command.action {
             Action::Start {
@@ -407,26 +398,26 @@ impl Runtime {
                     restart,
                     use_cache,
                 )?;
-                self.bridge.cancel.store(false, Ordering::Release);
+                self.controls.cancel.store(false, Ordering::Release);
                 self.scheduler.reset_statistics();
                 self.started = Some(Instant::now());
                 self.elapsed_ms = 0;
                 self.settings = settings;
-                self.bridge
+                self.controls
                     .update(|state| state.settings = self.settings.clone());
             }
             Action::Continue { results } => {
                 self.scheduler.session.continue_live(results)?;
-                self.bridge.cancel.store(false, Ordering::Release);
+                self.controls.cancel.store(false, Ordering::Release);
                 self.started = Some(Instant::now());
             }
             Action::Cancel {} => {
-                self.bridge.cancel.store(true, Ordering::Release);
+                self.controls.cancel.store(true, Ordering::Release);
                 self.scheduler.session.cancel();
             }
             Action::Configure { settings } => {
                 self.settings = settings;
-                self.bridge
+                self.controls
                     .update(|state| state.settings = self.settings.clone());
             }
             Action::ClearHistory {} => {
@@ -436,7 +427,7 @@ impl Runtime {
             }
             Action::Navigate { address } => {
                 let displayed = self
-                    .bridge
+                    .controls
                     .state
                     .lock()
                     .map_err(|_| "runtime state poisoned")?

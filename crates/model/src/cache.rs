@@ -209,6 +209,51 @@ mod tests {
         assert!(result[0].name.is_none());
     }
     #[test]
+    fn grass_colour_bounds_reject_impossible_choices_without_claiming_grass_exists() {
+        use crate::vocabulary::GRASS_COLOUR_SET;
+        let mut cache = Cache::new(2).unwrap();
+        let mut entry = record();
+        entry.planets[0].restrict_grass_colours(GRASS_COLOUR_SET | (1 << 3));
+        entry.planets[1].restrict_grass_colours(GRASS_COLOUR_SET | 1);
+        cache.insert(address(1), entry).unwrap();
+        let mut criteria = Criteria::default();
+        criteria.choices.insert(Field::Grass, 1 << 10);
+        let white = criteria.compile().unwrap();
+        assert_eq!(
+            cache.get(address(1)).unwrap().evaluate(&white),
+            Evaluation {
+                matches: 0,
+                unknown: 0
+            }
+        );
+        criteria.choices.insert(Field::Grass, (1 << 3) | (1 << 10));
+        let green_or_white = criteria.compile().unwrap();
+        assert_eq!(
+            cache.get(address(1)).unwrap().evaluate(&green_or_white),
+            Evaluation {
+                matches: 0,
+                unknown: 1
+            }
+        );
+        assert!(
+            cache
+                .matching(&green_or_white, 0, address(2), 100)
+                .is_empty()
+        );
+        for actual in [GRASS_COLOUR_SET, GRASS_COLOUR_SET | (1 << 3)] {
+            let mut update = record();
+            update.planets[0].set(Field::Grass, actual);
+            cache.insert(address(1), update).unwrap();
+            assert_eq!(
+                cache.get(address(1)).unwrap().evaluate(&green_or_white),
+                Evaluation {
+                    matches: if actual & (1 << 3) == 0 { 0 } else { 1 },
+                    unknown: 0
+                }
+            );
+        }
+    }
+    #[test]
     fn unknowns_do_not_become_exclusions_or_false_matches() {
         let entry = record();
         let mut criteria = Criteria::default();

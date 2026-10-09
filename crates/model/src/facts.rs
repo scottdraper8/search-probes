@@ -4,6 +4,7 @@ use crate::criteria::{Field, Plan, PlanetFlag, Predicate, Requirements, Stage, S
 pub struct Facts {
     values: [u32; Field::ALL.len()],
     known_values: u64,
+    grass_candidates: Option<u32>,
     planet_flags: u32,
     known_planet_flags: u32,
     system_flags: u16,
@@ -23,6 +24,12 @@ impl Facts {
     pub fn set(&mut self, field: Field, value: u32) {
         self.values[field as usize] = value;
         self.known_values |= 1u64 << (field as usize);
+    }
+    pub fn restrict_grass_colours(&mut self, candidates: u32) {
+        self.grass_candidates = Some(
+            self.grass_candidates
+                .map_or(candidates, |old| old & candidates),
+        );
     }
     pub fn get(&self, field: Field) -> Option<u32> {
         (self.known_values & (1u64 << (field as usize)) != 0).then_some(self.values[field as usize])
@@ -59,6 +66,9 @@ impl Facts {
     }
 
     pub fn merge(&mut self, new: &Self) {
+        if let Some(candidates) = new.grass_candidates {
+            self.restrict_grass_colours(candidates);
+        }
         for &field in Field::ALL {
             if let Some(value) = new.get(field) {
                 self.set(field, value);
@@ -92,6 +102,13 @@ impl Facts {
                         .get(Field::Race)
                         .map(|race| race != 7 && choices.accepts(race)),
                     _ => None,
+                }),
+            Predicate::Choice(choices) if choices.field() == Field::Grass => self
+                .get(Field::Grass)
+                .map(|value| choices.accepts(value))
+                .or_else(|| {
+                    self.grass_candidates
+                        .and_then(|candidates| (!choices.accepts(candidates)).then_some(false))
                 }),
             Predicate::Choice(choices) => self
                 .get(choices.field())

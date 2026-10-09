@@ -1,14 +1,13 @@
-use crate::control::Control;
-use eframe::egui::{self, Color32, RichText, Ui};
+use egui::{self, Color32, RichText, Ui};
+use search_probes_model::controls::Controls;
 use search_probes_model::{
     criteria::{Criteria, Field, GiantFilter, PlanetFlag, ResourceMode, SystemFlag},
-    protocol::{Action, Availability},
+    runtime::{Action, Availability, State},
     session::Phase,
     settings::{BUDGET_LABELS, BUDGETS, MAX_PRESETS, MAX_RESULTS, Preset, Settings, validate_name},
-    storage,
     vocabulary::RESOURCE_LABELS,
 };
-use std::{path::PathBuf, time::Duration};
+use std::sync::Arc;
 
 const CRITERIA_SPLIT_MIN_WIDTH: f32 = 820.0;
 const MAIN_SPLIT_MIN_WIDTH: f32 = 960.0;
@@ -16,27 +15,23 @@ const SEARCH_PANEL_SPLIT_MIN_WIDTH: f32 = 800.0;
 const RESULT_CARD_MIN_WIDTH: f32 = 280.0;
 
 pub struct App {
-    control: Control,
+    controls: Arc<Controls>,
+    state: State,
     settings: Settings,
-    loaded_session: Option<String>,
     loaded_generation: Option<u64>,
     preset_name: String,
     selected_preset: Option<usize>,
     restart: bool,
     use_cache: bool,
     error: Option<String>,
-    last_toggle: Option<u64>,
     published_settings: Option<Settings>,
-    visible: bool,
-    exit: bool,
-    owner: Option<crate::process::Owner>,
     pending_search: Option<u64>,
 }
 
 impl App {
-    pub fn new(cc: &eframe::CreationContext<'_>) -> Self {
-        cc.egui_ctx.set_theme(egui::Theme::Dark);
-        cc.egui_ctx.style_mut_of(egui::Theme::Dark, |style| {
+    pub fn new(ctx: &egui::Context, controls: Arc<Controls>) -> Self {
+        ctx.set_theme(egui::Theme::Dark);
+        ctx.style_mut_of(egui::Theme::Dark, |style| {
             style.spacing.item_spacing = egui::vec2(10.0, 8.0);
             for (kind, size) in [
                 (egui::TextStyle::Body, 15.0),
@@ -50,43 +45,30 @@ impl App {
             style.visuals.panel_fill = Color32::from_rgb(18, 24, 32);
             style.visuals.selection.bg_fill = Color32::from_rgb(32, 108, 126);
         });
-        let arguments: Vec<_> = std::env::args_os().collect();
-        let directory = arguments
-            .windows(2)
-            .find(|pair| pair[0] == "--directory")
-            .map(|pair| PathBuf::from(&pair[1]))
-            .or_else(|| storage::user_directory().ok());
-        let error = directory
-            .is_none()
-            .then(|| "The user application-data directory is unavailable.".to_owned());
         Self {
-            control: Control::new(directory.unwrap_or_default()),
+            state: controls.snapshot(),
+            controls,
             settings: Settings::default(),
-            loaded_session: None,
             loaded_generation: None,
             preset_name: String::new(),
             selected_preset: None,
             restart: false,
             use_cache: true,
-            error,
-            last_toggle: None,
+            error: None,
             published_settings: None,
-            visible: true,
-            exit: false,
-            owner: None,
             pending_search: None,
         }
     }
     fn send(&mut self, action: Action) {
         let pending = matches!(&action, Action::Start { .. } | Action::Continue { .. });
-        match self.control.send(action) {
+        match self.controls.submit(self.state.generation, action) {
             Ok(id) => {
                 self.error = None;
                 if pending {
                     self.pending_search = Some(id);
                 }
             }
-            Err(error) => self.error = Some(error),
+            Err(error) => self.error = Some(error.into()),
         }
     }
     fn preset_controls(&mut self, ui: &mut Ui) {
@@ -184,11 +166,12 @@ impl App {
             self.search_performance(ui);
         }
         ui.separator();
-        let state = self.control.state.as_ref();
-        let ready = state.is_some_and(|state| state.availability == Availability::Ready);
+        let state = &self.state;
+        let ready = state.availability == Availability::Ready;
         let active = self.pending_search.is_some()
             || state
-                .and_then(|state| state.progress.as_ref())
+                .progress
+                .as_ref()
                 .is_some_and(|progress| matches!(progress.phase, Phase::Running | Phase::Cached));
         let valid = self.settings.validate();
         ui.horizontal_wrapped(|ui| {
@@ -402,6 +385,12 @@ impl App {
                 .show(ui, |ui| {
                     choice_rows(ui, criteria, &[Field::Biome, Field::Subtype], input_width);
                     choice_rows(ui, criteria, &[Field::Flora], input_width);
+                    planet_flag_rows(
+                        ui,
+                        criteria,
+                        &[PlanetFlag::GlowingGrass, PlanetFlag::GlowingFlora],
+                        input_width,
+                    );
                 });
 
                 egui::CollapsingHeader::new(RichText::new("Colours").size(16.0).strong())
@@ -545,10 +534,7 @@ impl App {
     }
     fn results(&mut self, ui: &mut Ui) {
         ui.heading("Results");
-        let Some(state) = self.control.state.clone() else {
-            ui.label("Waiting for the game.");
-            return;
-        };
+        let state = self.state.clone();
         if state.availability != Availability::Ready {
             ui.label(match state.availability {
                 Availability::MainMenu => "Load a save to search.",
@@ -690,11 +676,26 @@ impl App {
                                                     address: result.address,
                                                 });
                                             }
-                                            if ui.button("Copy address").clicked() {
-                                                ui.ctx().copy_text(format!(
-                                                    "{:016X}",
-                                                    result.address.raw()
-                                                ));
+                                            if ui
+                                                .button("Copy portal code")
+                                                .on_hover_text(format!(
+                                                    "{}\nUse a portal in Galaxy {}.",
+                                                    result.address.portal_code(),
+                                                    u16::from(coordinates.galaxy) + 1
+                                                ))
+                                                .clicked()
+                                            {
+                                                ui.ctx().copy_text(result.address.portal_code());
+                                            }
+                                            if ui
+                                                .button("Copy galactic coords")
+                                                .on_hover_text(format!(
+                                                    "{}\nIdentifies the system; the portal code also selects the planet.",
+                                                    result.address.galactic_coordinates()
+                                                ))
+                                                .clicked()
+                                            {
+                                                ui.ctx().copy_text(result.address.galactic_coordinates());
                                             }
                                             if state.destination == Some(result.address) {
                                                 ui.label("Active destination");
@@ -710,86 +711,33 @@ impl App {
     }
 }
 
-impl eframe::App for App {
-    fn logic(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
-        self.control.poll();
-        if let Some(state) = &self.control.state {
-            if self.loaded_session.as_deref() != Some(&state.session) {
-                self.settings = state.settings.clone();
-                self.loaded_session = Some(state.session.clone());
-                self.last_toggle = None;
-                self.published_settings = None;
-                self.selected_preset = None;
-                self.pending_search = None;
-                self.loaded_generation = None;
-                match crate::process::Owner::open(state.pid) {
-                    Ok(owner) => self.owner = Some(owner),
-                    Err(_) => self.exit = true,
-                }
-            }
-            if self.loaded_generation != Some(state.generation) {
-                self.pending_search = None;
-                self.loaded_generation = Some(state.generation);
-            }
-            if self.published_settings.as_ref() != Some(&state.settings) {
-                self.settings = state.settings.clone();
-                self.published_settings = Some(state.settings.clone());
-                self.selected_preset = None;
-            }
-            if self
-                .last_toggle
-                .is_some_and(|last| state.toggle.wrapping_sub(last) & 1 != 0)
-            {
-                self.visible = !self.visible;
-                ctx.send_viewport_cmd(egui::ViewportCommand::Visible(self.visible));
-                if self.visible {
-                    if let Err(error) = crate::process::interactive() {
-                        self.error = Some(error.to_string());
-                    }
-                    ctx.send_viewport_cmd(egui::ViewportCommand::Focus);
-                } else {
-                    let _ = crate::process::hide(state.pid);
-                }
-            }
-            if self
-                .pending_search
-                .is_some_and(|id| state.last_command >= id)
-            {
-                self.pending_search = None;
-            }
-            self.last_toggle = Some(state.toggle);
-            if state.availability == Availability::Stopped {
-                self.exit = true;
-            }
+impl App {
+    pub fn refresh(&mut self) {
+        self.state = self.controls.snapshot();
+        let state = &self.state;
+        if self.loaded_generation != Some(state.generation) {
+            self.pending_search = None;
+            self.loaded_generation = Some(state.generation);
         }
-        if self.owner.as_ref().is_some_and(|owner| !owner.alive()) {
-            self.exit = true;
+        if self.published_settings.as_ref() != Some(&state.settings) {
+            self.settings = state.settings.clone();
+            self.published_settings = Some(state.settings.clone());
+            self.selected_preset = None;
         }
-        if self.exit {
-            ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+        if self
+            .pending_search
+            .is_some_and(|id| state.last_command >= id)
+        {
+            self.pending_search = None;
         }
-        if !self.exit && ctx.input(|input| input.viewport().close_requested()) {
-            ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
-        }
-        ctx.request_repaint_after(Duration::from_millis(200));
     }
-    fn ui(&mut self, ui: &mut Ui, _frame: &mut eframe::Frame) {
+    pub fn ui(&mut self, ui: &mut Ui) {
         egui::Frame::new()
             .inner_margin(16.0)
             .fill(Color32::from_rgb(18, 24, 32))
             .show(ui, |ui| {
                 ui.heading(RichText::new("Search Probes").size(28.0));
-                if let Some(error) =
-                    self.error
-                        .as_ref()
-                        .or(self.control.error.as_ref())
-                        .or_else(|| {
-                            self.control
-                                .state
-                                .as_ref()
-                                .and_then(|state| state.error.as_ref())
-                        })
-                {
+                if let Some(error) = self.error.as_ref().or(self.state.error.as_ref()) {
                     ui.colored_label(Color32::LIGHT_RED, error);
                 }
 

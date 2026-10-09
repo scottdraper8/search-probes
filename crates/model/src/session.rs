@@ -363,6 +363,28 @@ mod tests {
         assert_eq!(session.next(1).unwrap(), Work::Systems(vec![addresses[2]]));
     }
     #[test]
+    fn grass_prefilter_can_finish_a_nonmatch_but_requires_generation_for_possible_matches() {
+        use crate::vocabulary::GRASS_COLOUR_SET;
+        let mut session = Session::default();
+        let mut options = SearchOptions::default();
+        options.criteria.choices.insert(Field::Grass, 1 << 10);
+        session
+            .start(options.clone(), origin(), false, false)
+            .unwrap();
+        let addresses = load(&mut session);
+        let mut entry = record(0);
+        entry.planets[0].restrict_grass_colours(GRASS_COLOUR_SET | (1 << 3));
+        session.apply(addresses[0], entry, false).unwrap();
+        assert_eq!(session.progress().unwrap().systems, 1);
+        assert!(session.progress().unwrap().results.is_empty());
+        session.cancel();
+        options.criteria.choices.insert(Field::Grass, 1 << 3);
+        session.start(options, origin(), true, true).unwrap();
+        assert_eq!(session.progress().unwrap().phase, Phase::Running);
+        load(&mut session);
+        assert_eq!(session.next(1).unwrap(), Work::Systems(vec![addresses[0]]));
+    }
+    #[test]
     fn cached_matches_pause_before_any_live_generation() {
         let mut session = Session::default();
         let address = Address::from_raw(1 << 40).unwrap();

@@ -21,13 +21,6 @@
     "sha256": "845022e0c1db1abb41a6ba4cd3c4b674ec290f3359d9d3c78ae558d4c0ed9308"
   },
   {
-    "package": "clipboard-win",
-    "version": "5.4.1",
-    "path": "clipboard-win-5.4.1/LICENSE",
-    "url": "https://raw.githubusercontent.com/DoumanAsh/clipboard-win/3b27cf2bfd1adcfa6e0264eb51c1025ddaf0f342/LICENSE",
-    "sha256": "c9bff75738922193e67fa726fa225535870d2aa1059f91452c411736284ad566"
-  },
-  {
     "package": "ecolor",
     "version": "0.36.2",
     "path": "ecolor-0.36.2/LICENSE-APACHE",
@@ -42,34 +35,6 @@
     "sha256": "95ca92f5f8ea5231f1580b3a2a799e8260af3114b900e1def5355a7f44bcf60c"
   },
   {
-    "package": "eframe",
-    "version": "0.36.2",
-    "path": "eframe-0.36.2/LICENSE-APACHE",
-    "url": "https://raw.githubusercontent.com/emilk/egui/49682f8baa058bf49e011035cfbd6e825f88a5ef/LICENSE-APACHE",
-    "sha256": "8173d5c29b4f956d532781d2b86e4e30f83e6b7878dce18c919451d6ba707c90"
-  },
-  {
-    "package": "eframe",
-    "version": "0.36.2",
-    "path": "eframe-0.36.2/LICENSE-MIT",
-    "url": "https://raw.githubusercontent.com/emilk/egui/49682f8baa058bf49e011035cfbd6e825f88a5ef/LICENSE-MIT",
-    "sha256": "95ca92f5f8ea5231f1580b3a2a799e8260af3114b900e1def5355a7f44bcf60c"
-  },
-  {
-    "package": "egui-winit",
-    "version": "0.36.2",
-    "path": "egui-winit-0.36.2/LICENSE-APACHE",
-    "url": "https://raw.githubusercontent.com/emilk/egui/49682f8baa058bf49e011035cfbd6e825f88a5ef/LICENSE-APACHE",
-    "sha256": "8173d5c29b4f956d532781d2b86e4e30f83e6b7878dce18c919451d6ba707c90"
-  },
-  {
-    "package": "egui-winit",
-    "version": "0.36.2",
-    "path": "egui-winit-0.36.2/LICENSE-MIT",
-    "url": "https://raw.githubusercontent.com/emilk/egui/49682f8baa058bf49e011035cfbd6e825f88a5ef/LICENSE-MIT",
-    "sha256": "95ca92f5f8ea5231f1580b3a2a799e8260af3114b900e1def5355a7f44bcf60c"
-  },
-  {
     "package": "egui",
     "version": "0.36.2",
     "path": "egui-0.36.2/LICENSE-APACHE",
@@ -80,20 +45,6 @@
     "package": "egui",
     "version": "0.36.2",
     "path": "egui-0.36.2/LICENSE-MIT",
-    "url": "https://raw.githubusercontent.com/emilk/egui/49682f8baa058bf49e011035cfbd6e825f88a5ef/LICENSE-MIT",
-    "sha256": "95ca92f5f8ea5231f1580b3a2a799e8260af3114b900e1def5355a7f44bcf60c"
-  },
-  {
-    "package": "egui_glow",
-    "version": "0.36.2",
-    "path": "egui_glow-0.36.2/LICENSE-APACHE",
-    "url": "https://raw.githubusercontent.com/emilk/egui/49682f8baa058bf49e011035cfbd6e825f88a5ef/LICENSE-APACHE",
-    "sha256": "8173d5c29b4f956d532781d2b86e4e30f83e6b7878dce18c919451d6ba707c90"
-  },
-  {
-    "package": "egui_glow",
-    "version": "0.36.2",
-    "path": "egui_glow-0.36.2/LICENSE-MIT",
     "url": "https://raw.githubusercontent.com/emilk/egui/49682f8baa058bf49e011035cfbd6e825f88a5ef/LICENSE-MIT",
     "sha256": "95ca92f5f8ea5231f1580b3a2a799e8260af3114b900e1def5355a7f44bcf60c"
   },
@@ -140,25 +91,11 @@
     "sha256": "95ca92f5f8ea5231f1580b3a2a799e8260af3114b900e1def5355a7f44bcf60c"
   },
   {
-    "package": "gl_generator",
-    "version": "0.14.0",
-    "path": "gl_generator-0.14.0/LICENSE",
-    "url": "https://raw.githubusercontent.com/brendanzab/gl-rs/ea503e8d5fb6d73c6030e6191ce738cd3bf3433e/LICENSE",
-    "sha256": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30"
-  },
-  {
     "package": "iced-x86",
     "version": "1.21.0",
     "path": "iced-x86-1.21.0/LICENSE.txt",
     "url": "https://raw.githubusercontent.com/icedland/iced/c50f29b7bc305696895c075f3fc7719751426b12/LICENSE.txt",
     "sha256": "93a47598376fd3f276b631e75149340087153c6ff1635a53c5790249e9124e2d"
-  },
-  {
-    "package": "khronos_api",
-    "version": "3.1.0",
-    "path": "khronos_api-3.1.0/LICENSE",
-    "url": "https://raw.githubusercontent.com/brendanzab/gl-rs/f150967b1c44ae888e6676f93f639ebc82771bdc/LICENSE",
-    "sha256": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30"
   },
   {
     "package": "profiling",
@@ -173,5 +110,26 @@
     "path": "profiling-1.0.18/LICENSE-MIT",
     "url": "https://raw.githubusercontent.com/aclysma/profiling/8271551172eb6fa4cba47369aedd93790c623df9/LICENSE-MIT",
     "sha256": "c8167fdeeed46d3f244d3f85c5bf998ce889343691c32be2c61a8bc4b5c08333"
+  },
+  {
+    "package": "spirv",
+    "version": "0.4.0+sdk-1.4.341.0",
+    "path": "spirv-0.4.0+sdk-1.4.341.0/LICENSE",
+    "url": "https://raw.githubusercontent.com/gfx-rs/rspirv/8afc3d0ac8e158128cd1410bb2e4b4c26ab11bb4/LICENSE",
+    "sha256": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30"
+  },
+  {
+    "package": "bcdec_rs",
+    "version": "0.2.0",
+    "path": "bcdec_rs-0.2.0/LICENSE",
+    "url": "https://raw.githubusercontent.com/ScanMountGoat/image_dds/be82800d4cdf20375cd1f3dedb662d42e62242a3/LICENSE",
+    "sha256": "0194fa871df6d82a26d58f3b6e035bed033afdc413e2a6ac0ae2f15b7becbb20"
+  },
+  {
+    "package": "bcdec_rs",
+    "version": "0.2.0",
+    "path": "bcdec_rs-0.2.0/LICENSE-bcdec",
+    "url": "https://raw.githubusercontent.com/iOrange/bcdec/80859ed3b7afb1c527a2a99d70c61457bea72d0c/LICENSE",
+    "sha256": "2414c782587f6e96661cb0d19d752432ddecfcc1a221b4cb12bc2253a54dc5ac"
   }
 ]

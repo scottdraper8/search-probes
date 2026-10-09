@@ -72,7 +72,6 @@ impl Field {
                 Self::Race => matches!(index, 0 | 1 | 2 | 7),
                 Self::Anomaly => matches!(index, 0 | 2 | 5),
                 Self::Biome => !(8..=11).contains(index),
-                Self::Grass => *index != 8,
                 Self::Terrain => !(10..=20).contains(index),
                 _ => true,
             })
@@ -170,6 +169,8 @@ flags! { PlanetFlag {
     FloatingIslands => ("Floating islands",Objects),
     Dead => ("Dead",Query),
     Weird => ("Weird / Exotic",Query),
+    GlowingGrass => ("Glowing grass",Objects),
+    GlowingFlora => ("Glowing flora",Objects),
 }}
 
 flags! { SystemFlag {
@@ -283,11 +284,6 @@ where
             choices.remove(&Field::Terrain);
         }
     }
-    if let Some(mask) = choices.get_mut(&Field::Grass)
-        && *mask & (1 << 8) != 0
-    {
-        *mask = (*mask & !(1 << 8)) | (1 << 9) | (1 << 10);
-    }
     Ok(choices)
 }
 
@@ -321,10 +317,7 @@ impl Choices {
     }
     pub fn accepts(self, native_value: u32) -> bool {
         if self.field == Field::Grass && native_value & GRASS_COLOUR_SET != 0 {
-            let mut mask = self.mask as u32;
-            if mask & (1 << 8) != 0 {
-                mask |= (1 << 9) | (1 << 10);
-            }
+            let mask = self.mask as u32;
             return native_value & mask & !GRASS_COLOUR_SET != 0;
         }
         if self.field == Field::Biome && native_value >= 16 {
@@ -569,13 +562,54 @@ mod tests {
     use super::*;
 
     #[test]
-    fn grass_matches_appearance_sets_and_migrates_old_neutral_choices() {
+    fn glow_filters_are_independent_and_require_objects_without_colours() {
+        use crate::facts::{Facts, Verdict};
+        for flag in [PlanetFlag::GlowingGrass, PlanetFlag::GlowingFlora] {
+            for required in [false, true] {
+                let mut criteria = Criteria::default();
+                criteria.planets.insert(flag, required);
+                let plan = criteria.compile().unwrap();
+                assert!(plan.requirements.objects);
+                assert_eq!(plan.requirements.colours, 0);
+                assert!(!plan.requirements.weather && !plan.requirements.metadata);
+                let mut facts = Facts::default();
+                assert_eq!(plan.planet_match(&facts), Verdict::Unknown);
+                facts.set_planet_flag(flag, !required);
+                assert_eq!(plan.planet_match(&facts), Verdict::NoMatch);
+                facts.set_planet_flag(flag, required);
+                assert_eq!(plan.planet_match(&facts), Verdict::Match);
+                let encoded = serde_json::to_string(&criteria).unwrap();
+                assert_eq!(
+                    serde_json::from_str::<Criteria>(&encoded).unwrap(),
+                    criteria
+                );
+            }
+        }
+        let mut criteria = Criteria::default();
+        criteria.planets.insert(PlanetFlag::GlowingGrass, true);
+        criteria.planets.insert(PlanetFlag::GlowingFlora, false);
+        let plan = criteria.compile().unwrap();
+        let mut facts = Facts::default();
+        facts.set_planet_flag(PlanetFlag::GlowingGrass, true);
+        assert_eq!(plan.planet_match(&facts), Verdict::Unknown);
+        facts.set_planet_flag(PlanetFlag::GlowingFlora, false);
+        assert_eq!(plan.planet_match(&facts), Verdict::Match);
+    }
+
+    #[test]
+    fn grey_matches_only_grey_and_grassless_is_a_known_nonmatch() {
         let criteria: Criteria = serde_json::from_str(r#"{"choices":{"grass":256}}"#).unwrap();
-        assert_eq!(criteria.choices[&Field::Grass], (1 << 9) | (1 << 10));
+        assert_eq!(criteria.choices[&Field::Grass], 1 << 8);
         let plan = criteria.compile().unwrap();
         assert!(plan.requirements.objects);
         assert_eq!(plan.requirements.colours, 1);
-        for (colours, expected) in [(0, false), (1 << 3, false), (1 << 9, true), (1 << 10, true)] {
+        for (colours, expected) in [
+            (0, false),
+            (1 << 3, false),
+            (1 << 8, true),
+            (1 << 9, false),
+            (1 << 10, false),
+        ] {
             let mut facts = crate::facts::Facts::default();
             facts.set(Field::Grass, GRASS_COLOUR_SET | colours);
             assert_eq!(
@@ -584,10 +618,9 @@ mod tests {
             );
             assert!(plan.missing_planet_requirements(&facts) == Requirements::default());
         }
-        assert!(
-            !Field::Grass
-                .available_options()
-                .any(|(_, label)| label == "Neutral")
+        assert_eq!(
+            Field::Grass.available_options().skip(8).collect::<Vec<_>>(),
+            [(8, "Grey"), (9, "Black"), (10, "White")]
         );
     }
     #[test]

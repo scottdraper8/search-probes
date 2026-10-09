@@ -104,6 +104,7 @@ pub unsafe extern "system" fn sqn_persistent_queries(
                             let object_flags = objects.flags(
                                 live_planet,
                                 &crate::object_cache::ObjectTableCache::default(),
+                                0,
                             )?;
                             (facts as *mut capture::Facts)
                                 .add(index * 8 + captured)

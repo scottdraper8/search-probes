@@ -1,4 +1,8 @@
-use crate::{identity::Image, platform};
+use crate::{
+    identity::Image,
+    planet_query_context::{CONFIGURATION_SIZE, configuration_identity},
+    platform,
+};
 use search_probes_model::address::{Address, Coordinates};
 
 #[derive(Clone, PartialEq, Eq)]
@@ -10,7 +14,7 @@ pub struct Epoch {
     difficulty: u32,
     object_cache: u32,
     solar_resources: [u8; 16],
-    configuration: [u8; 0xbb0],
+    configuration: [u8; CONFIGURATION_SIZE],
 }
 
 pub struct Snapshot {
@@ -83,8 +87,7 @@ impl Snapshot {
             return Err("unsupported combat difficulty");
         }
         let planet = root + 0x520570;
-        let mut configuration = platform::read::<0xbb0>(planet)?;
-        configuration[0xba4..0xbac].fill(0);
+        let configuration = configuration_identity(platform::read::<CONFIGURATION_SIZE>(planet)?);
         let solar_resources = platform::read::<16>(root + 0x521180 + 0x6c0)?;
         if solar_resources
             .chunks_exact(8)

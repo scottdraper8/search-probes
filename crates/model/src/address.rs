@@ -46,6 +46,29 @@ impl Address {
         self.0
     }
 
+    pub fn portal_code(self) -> String {
+        let c = self.coordinates();
+        format!(
+            "{:X}{:03X}{:02X}{:03X}{:03X}",
+            c.planet,
+            c.system,
+            c.y as u16 & 0xff,
+            c.z as u16 & 0xfff,
+            c.x as u16 & 0xfff
+        )
+    }
+
+    pub fn galactic_coordinates(self) -> String {
+        let c = self.coordinates();
+        format!(
+            "{:04X}:{:04X}:{:04X}:{:04X}",
+            c.x + 0x7ff,
+            c.y + 0x7f,
+            c.z + 0x7ff,
+            c.system
+        )
+    }
+
     pub fn coordinates(self) -> Coordinates {
         Coordinates {
             x: ((self.0 as i16) << 4) >> 4,
@@ -121,5 +144,50 @@ mod tests {
         assert!(Address::from_raw(0x800).is_err());
         assert!(Address::from_raw(0x80 << 24).is_err());
         assert!(Address::from_raw(0).unwrap().planet(8).is_err());
+    }
+
+    #[test]
+    fn copied_native_address_exports_portal_and_galactic_formats() {
+        let address = Address::from_raw(0x0010_e800_0798_a054).unwrap();
+        assert_eq!(address.portal_code(), "10E80798A054");
+        assert_eq!(address.galactic_coordinates(), "0853:0086:0189:00E8");
+        let other_planet = address.planet(5).unwrap();
+        assert_eq!(other_planet.portal_code(), "60E80798A054");
+        assert_eq!(
+            other_planet.galactic_coordinates(),
+            address.galactic_coordinates()
+        );
+        let other_galaxy = Address::new(Coordinates {
+            galaxy: 9,
+            ..address.coordinates()
+        })
+        .unwrap();
+        assert_eq!(other_galaxy.portal_code(), address.portal_code());
+        assert_eq!(
+            other_galaxy.galactic_coordinates(),
+            address.galactic_coordinates()
+        );
+    }
+
+    #[test]
+    fn coordinate_exports_preserve_signed_bounds_and_leading_zeroes() {
+        for (x, y, z, portal, galactic) in [
+            (-2047, -127, -2047, "1FFF81801801", "0000:0000:0000:0FFF"),
+            (-1, -1, -1, "1FFFFFFFFFFF", "07FE:007E:07FE:0FFF"),
+            (0, 0, 0, "1FFF00000000", "07FF:007F:07FF:0FFF"),
+            (2047, 127, 2047, "1FFF7F7FF7FF", "0FFE:00FE:0FFE:0FFF"),
+        ] {
+            let address = Address::new(Coordinates {
+                x,
+                y,
+                z,
+                system: 4095,
+                planet: 1,
+                galaxy: 255,
+            })
+            .unwrap();
+            assert_eq!(address.portal_code(), portal);
+            assert_eq!(address.galactic_coordinates(), galactic);
+        }
     }
 }

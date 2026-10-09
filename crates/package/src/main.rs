@@ -110,12 +110,7 @@ fn licenses(workspace: &Path, output: &Path) -> Result<()> {
         .ok_or("missing dependency graph")?;
     let mut pending: Vec<_> = packages
         .iter()
-        .filter(|p| {
-            matches!(
-                p["name"].as_str(),
-                Some("search-probes-bootstrap" | "search-probes-ui")
-            )
-        })
+        .filter(|p| matches!(p["name"].as_str(), Some("search-probes-bootstrap")))
         .map(|p| {
             p["id"]
                 .as_str()
@@ -291,10 +286,7 @@ fn package(workspace: &Path, output: &Path) -> Result<()> {
     let temporary = parent.join(format!(".search-probes-package-{}", std::process::id()));
     fs::create_dir(&temporary)?;
     let binaries = workspace.join("target/x86_64-pc-windows-gnu/release");
-    for (from, to) in [
-        ("winmm.dll", "Binaries/winmm.dll"),
-        ("SearchProbes.exe", "Binaries/SearchProbes/SearchProbes.exe"),
-    ] {
+    for (from, to) in [("winmm.dll", "Binaries/winmm.dll")] {
         copy(&binaries.join(from), &temporary.join(to))?;
     }
     let assets = workspace.join("assets");
@@ -312,6 +304,7 @@ fn package(workspace: &Path, output: &Path) -> Result<()> {
         "version": env!("CARGO_PKG_VERSION"),
         "files": manifest(&temporary)?,
     });
+    fs::create_dir_all(temporary.join("Binaries/SearchProbes"))?;
     fs::write(
         temporary.join("Binaries/SearchProbes/installation.json"),
         serde_json::to_vec_pretty(&installation)?,

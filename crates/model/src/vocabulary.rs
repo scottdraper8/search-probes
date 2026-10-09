@@ -80,7 +80,7 @@ pub const HUE_FAMILIES: &[&str] = &[
     "Red", "Orange", "Yellow", "Green", "Cyan", "Blue", "Purple", "Magenta", "Neutral",
 ];
 pub const GRASS_COLOURS: &[&str] = &[
-    "Red", "Orange", "Yellow", "Green", "Cyan", "Blue", "Purple", "Magenta", "Neutral", "Black",
+    "Red", "Orange", "Yellow", "Green", "Cyan", "Blue", "Purple", "Magenta", "Grey", "Black",
     "White",
 ];
 pub const GRASS_COLOUR_SET: u32 = 1 << 31;

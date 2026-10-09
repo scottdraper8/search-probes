@@ -1,4 +1,5 @@
 use crate::object_cache::{MAX_FILENAME_BYTES, ObjectTableCache, TableFacts};
+use search_probes_model::grass::GrassModel;
 use std::{marker::PhantomData, rc::Rc};
 
 type Acquire = unsafe extern "system" fn(*mut u8, *const u8, bool) -> *mut u8;
@@ -30,6 +31,8 @@ pub struct ObjectFlags {
     pub objects: u32,
     pub missing_tables: u32,
     pub ground_grass: u32,
+    pub glowing_grass: bool,
+    pub glowing_flora: bool,
 }
 
 impl ObjectTables {
@@ -64,6 +67,7 @@ impl ObjectTables {
         &self,
         planet: *const u8,
         summaries: &ObjectTableCache,
+        need_glow: u8,
     ) -> Result<ObjectFlags, &'static str> {
         if planet.is_null() {
             return Err("null planet object source");
@@ -87,7 +91,18 @@ impl ObjectTables {
                 }
                 let bytes = std::slice::from_raw_parts(filename, length);
                 let key = &bytes[..bytes.iter().position(|&byte| byte == 0).unwrap_or(length)];
-                let facts = summaries.resolve(key, || self.load(filename))?;
+                let surface = ![
+                    b"/BIOMES/OBJECTS/".as_slice(),
+                    b"/BIOMES/CAVE/",
+                    b"/BIOMES/UNDERWATER/",
+                ]
+                .iter()
+                .any(|part| {
+                    key.windows(part.len())
+                        .any(|w| w.eq_ignore_ascii_case(part))
+                });
+                let glow = if surface { need_glow } else { 0 };
+                let facts = summaries.resolve(key, glow, || self.load(filename, glow))?;
                 if let Some(facts) = facts {
                     result.loaded_tables += 1;
                     result.objects = result
@@ -98,7 +113,13 @@ impl ObjectTables {
                     let decoration = key
                         .windows(b"/BIOMES/OBJECTS/".len())
                         .any(|part| part.eq_ignore_ascii_case(b"/BIOMES/OBJECTS/"));
-                    result.ground_grass |= u32::from(facts.ground_grass && !decoration);
+                    if !decoration {
+                        result.ground_grass |= facts.ground_grass;
+                    }
+                    if glow != 0 {
+                        result.glowing_grass |= facts.glowing_grass;
+                        result.glowing_flora |= facts.glowing_flora;
+                    }
                 } else {
                     result.missing_tables += 1;
                 }
@@ -106,7 +127,11 @@ impl ObjectTables {
         }
         Ok(result)
     }
-    unsafe fn load(&self, filename: *const u8) -> Result<Option<TableFacts>, &'static str> {
+    unsafe fn load(
+        &self,
+        filename: *const u8,
+        glow: u8,
+    ) -> Result<Option<TableFacts>, &'static str> {
         let pointer = unsafe { (self.acquire)(self.cache, filename, false) };
         if pointer.is_null() {
             return Ok(None);
@@ -115,7 +140,10 @@ impl ObjectTables {
             owner: self,
             pointer,
         };
-        let mut facts = TableFacts::default();
+        let mut facts = TableFacts {
+            glow_known: glow,
+            ..Default::default()
+        };
         for offset in [0x10, 0x40, 0x30, 0x20] {
             let (objects, count) = unsafe { dynamic_array(resource.pointer.add(offset), 65_536) }?;
             facts.objects = facts
@@ -125,36 +153,65 @@ impl ObjectTables {
             for index in 0..count {
                 let object = unsafe { objects.add(index * 0x168) };
                 facts.floating_islands |= unsafe { object.add(0x15f).read() != 0 };
-                facts.ground_grass |= unsafe { ground_grass(object) }?;
+                let grass = unsafe { ground_grass(object) }?;
+                facts.ground_grass |= grass;
+                if glow != 0 && unsafe { spawns(object) }? {
+                    let path = unsafe { model_path(object) }?;
+                    if !path.is_empty() {
+                        let grass = grass != 0;
+                        if (grass && glow & 1 != 0 && !facts.glowing_grass)
+                            || (!grass && glow & 2 != 0 && !facts.glowing_flora)
+                        {
+                            let model = crate::bioluminescence::get(path)?;
+                            if grass {
+                                facts.glowing_grass |= model.emissive;
+                            } else {
+                                facts.glowing_flora |= model.glowing_flora;
+                            }
+                        }
+                    }
+                }
             }
         }
         Ok(Some(facts))
     }
 }
 
-unsafe fn ground_grass(object: *const u8) -> Result<bool, &'static str> {
+unsafe fn ground_grass(object: *const u8) -> Result<u32, &'static str> {
+    let path = unsafe { model_path(object) }?;
+    let Some(model) = GrassModel::ALL
+        .into_iter()
+        .find(|model| path.eq_ignore_ascii_case(model.path().as_bytes()))
+    else {
+        return Ok(0);
+    };
+    Ok(if unsafe { spawns(object) }? {
+        model.mask()
+    } else {
+        0
+    })
+}
+
+/// # Safety
+/// The returned filename must not outlive the acquired native object resource.
+unsafe fn model_path<'a>(object: *const u8) -> Result<&'a [u8], &'static str> {
     let (filename, length) = unsafe { dynamic_array(object.add(0x58), MAX_FILENAME_BYTES) }?;
     if length == 0 {
-        return Ok(false);
+        return Ok(&[]);
     }
     let path = unsafe { std::slice::from_raw_parts(filename, length) };
     let path = &path[..path.iter().position(|&b| b == 0).unwrap_or(path.len())];
-    const MODELS: &[&[u8]] = &[
-        b"MODELS/PLANETS/BIOMES/COMMON/GRASS/NEWCROSSGRASS.SCENE.MBIN",
-        b"MODELS/PLANETS/BIOMES/COMMON/GRASS/NEWLUSHGRASS.SCENE.MBIN",
-        b"MODELS/PLANETS/BIOMES/COMMON/GRASS/BUBBLELUSHGRASS.SCENE.MBIN",
-        b"MODELS/PLANETS/BIOMES/BARREN/HQ/FOLIAGE/BARRENGRASSLARGE.SCENE.MBIN",
-    ];
-    if !MODELS.iter().any(|model| path.eq_ignore_ascii_case(model)) {
-        return Ok(false);
-    }
+    Ok(path)
+}
+
+unsafe fn spawns(object: *const u8) -> Result<bool, &'static str> {
     let (variants, count) = unsafe { dynamic_array(object.add(0xe0), 64) }?;
     for i in 0..count {
         let variant = unsafe { variants.add(i * 0x48) };
         let values = [0x24, 0x34, 0x40]
             .map(|offset| unsafe { variant.add(offset).cast::<f32>().read_unaligned() });
         if values.iter().any(|v| !v.is_finite() || *v < 0.) {
-            return Err("invalid grass spawn density");
+            return Err("invalid vegetation spawn density");
         }
         if values[0] > 0. && (values[1] > 0. || values[2] > 0.) {
             return Ok(true);
@@ -188,16 +245,19 @@ mod tests {
         object[0x60..0x64].copy_from_slice(&(model.len() as i32).to_ne_bytes());
         object[0xe0..0xe8].copy_from_slice(&(variant.as_ptr() as usize).to_ne_bytes());
         object[0xe8..0xec].copy_from_slice(&1i32.to_ne_bytes());
-        assert!(!unsafe { ground_grass(object.as_ptr()) }.unwrap());
+        assert_eq!(unsafe { ground_grass(object.as_ptr()) }.unwrap(), 0);
         variant[0x24..0x28].copy_from_slice(&1f32.to_ne_bytes());
-        assert!(!unsafe { ground_grass(object.as_ptr()) }.unwrap());
+        assert_eq!(unsafe { ground_grass(object.as_ptr()) }.unwrap(), 0);
         variant[0x34..0x38].copy_from_slice(&0.2f32.to_ne_bytes());
-        assert!(unsafe { ground_grass(object.as_ptr()) }.unwrap());
+        assert_eq!(
+            unsafe { ground_grass(object.as_ptr()) }.unwrap(),
+            GrassModel::Lush.mask()
+        );
         object[0x58..0x68].fill(0);
         let model = b"MODELS/PLANETS/BIOMES/COMMON/FLOWERS/BUTTERCUP.SCENE.MBIN";
         object[0x58..0x60].copy_from_slice(&(model.as_ptr() as usize).to_ne_bytes());
         object[0x60..0x64].copy_from_slice(&(model.len() as i32).to_ne_bytes());
-        assert!(!unsafe { ground_grass(object.as_ptr()) }.unwrap());
+        assert_eq!(unsafe { ground_grass(object.as_ptr()) }.unwrap(), 0);
         object[0x58..0x60].fill(0);
         assert!(unsafe { ground_grass(object.as_ptr()) }.is_err());
     }

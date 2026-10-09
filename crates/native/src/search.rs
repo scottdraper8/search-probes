@@ -1,5 +1,5 @@
 use crate::{
-    capture, colour_lut,
+    capture, grass_appearance,
     object_cache::ObjectTableCache,
     object_flags::ObjectTables,
     planet_query_context::PlanetQueryContext,
@@ -12,7 +12,6 @@ use search_probes_model::{
     cache::{MAX_NAME_BYTES, SystemRecord},
     criteria::{Field, Plan, PlanetFlag},
     facts::Verdict,
-    vocabulary::GRASS_COLOUR_SET,
 };
 use std::sync::atomic::{AtomicBool, Ordering};
 
@@ -189,21 +188,43 @@ impl<'cache> Generator<'cache> {
                             return Ok(());
                         }
                     }
-                    let mut grass_capture = None;
-                    if needed.colours != 0 {
+                    let palette_colours = needed.colours & !1;
+                    if palette_colours != 0 {
                         let details =
-                            capture::capture(live, generator, u32::from(needed.colours) << 8)?;
+                            capture::capture(live, generator, u32::from(palette_colours) << 8)?;
                         apply_capture(facts, &details, difficulty)?;
-                        if needed.colours & 1 != 0 {
-                            grass_capture = Some(details);
-                        }
                         outcome.work.colour_captures += 1;
                         if plan.planet_match(facts) == Verdict::NoMatch {
                             return Ok(());
                         }
                     }
+                    let grass = if needed.colours & 1 != 0 {
+                        let captured = capture::capture(live, generator, capture::colour(0))?;
+                        outcome.work.colour_captures += 1;
+                        let prepared = grass_appearance::prepare(
+                            captured.grass_terrain[0],
+                            captured.screen_filter,
+                        );
+                        if let Ok(prepared) = &prepared {
+                            if let Some(candidates) = prepared.fixed_colour() {
+                                facts.restrict_grass_colours(candidates);
+                                if plan.planet_match(facts) == Verdict::NoMatch {
+                                    return Ok(());
+                                }
+                            }
+                        }
+                        Some(prepared)
+                    } else {
+                        None
+                    };
                     if let Some(objects) = self.objects.as_ref().filter(|_| needed.objects) {
-                        let flags = objects.flags(live, self.object_summaries)?;
+                        let need_glow = [PlanetFlag::GlowingGrass, PlanetFlag::GlowingFlora]
+                            .into_iter().enumerate().fold(0, |mask, (bit, flag)| {
+                                mask | if plan.planet.iter().any(|predicate|
+                                    matches!(predicate, search_probes_model::criteria::Predicate::Planet(selected, _) if *selected == flag))
+                                    && facts.planet_flag(flag).is_none() { 1 << bit } else { 0 }
+                            });
+                        let flags = objects.flags(live, self.object_summaries, need_glow)?;
                         if flags.missing_tables != 0 {
                             return Err("an object table could not be loaded");
                         }
@@ -211,19 +232,20 @@ impl<'cache> Generator<'cache> {
                             PlanetFlag::FloatingIslands,
                             flags.floating_islands != 0,
                         );
-                        if let Some(grass) = grass_capture {
-                            let colours = if flags.ground_grass != 0 {
-                                let lut = colour_lut::get(grass.screen_filter)?;
-                                search_probes_model::grass::primary_colour(
-                                    grass.grass_terrain[0],
-                                    |rgb| lut.sample(rgb),
-                                )?
+                        if need_glow & 1 != 0 { facts.set_planet_flag(PlanetFlag::GlowingGrass, flags.glowing_grass); }
+                        if need_glow & 2 != 0 { facts.set_planet_flag(PlanetFlag::GlowingFlora, flags.glowing_flora); }
+                        outcome.work.object_scans += 1;
+                        if plan.planet_match(facts) == Verdict::NoMatch {
+                            return Ok(());
+                        }
+                        if let Some(grass) = grass {
+                            let colours = if flags.ground_grass == 0 {
+                                search_probes_model::vocabulary::GRASS_COLOUR_SET
                             } else {
-                                GRASS_COLOUR_SET
+                                grass_appearance::get(&grass?, flags.ground_grass)?
                             };
                             facts.set(Field::Grass, colours);
                         }
-                        outcome.work.object_scans += 1;
                     }
                     match plan.planet_match(facts) {
                         Verdict::Unknown => {

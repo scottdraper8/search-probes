@@ -1,6 +1,6 @@
 /// # Safety
 /// Buffers are valid and disjoint. Start/stop runs outside native callbacks and all other probe hooks
-/// are disabled. Start takes a UTF-8 JSON object containing isolated directory and UI paths.
+/// are disabled. Start takes a UTF-8 JSON object containing isolated directory path.
 #[unsafe(no_mangle)]
 pub unsafe extern "system" fn sqn_runtime_probe(
     action: u32,
@@ -19,8 +19,7 @@ pub unsafe extern "system" fn sqn_runtime_probe(
                     serde_json::from_slice(unsafe { std::slice::from_raw_parts(input, length) })
                         .map_err(|error| error.to_string())?;
                 let directory = value["directory"].as_str().ok_or("missing directory")?;
-                let ui = value["ui"].as_str().ok_or("missing UI path")?;
-                crate::runtime::initialize_at(directory.into(), ui.into()).map(|_|serde_json::json!({"ok":true}))
+                crate::runtime::initialize_at(directory.into()).map(|_|serde_json::json!({"ok":true}))
             }
             1 => crate::runtime::stop().map(|_|serde_json::json!({"ok":true})),
             2 => Ok(serde_json::json!({"thread":crate::gameplay_hook::thread_id(),"epoch":crate::lifecycle_hook::epoch(),"failure":crate::gameplay_hook::failure()})),
