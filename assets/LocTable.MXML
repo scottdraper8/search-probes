@@ -501,5 +501,145 @@
       <Property name="TraditionalChinese" value="Preset 9" />
       <Property name="USEnglish" value="Preset 9" />
     </Property>
+    <Property name="Table" value="TkLocalisationEntry">
+      <Property name="Id" value="SQN_SP_SYSTEM_MISSION_TITLE" />
+      <Property name="BrazilianPortuguese" value="Search Probe System" />
+      <Property name="Dutch" value="Search Probe System" />
+      <Property name="English" value="Search Probe System" />
+      <Property name="French" value="Search Probe System" />
+      <Property name="German" value="Search Probe System" />
+      <Property name="Italian" value="Search Probe System" />
+      <Property name="Japanese" value="Search Probe System" />
+      <Property name="Korean" value="Search Probe System" />
+      <Property name="LatinAmericanSpanish" value="Search Probe System" />
+      <Property name="Polish" value="Search Probe System" />
+      <Property name="Portuguese" value="Search Probe System" />
+      <Property name="Russian" value="Search Probe System" />
+      <Property name="SimplifiedChinese" value="Search Probe System" />
+      <Property name="Spanish" value="Search Probe System" />
+      <Property name="TencentChinese" value="Search Probe System" />
+      <Property name="TraditionalChinese" value="Search Probe System" />
+      <Property name="USEnglish" value="Search Probe System" />
+    </Property>
+    <Property name="Table" value="TkLocalisationEntry">
+      <Property name="Id" value="SQN_SP_SYSTEM_MISSION_DESC" />
+      <Property name="BrazilianPortuguese" value="A search probe has identified a matching system." />
+      <Property name="Dutch" value="A search probe has identified a matching system." />
+      <Property name="English" value="A search probe has identified a matching system." />
+      <Property name="French" value="A search probe has identified a matching system." />
+      <Property name="German" value="A search probe has identified a matching system." />
+      <Property name="Italian" value="A search probe has identified a matching system." />
+      <Property name="Japanese" value="A search probe has identified a matching system." />
+      <Property name="Korean" value="A search probe has identified a matching system." />
+      <Property name="LatinAmericanSpanish" value="A search probe has identified a matching system." />
+      <Property name="Polish" value="A search probe has identified a matching system." />
+      <Property name="Portuguese" value="A search probe has identified a matching system." />
+      <Property name="Russian" value="A search probe has identified a matching system." />
+      <Property name="SimplifiedChinese" value="A search probe has identified a matching system." />
+      <Property name="Spanish" value="A search probe has identified a matching system." />
+      <Property name="TencentChinese" value="A search probe has identified a matching system." />
+      <Property name="TraditionalChinese" value="A search probe has identified a matching system." />
+      <Property name="USEnglish" value="A search probe has identified a matching system." />
+    </Property>
+    <Property name="Table" value="TkLocalisationEntry">
+      <Property name="Id" value="SQN_SP_SYSTEM_MISSION_FLAVOUR" />
+      <Property name="BrazilianPortuguese" value="Follow Current Mission in the Galaxy Map and enter the target system." />
+      <Property name="Dutch" value="Follow Current Mission in the Galaxy Map and enter the target system." />
+      <Property name="English" value="Follow Current Mission in the Galaxy Map and enter the target system." />
+      <Property name="French" value="Follow Current Mission in the Galaxy Map and enter the target system." />
+      <Property name="German" value="Follow Current Mission in the Galaxy Map and enter the target system." />
+      <Property name="Italian" value="Follow Current Mission in the Galaxy Map and enter the target system." />
+      <Property name="Japanese" value="Follow Current Mission in the Galaxy Map and enter the target system." />
+      <Property name="Korean" value="Follow Current Mission in the Galaxy Map and enter the target system." />
+      <Property name="LatinAmericanSpanish" value="Follow Current Mission in the Galaxy Map and enter the target system." />
+      <Property name="Polish" value="Follow Current Mission in the Galaxy Map and enter the target system." />
+      <Property name="Portuguese" value="Follow Current Mission in the Galaxy Map and enter the target system." />
+      <Property name="Russian" value="Follow Current Mission in the Galaxy Map and enter the target system." />
+      <Property name="SimplifiedChinese" value="Follow Current Mission in the Galaxy Map and enter the target system." />
+      <Property name="Spanish" value="Follow Current Mission in the Galaxy Map and enter the target system." />
+      <Property name="TencentChinese" value="Follow Current Mission in the Galaxy Map and enter the target system." />
+      <Property name="TraditionalChinese" value="Follow Current Mission in the Galaxy Map and enter the target system." />
+      <Property name="USEnglish" value="Follow Current Mission in the Galaxy Map and enter the target system." />
+    </Property>
+    <Property name="Table" value="TkLocalisationEntry">
+      <Property name="Id" value="SQN_SP_SYSTEM_MISSION_OBJ" />
+      <Property name="BrazilianPortuguese" value="Enter the search probe target system" />
+      <Property name="Dutch" value="Enter the search probe target system" />
+      <Property name="English" value="Enter the search probe target system" />
+      <Property name="French" value="Enter the search probe target system" />
+      <Property name="German" value="Enter the search probe target system" />
+      <Property name="Italian" value="Enter the search probe target system" />
+      <Property name="Japanese" value="Enter the search probe target system" />
+      <Property name="Korean" value="Enter the search probe target system" />
+      <Property name="LatinAmericanSpanish" value="Enter the search probe target system" />
+      <Property name="Polish" value="Enter the search probe target system" />
+      <Property name="Portuguese" value="Enter the search probe target system" />
+      <Property name="Russian" value="Enter the search probe target system" />
+      <Property name="SimplifiedChinese" value="Enter the search probe target system" />
+      <Property name="Spanish" value="Enter the search probe target system" />
+      <Property name="TencentChinese" value="Enter the search probe target system" />
+      <Property name="TraditionalChinese" value="Enter the search probe target system" />
+      <Property name="USEnglish" value="Enter the search probe target system" />
+    </Property>
+    <Property name="Table" value="TkLocalisationEntry">
+      <Property name="Id" value="SQN_SP_SYSTEM_MISSION_OBJ_TIP" />
+      <Property name="BrazilianPortuguese" value="Follow Current Mission in the Galaxy Map." />
+      <Property name="Dutch" value="Follow Current Mission in the Galaxy Map." />
+      <Property name="English" value="Follow Current Mission in the Galaxy Map." />
+      <Property name="French" value="Follow Current Mission in the Galaxy Map." />
+      <Property name="German" value="Follow Current Mission in the Galaxy Map." />
+      <Property name="Italian" value="Follow Current Mission in the Galaxy Map." />
+      <Property name="Japanese" value="Follow Current Mission in the Galaxy Map." />
+      <Property name="Korean" value="Follow Current Mission in the Galaxy Map." />
+      <Property name="LatinAmericanSpanish" value="Follow Current Mission in the Galaxy Map." />
+      <Property name="Polish" value="Follow Current Mission in the Galaxy Map." />
+      <Property name="Portuguese" value="Follow Current Mission in the Galaxy Map." />
+      <Property name="Russian" value="Follow Current Mission in the Galaxy Map." />
+      <Property name="SimplifiedChinese" value="Follow Current Mission in the Galaxy Map." />
+      <Property name="Spanish" value="Follow Current Mission in the Galaxy Map." />
+      <Property name="TencentChinese" value="Follow Current Mission in the Galaxy Map." />
+      <Property name="TraditionalChinese" value="Follow Current Mission in the Galaxy Map." />
+      <Property name="USEnglish" value="Follow Current Mission in the Galaxy Map." />
+    </Property>
+    <Property name="Table" value="TkLocalisationEntry">
+      <Property name="Id" value="SQN_SP_SYSTEM_OSD" />
+      <Property name="BrazilianPortuguese" value="Search probe system selected" />
+      <Property name="Dutch" value="Search probe system selected" />
+      <Property name="English" value="Search probe system selected" />
+      <Property name="French" value="Search probe system selected" />
+      <Property name="German" value="Search probe system selected" />
+      <Property name="Italian" value="Search probe system selected" />
+      <Property name="Japanese" value="Search probe system selected" />
+      <Property name="Korean" value="Search probe system selected" />
+      <Property name="LatinAmericanSpanish" value="Search probe system selected" />
+      <Property name="Polish" value="Search probe system selected" />
+      <Property name="Portuguese" value="Search probe system selected" />
+      <Property name="Russian" value="Search probe system selected" />
+      <Property name="SimplifiedChinese" value="Search probe system selected" />
+      <Property name="Spanish" value="Search probe system selected" />
+      <Property name="TencentChinese" value="Search probe system selected" />
+      <Property name="TraditionalChinese" value="Search probe system selected" />
+      <Property name="USEnglish" value="Search probe system selected" />
+    </Property>
+    <Property name="Table" value="TkLocalisationEntry">
+      <Property name="Id" value="SQN_SP_SYSTEM_MARKER" />
+      <Property name="BrazilianPortuguese" value="Search probe system" />
+      <Property name="Dutch" value="Search probe system" />
+      <Property name="English" value="Search probe system" />
+      <Property name="French" value="Search probe system" />
+      <Property name="German" value="Search probe system" />
+      <Property name="Italian" value="Search probe system" />
+      <Property name="Japanese" value="Search probe system" />
+      <Property name="Korean" value="Search probe system" />
+      <Property name="LatinAmericanSpanish" value="Search probe system" />
+      <Property name="Polish" value="Search probe system" />
+      <Property name="Portuguese" value="Search probe system" />
+      <Property name="Russian" value="Search probe system" />
+      <Property name="SimplifiedChinese" value="Search probe system" />
+      <Property name="Spanish" value="Search probe system" />
+      <Property name="TencentChinese" value="Search probe system" />
+      <Property name="TraditionalChinese" value="Search probe system" />
+      <Property name="USEnglish" value="Search probe system" />
+    </Property>
   </Property>
 </Data>

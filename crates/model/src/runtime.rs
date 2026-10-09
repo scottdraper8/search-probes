@@ -3,6 +3,7 @@ use crate::{
     cache::CachedMatch,
     session::Progress,
     settings::{MAX_RESULTS, Settings},
+    target::Target,
 };
 use serde::{Deserialize, Serialize};
 
@@ -33,7 +34,7 @@ pub enum Action {
         settings: Settings,
     },
     Navigate {
-        address: Address,
+        target: Target,
     },
     ClearHistory {},
 }
@@ -49,12 +50,7 @@ impl Command {
                 Err("invalid continuation result limit")
             }
             Action::Configure { settings } => settings.validate(),
-            Action::Navigate { address }
-                if address.coordinates().system == 0
-                    || !(1..=8).contains(&address.coordinates().planet) =>
-            {
-                Err("destination must identify a generated planet")
-            }
+            Action::Navigate { target } => target.validate(),
             _ => Ok(()),
         }
     }
@@ -112,7 +108,7 @@ pub struct State {
     pub cached_systems: usize,
     pub last_command: u64,
     pub error: Option<String>,
-    pub destination: Option<Address>,
+    pub destination: Option<Target>,
 }
 
 impl State {
@@ -161,11 +157,16 @@ mod tests {
         let previous = Address::from_raw(20 << 40).unwrap().planet(0).unwrap();
         state.results.push(CachedMatch {
             address: previous,
+            kind: crate::target::TargetKind::Planet,
             name: None,
         });
 
         let mut options = state.settings.search.clone();
         options.results = 10;
+        options
+            .criteria
+            .choices
+            .insert(crate::criteria::Field::Size, 1);
         session
             .start(options.clone(), origin, false, false)
             .unwrap();
@@ -179,12 +180,10 @@ mod tests {
         for &address in &addresses[..8] {
             let mut system = Facts::default();
             system.set_planet_count(1);
+            let mut planets = [Facts::default(); 8];
+            planets[0].set(crate::criteria::Field::Size, 0);
             session
-                .apply(
-                    address,
-                    SystemRecord::new(system, [Facts::default(); 8]).unwrap(),
-                    false,
-                )
+                .apply(address, SystemRecord::new(system, planets).unwrap(), false)
                 .unwrap();
         }
         state.publish_progress(session.progress().cloned());

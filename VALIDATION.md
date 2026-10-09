@@ -22,7 +22,7 @@ independently of NMS, with Khronos synchronization validation enabled and zero v
 Visual NMS HDR, native Windows, frame generation and coexistence with other graphics overlays
 remain unqualified.
 
-The production Windows build and all 110 workspace tests pass. Package verification checks all file
+The production Windows build and all 114 workspace tests pass. Package verification checks all file
 hashes and archive contents. Desktop HDR was enabled during the live checks, but NMS's captured
 swapchain was SDR and its saved HDR mode was Off; desktop HDR alone does not qualify game HDR output.
 
@@ -119,6 +119,13 @@ Coordinate export tests cover the reported internal-address example, signed regi
 zeroes, selected planet identity and galaxy omission. Result cards expose separate twelve-digit
 portal-code and colon-separated galactic-coordinate clipboard actions. The supplied example agrees
 with the external portal converter in both directions; a fresh in-game button click remains pending.
+
+System-only queries return one system address per match for every population type. Host tests
+cover live and cached result parity, generated-name retention, cancellation, planet criteria, target
+identity and coordinate exports. Native mission definitions pass the pinned compiler round trip with separate planet and system
+scan conditions. System destinations use the game's local scan-event condition to complete on arrival.
+Operator testing confirms system destination cards and native completion on arrival in an empty
+system. A fresh-process check of named system cards and inhabited-system arrival remains pending.
 
 ## Search-engine 7.06 qualification before the overlay refactor
 

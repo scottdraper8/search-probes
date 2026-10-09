@@ -32,7 +32,8 @@ follow traversal order. Matches appear as they are found and can be selected as 
 the search continues. Cancelling keeps those matches. The previous results remain available until
 a new search finds matches. Loading during system travel pauses work; it resumes after arrival.
 Visiting another galaxy pauses the original search until you return to its galaxy.
-Result cards show destinations outside your current system.
+Result cards show generated names and identify planets or systems. Selecting only system criteria
+produces one result per matching system.
 
 Repeating the same criteria continues from the previous position within the same galaxy. Select
 **Restart from current location** to begin around your new position. Search history lasts for the
@@ -77,13 +78,16 @@ matches. The cache holds up to 16,384 systems within a 64 MiB structural budget.
 holds up to 1,024 object-table summaries. Both clear on save reload, relevant native configuration
 changes or explicit history clearing.
 
-Choose **Set destination** on a result to create a **Search Probe Target** mission. Select
-**Current Mission** in the Galaxy Map and approach the marked planet. Abandon the mission in the
-Log before choosing a different destination. Navigation stays in your current galaxy.
+Choose **Set destination** on a result to create its navigation mission. Select **Current Mission**
+in the Galaxy Map. Planet targets complete when you approach the planet. System targets complete
+on entering the destination system.
+Abandon the mission in the Log before choosing a different destination. Navigation stays in your
+current galaxy.
 
-**Copy portal code** copies the planet's twelve hexadecimal glyph digits. **Copy galactic coords**
-copies its system coordinates as `XXXX:YYYY:ZZZZ:SSSS` for coordinate converters. Use either code
-with the galaxy shown on the result card.
+**Copy portal code** copies twelve hexadecimal glyph digits for the target planet, or the first
+planet in a system result. A portal provides arrival in that system. **Copy galactic coords**
+copies the system coordinates as
+`XXXX:YYYY:ZZZZ:SSSS` for coordinate converters. Use either code with the galaxy shown on the card.
 
 ## Presets and settings
 
@@ -115,7 +119,7 @@ For updates, replace the product files together. For Amethyst, deploy the DLL an
 manifest through its game root-file deployment and the asset directory through its normal mod
 deployment. Use the same release in both locations.
 
-Before uninstalling, abandon any Search Probe Target mission. Close NMS and remove the three
+Before uninstalling, abandon any Search Probes navigation mission. Close NMS and remove the three
 product locations above. Remove the WinMM launch override if applicable. User settings can be
 retained or removed separately.
 

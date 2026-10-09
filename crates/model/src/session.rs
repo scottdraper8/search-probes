@@ -266,6 +266,32 @@ impl Session {
     pub fn observe(&mut self, address: Address, record: SystemRecord) -> Result<(), &'static str> {
         self.cache.insert(address, record)
     }
+    pub fn unnamed_system_results(&self) -> Vec<Address> {
+        self.progress()
+            .into_iter()
+            .flat_map(|progress| &progress.results)
+            .filter(|result| {
+                result.kind == crate::target::TargetKind::System && result.name.is_none()
+            })
+            .map(|result| result.address)
+            .collect()
+    }
+    pub fn name_system(&mut self, address: Address, name: &str) -> Result<(), &'static str> {
+        if name.is_empty() || name.len() > crate::cache::MAX_NAME_BYTES {
+            return Err("invalid result system name");
+        }
+        self.cache.name_system(address, name)?;
+        if let Some(search) = self.search.as_mut() {
+            for result in &mut search.progress.results {
+                if result.kind == crate::target::TargetKind::System
+                    && result.address == address.system()
+                {
+                    result.name = Some(name.into());
+                }
+            }
+        }
+        Ok(())
+    }
     pub fn apply(
         &mut self,
         address: Address,
@@ -300,23 +326,20 @@ impl Session {
             if evaluation.matches & (1 << index) == 0 {
                 continue;
             }
-            let planet = address.planet(index)?;
+            let result = record.result(address, index, &search.plan);
             if search.progress.results.len() == search.progress.options.results {
                 break;
             }
-            if search.previous_page.contains(&planet)
+            if search.previous_page.contains(&result.address)
                 || search
                     .progress
                     .results
                     .iter()
-                    .any(|result| result.address == planet)
+                    .any(|previous| previous.address == result.address)
             {
                 continue;
             }
-            search.progress.results.push(CachedMatch {
-                address: planet,
-                name: record.name(index).map(Into::into),
-            });
+            search.progress.results.push(result);
         }
         frontier.commit(1)?;
         search.progress.systems += 1;
@@ -353,6 +376,51 @@ mod tests {
             .collect();
         session.load_region(region, addresses.clone()).unwrap();
         addresses
+    }
+    #[test]
+    fn live_and_cached_system_matches_keep_one_typed_result_per_system() {
+        use crate::target::TargetKind;
+        let mut session = Session::default();
+        let options = SearchOptions::default();
+        session
+            .start(options.clone(), origin(), false, false)
+            .unwrap();
+        let addresses = load(&mut session);
+        for (index, population) in [(0, 0), (1, 1), (2, 2)] {
+            let mut system = Facts::default();
+            system.set_planet_count(6);
+            system.set(Field::Population, population);
+            let record = SystemRecord::new(system, [Facts::default(); 8]).unwrap();
+            session.apply(addresses[index], record, false).unwrap();
+            assert_eq!(session.unnamed_system_results(), [addresses[index]]);
+            session
+                .name_system(addresses[index], &format!("System name {index}"))
+                .unwrap();
+            assert!(session.unnamed_system_results().is_empty());
+        }
+        let live = session.progress().unwrap().results.clone();
+        assert_eq!(
+            live.iter().map(|r| (r.address, r.kind)).collect::<Vec<_>>(),
+            [
+                (addresses[0].system(), TargetKind::System),
+                (addresses[1].system(), TargetKind::System),
+                (addresses[2].system(), TargetKind::System)
+            ]
+        );
+        assert_eq!(
+            live.iter().map(|r| r.name.as_deref()).collect::<Vec<_>>(),
+            [
+                Some("System name 0"),
+                Some("System name 1"),
+                Some("System name 2")
+            ]
+        );
+        session.cancel();
+        assert_eq!(session.progress().unwrap().results, live);
+        session.start(options, origin(), true, true).unwrap();
+        let mut cached = session.progress().unwrap().results.clone();
+        cached.reverse();
+        assert_eq!(cached, live);
     }
     #[test]
     fn search_resume_advances_after_completed_systems() {

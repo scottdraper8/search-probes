@@ -628,16 +628,7 @@ impl App {
         }
         if !state.results.is_empty() {
             ui.separator();
-            let current = state.player.map(|address| address.system());
-            let results: Vec<_> = state
-                .results
-                .iter()
-                .filter(|result| current != Some(result.address.system()))
-                .collect();
-            if results.is_empty() {
-                ui.label("The current system is omitted from the result list.");
-                return;
-            }
+            let results: Vec<_> = state.results.iter().collect();
             egui::ScrollArea::vertical()
                 .id_salt("results")
                 .show(ui, |ui| {
@@ -660,14 +651,18 @@ impl App {
                                             .filter(|name| !name.is_empty())
                                             .map(str::to_owned)
                                             .unwrap_or_else(|| {
-                                                format!("Planet {}", coordinates.planet)
+                                                match result.kind {
+                                                    search_probes_model::target::TargetKind::Planet => format!("Planet {}", coordinates.planet),
+                                                    kind => kind.label().to_owned(),
+                                                }
                                             });
                                         ui.label(
                                             RichText::new(format!("{}. {name}", index + 1))
                                                 .strong(),
                                         );
                                         ui.small(format!(
-                                            "Galaxy {} · {}, {}, {} · System {}",
+                                            "{} · Galaxy {} · {}, {}, {} · System {}",
+                                            result.kind.label(),
                                             u16::from(coordinates.galaxy) + 1,
                                             coordinates.x,
                                             coordinates.y,
@@ -684,31 +679,32 @@ impl App {
                                                 .clicked()
                                             {
                                                 self.send(Action::Navigate {
-                                                    address: result.address,
+                                                    target: result.target(),
                                                 });
                                             }
                                             if ui
                                                 .button("Copy portal code")
                                                 .on_hover_text(format!(
-                                                    "{}\nUse a portal in Galaxy {}.",
-                                                    result.address.portal_code(),
-                                                    u16::from(coordinates.galaxy) + 1
+                                                    "{}\nUse a portal in Galaxy {}. {}",
+                                                    result.target().portal_code(),
+                                                    u16::from(coordinates.galaxy) + 1,
+                                                    if result.kind == search_probes_model::target::TargetKind::Planet { "Arrives on the target planet." } else { "Arrives through the first planet’s portal in this system." }
                                                 ))
                                                 .clicked()
                                             {
-                                                ui.ctx().copy_text(result.address.portal_code());
+                                                ui.ctx().copy_text(result.target().portal_code());
                                             }
                                             if ui
                                                 .button("Copy galactic coords")
                                                 .on_hover_text(format!(
-                                                    "{}\nIdentifies the system; the portal code also selects the planet.",
+                                                    "{}\nIdentifies this system.",
                                                     result.address.galactic_coordinates()
                                                 ))
                                                 .clicked()
                                             {
                                                 ui.ctx().copy_text(result.address.galactic_coordinates());
                                             }
-                                            if state.destination == Some(result.address) {
+                                            if state.destination == Some(result.target()) {
                                                 ui.label("Active destination");
                                             }
                                         });

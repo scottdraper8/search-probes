@@ -142,7 +142,9 @@ impl<'cache> Generator<'cache> {
                 break;
             }
             let system_verdict = plan.system_match(&outcome.snapshot.system);
-            if system_verdict == Verdict::NoMatch {
+            if system_verdict == Verdict::NoMatch
+                || (system_verdict == Verdict::Match && plan.planet.is_empty())
+            {
                 break;
             }
             if system_verdict == Verdict::Match
@@ -166,7 +168,7 @@ impl<'cache> Generator<'cache> {
                 query.visit_planet(generator, index, |live, bytes| {
                     outcome.snapshot.read_planet(bytes, index, difficulty)?;
                     let facts = &mut outcome.snapshot.planets[index];
-                    if plan.planet_match(facts) == Verdict::NoMatch {
+                    if plan.planet.is_empty() || plan.planet_match(facts) == Verdict::NoMatch {
                         return Ok(());
                     }
                     let needed = plan.missing_planet_requirements(facts);

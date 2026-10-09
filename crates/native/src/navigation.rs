@@ -1,9 +1,9 @@
 use crate::{game_state::Snapshot, identity::Image, navigation_hook, platform};
-use search_probes_model::address::Address;
+use search_probes_model::{
+    address::Address,
+    target::{Target, TargetKind},
+};
 use std::time::{Duration, Instant};
-
-pub const MISSION_ID: &[u8] = b"SQN_SP_NAV";
-pub const TARGET_EVENT: &[u8] = b"SE_SQN_SP_TARGET";
 
 fn fixed<const N: usize>(value: &[u8]) -> Result<[u8; N], &'static str> {
     if value.is_empty() || value.len() >= N || value.contains(&0) {
@@ -32,11 +32,13 @@ fn vector(address: usize) -> Result<(usize, usize), &'static str> {
 
 fn active(manager: usize) -> Result<Option<(usize, usize)>, &'static str> {
     let (pointer, count) = vector(manager + 0x1c0)?;
-    let identity = fixed::<16>(MISSION_ID)?;
     let mut result = None;
     for index in 0..count {
         let mission = platform::pointer(pointer + index * 8)?;
-        if platform::read::<16>(mission + 8)? != identity
+        let identity = platform::read::<16>(mission + 8)?;
+        if !TargetKind::ALL
+            .into_iter()
+            .any(|kind| fixed::<16>(kind.mission().as_bytes()) == Ok(identity))
             || platform::read::<1>(mission + 0x108)? != [1]
         {
             continue;
@@ -53,11 +55,14 @@ fn active(manager: usize) -> Result<Option<(usize, usize)>, &'static str> {
 }
 
 fn pending(manager: usize) -> Result<bool, &'static str> {
-    let identity = fixed::<16>(MISSION_ID)?;
     for offset in [0x180, 0x190] {
         let (pointer, count) = vector(manager + offset)?;
         for index in 0..count {
-            if platform::read::<16>(pointer + index * 0x28)? == identity {
+            let identity = platform::read::<16>(pointer + index * 0x28)?;
+            if TargetKind::ALL
+                .into_iter()
+                .any(|kind| fixed::<16>(kind.mission().as_bytes()) == Ok(identity))
+            {
                 return Ok(true);
             }
         }
@@ -65,7 +70,7 @@ fn pending(manager: usize) -> Result<bool, &'static str> {
     Ok(false)
 }
 
-fn route(application: usize) -> Result<Option<Address>, &'static str> {
+fn route(application: usize) -> Result<Option<Target>, &'static str> {
     let manager = platform::pointer(application + 0x4de450)?;
     let count = platform::u32_at(manager + 0xd4)? as usize;
     if count > 1024 {
@@ -79,20 +84,25 @@ fn route(application: usize) -> Result<Option<Address>, &'static str> {
     let mut result = None;
     for index in 0..count {
         let record = pointer + index * 0x70;
-        if platform::read::<16>(record + 0x40)? != fixed::<16>(MISSION_ID)? {
+        let identity = platform::read::<16>(record + 0x40)?;
+        let Some(kind) = TargetKind::ALL
+            .into_iter()
+            .find(|kind| fixed::<16>(kind.mission().as_bytes()) == Ok(identity))
+        else {
             continue;
-        }
-        if platform::read::<32>(record + 0x10)? != fixed::<32>(TARGET_EVENT)?
+        };
+        if platform::read::<32>(record + 0x10)? != fixed::<32>(kind.event().as_bytes())?
             || platform::u32_at(record + 0x64)? != 3
         {
             return Err("unexpected Search Probe Target route");
         }
         let address = Address::from_raw(u64::from_le_bytes(platform::read(record + 0x50)?))?;
         let seed = u64::from_le_bytes(platform::read(record + 0x58)?);
-        if crate::destination::from_seed(seed)? != address {
-            return Err("Search Probe Target route does not match its selected planet");
+        let target = crate::destination::from_seed(kind, seed)?;
+        if target.address != address {
+            return Err("Search Probe Target route does not match its selected destination");
         }
-        if result.replace(address).is_some() {
+        if result.replace(target).is_some() {
             return Err("multiple Search Probe Target routes are active");
         }
     }
@@ -101,12 +111,12 @@ fn route(application: usize) -> Result<Option<Address>, &'static str> {
 
 #[derive(Default)]
 pub struct Navigation {
-    requested: Option<(Address, Instant)>,
-    destination: Option<Address>,
+    requested: Option<(Target, Instant)>,
+    destination: Option<Target>,
 }
 
 impl Navigation {
-    pub fn destination(&self) -> Option<Address> {
+    pub fn destination(&self) -> Option<Target> {
         self.destination
     }
 
@@ -116,13 +126,13 @@ impl Navigation {
         &mut self,
         image: &Image,
         snapshot: &Snapshot,
-        address: Address,
+        target: Target,
     ) -> Result<(), &'static str> {
+        let address = target.address;
+        let kind = target.kind;
+        target.validate()?;
         if address.coordinates().galaxy != snapshot.address.coordinates().galaxy {
             return Err("navigation requires a destination in the current galaxy");
-        }
-        if !(1..=8).contains(&address.coordinates().planet) {
-            return Err("navigation requires a planet address");
         }
         let manager = snapshot.application + 0x847bb0;
         if self.requested.is_some() || pending(manager)? {
@@ -135,7 +145,7 @@ impl Navigation {
         }
         type Lookup = unsafe extern "system" fn(usize, *const u8, i32) -> usize;
         let lookup = unsafe { std::mem::transmute::<usize, Lookup>(image.base() + 0x4e6bc0) };
-        let name = fixed::<32>(TARGET_EVENT)?;
+        let name = fixed::<32>(kind.event().as_bytes())?;
         let scan_manager = platform::pointer(snapshot.application + 0x4de450)?;
         let table = platform::pointer(scan_manager + 0x30)?;
         platform::read::<16>(table)?;
@@ -168,7 +178,7 @@ impl Navigation {
         let accepted = unsafe {
             start(
                 manager,
-                fixed::<16>(MISSION_ID)?.as_ptr(),
+                fixed::<16>(kind.mission().as_bytes())?.as_ptr(),
                 &Seed {
                     value: address.raw(),
                     valid: true,
@@ -180,7 +190,7 @@ impl Navigation {
         if !accepted {
             return Err("NMS declined the Search Probe Target request");
         }
-        self.requested = Some((address, Instant::now()));
+        self.requested = Some((target, Instant::now()));
         Ok(())
     }
 

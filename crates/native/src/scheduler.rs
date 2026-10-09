@@ -38,6 +38,15 @@ impl Default for Scheduler {
 }
 
 impl Scheduler {
+    #[cfg(windows)]
+    pub unsafe fn name_system_results(&mut self, base: usize) -> Result<(), &'static str> {
+        for address in self.session.unnamed_system_results() {
+            let name = unsafe { crate::system_name::generate(base, address) }?;
+            self.session.name_system(address, &name)?;
+            self.statistics.work.names += 1;
+        }
+        Ok(())
+    }
     fn batch_limit(&self, workers: usize, budget: Duration) -> usize {
         ((budget.as_nanos() as f64 / self.per_system_ns) as usize)
             .clamp(workers.clamp(1, batch::MAX_BATCH), batch::MAX_BATCH)

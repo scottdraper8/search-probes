@@ -78,7 +78,7 @@ pub fn validate(root: &Path) -> Result<()> {
     }
     let wiki = properties(&root.join("METADATA/REALITY/WIKI.EXML"), None)?;
     let table = root.join("METADATA/SIMULATION/MISSIONS/TABLES/WIKIMISSIONTABLE.EXML");
-    let navigation = properties(&table, Some("SQN_SP_NAV"))?;
+    let mut navigation = Vec::new();
     let localization = properties(&root.join("LocTable.MXML"), None)?;
     let values = |items: &[(String, String)], key: &str| -> Vec<String> {
         items
@@ -95,7 +95,11 @@ pub fn validate(root: &Path) -> Result<()> {
         guide.extend(properties(&table, Some(mission))?);
     }
     let mut expected = missions.clone();
-    expected.push("SQN_SP_NAV".into());
+    expected.extend(
+        search_probes_model::target::TargetKind::ALL
+            .into_iter()
+            .map(|kind| kind.mission().to_owned()),
+    );
     if values(&properties(&table, None)?, "MissionID") != expected {
         return Err("unexpected mission table entries".into());
     }
@@ -106,26 +110,54 @@ pub fn validate(root: &Path) -> Result<()> {
     {
         return Err("Guide slot identities do not match the native dispatcher".into());
     }
-    if values(&navigation, "MissionID") != ["SQN_SP_NAV"]
-        || values(&navigation, "Name") != ["SE_SQN_SP_TARGET"]
-        || values(&navigation, "UAsList") != ["0000000000000000"]
-        || values(&navigation, "SolarSystemLocation") != ["FromList"]
-    {
-        return Err("navigation assets do not match the native destination contract".into());
-    }
-    let stages = values(&navigation, "Stage");
-    if stages
-        != [
+    for kind in search_probes_model::target::TargetKind::ALL {
+        use search_probes_model::target::TargetKind;
+        let target = properties(&table, Some(kind.mission()))?;
+        let (search, location, conditions) = match kind {
+            TargetKind::Planet => (
+                "Any",
+                "PlanetSearch",
+                vec![
+                    "GcMissionConditionIsScanEventLocal",
+                    "GcMissionConditionIsScanEventOnCurrentPlanet",
+                ],
+            ),
+            TargetKind::System => (
+                "SpaceMarker",
+                "Nearest",
+                vec!["GcMissionConditionIsScanEventLocal"],
+            ),
+        };
+        if values(&target, "MissionID") != [kind.mission()]
+            || values(&target, "Name") != [kind.event()]
+            || values(&target, "UAsList") != ["0000000000000000"]
+            || values(&target, "SolarSystemLocation") != ["FromList"]
+            || values(&target, "SearchType") != [search]
+            || values(&target, "BuildingLocation") != [location]
+            || values(&target, "Conditions") != conditions
+            || values(&target, "Event")
+                .iter()
+                .any(|event| event != kind.event())
+        {
+            return Err("navigation assets do not match the native destination contract".into());
+        }
+        let mut stages = vec![
             "GcMissionSequenceEndScanEvent",
             "GcMissionSequenceStartScanEvent",
             "GcMissionSequenceGroup",
             "GcMissionSequenceWaitForConditions",
-            "GcMissionSequenceWaitForConditions",
+        ];
+        if kind != TargetKind::System {
+            stages.push("GcMissionSequenceWaitForConditions");
+        }
+        stages.extend([
             "GcMissionSequenceEndScanEvent",
             "GcMissionSequenceShowMissionUpdateMessage",
-        ]
-    {
-        return Err("unsupported destination lifecycle".into());
+        ]);
+        if values(&target, "Stage") != stages {
+            return Err("unsupported destination lifecycle".into());
+        }
+        navigation.extend(target);
     }
     if !values(&guide, "Stage").is_empty()
         || values(&navigation, "NeedsBiome")

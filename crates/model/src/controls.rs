@@ -249,6 +249,7 @@ mod tests {
             .unwrap();
         let result = CachedMatch {
             address: Address::from_raw(1 << 40).unwrap().planet(0).unwrap(),
+            kind: crate::target::TargetKind::Planet,
             name: None,
         };
         controls.update(|state| {

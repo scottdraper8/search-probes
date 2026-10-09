@@ -54,6 +54,7 @@ fn full_cache_and_repeated_eviction_stay_below_memory_budget() {
             let mut facts = Facts::default();
             facts.set_planet_count(8);
             let mut record = SystemRecord::new(facts, [Facts::default(); 8]).unwrap();
+            record.set_system_name(&name).unwrap();
             for planet in 0..8 {
                 record.set_name(planet, &name).unwrap();
             }

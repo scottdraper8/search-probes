@@ -1,14 +1,16 @@
 use crate::{
-    navigation::{MISSION_ID, TARGET_EVENT},
     platform,
     resident_hook::{HookError, ResidentHook},
 };
-use search_probes_model::address::Address;
+use search_probes_model::{
+    address::Address,
+    target::{Target, TargetKind},
+};
 use std::{
     cell::Cell,
     sync::{
         Mutex,
-        atomic::{AtomicU64, AtomicUsize, Ordering},
+        atomic::{AtomicUsize, Ordering},
     },
 };
 
@@ -32,19 +34,18 @@ type FindBuilding =
     unsafe extern "system" fn(usize, usize, usize, bool, bool, usize, bool, bool, usize) -> usize;
 type PlanetFilter = unsafe extern "system" fn(usize, usize, bool, u8) -> bool;
 type PlanetAddress = unsafe extern "system" fn(usize) -> u64;
-
 static ORIGINAL_SCAN: AtomicUsize = AtomicUsize::new(0);
 static ORIGINAL_BUILDING: AtomicUsize = AtomicUsize::new(0);
 static ORIGINAL_FILTER: AtomicUsize = AtomicUsize::new(0);
 static PLANET_ADDRESS: AtomicUsize = AtomicUsize::new(0);
 static HOOKS: Mutex<Vec<ResidentHook>> = Mutex::new(Vec::new());
-static PUBLISHED: AtomicU64 = AtomicU64::new(0);
+static PUBLISHED: Mutex<Option<Target>> = Mutex::new(None);
 static ERROR: Mutex<Option<&'static str>> = Mutex::new(None);
 
 #[derive(Clone, Copy)]
 struct Selection {
     event: usize,
-    target: Address,
+    target: Target,
 }
 
 thread_local! {
@@ -60,7 +61,7 @@ impl Drop for SelectionGuard {
 }
 
 pub fn reset() {
-    PUBLISHED.store(0, Ordering::Release);
+    *PUBLISHED.lock().unwrap_or_else(|error| error.into_inner()) = None;
     *ERROR.lock().unwrap_or_else(|error| error.into_inner()) = None;
 }
 
@@ -68,7 +69,7 @@ fn fail(error: &'static str) {
     *ERROR.lock().unwrap_or_else(|error| error.into_inner()) = Some(error);
 }
 
-pub fn published() -> Result<Option<Address>, &'static str> {
+pub fn published() -> Result<Option<Target>, &'static str> {
     if let Some(error) = ERROR
         .lock()
         .unwrap_or_else(|error| error.into_inner())
@@ -76,21 +77,22 @@ pub fn published() -> Result<Option<Address>, &'static str> {
     {
         return Err(error);
     }
-    match PUBLISHED.load(Ordering::Acquire) {
-        0 => Ok(None),
-        value => Address::from_raw(value).map(Some),
-    }
+    Ok(*PUBLISHED.lock().unwrap_or_else(|error| error.into_inner()))
 }
 
-fn owned(event: usize) -> bool {
-    let mut expected = [0; 32];
-    expected[..TARGET_EVENT.len()].copy_from_slice(TARGET_EVENT);
-    platform::read::<32>(event.saturating_add(0x228)) == Ok(expected)
+fn owned(event: usize) -> Option<TargetKind> {
+    let actual = platform::read::<32>(event.saturating_add(0x228)).ok()?;
+    TargetKind::ALL.into_iter().find(|kind| {
+        let mut expected = [0; 32];
+        expected[..kind.event().len()].copy_from_slice(kind.event().as_bytes());
+        actual == expected
+    })
 }
 
 fn select(event: usize, context: usize) -> Result<Selection, &'static str> {
+    let kind = owned(event).ok_or("unrecognized Search Probes destination event")?;
     let mut identity = [0; 16];
-    identity[..MISSION_ID.len()].copy_from_slice(MISSION_ID);
+    identity[..kind.mission().len()].copy_from_slice(kind.mission().as_bytes());
     if platform::read::<16>(context)? != identity
         || platform::read::<1>(context + 0x18)? != [1]
         || platform::u32_at(event + 0x48c)? != 4
@@ -99,13 +101,13 @@ fn select(event: usize, context: usize) -> Result<Selection, &'static str> {
         return Err("Search Probes received an incompatible destination event");
     }
     let seed = u64::from_le_bytes(platform::read(context + 0x10)?);
-    let target = crate::destination::from_seed(seed)?;
+    let target = crate::destination::from_seed(kind, seed)?;
     let text = platform::pointer(platform::pointer(event + 0x428)?)?;
     let previous = platform::read::<17>(text)?;
     if previous[16] != 0 || !previous[..16].iter().all(u8::is_ascii_hexdigit) {
         return Err("Search Probes destination buffer is invalid");
     }
-    unsafe { platform::write(text, &crate::destination::encode(target)) }?;
+    unsafe { platform::write(text, &crate::destination::encode(target.address)) }?;
     Ok(Selection { event, target })
 }
 
@@ -125,7 +127,7 @@ unsafe extern "system" fn scan_detour(
     position: usize,
     force: bool,
 ) -> usize {
-    let selection = if table == 3 && owned(event) {
+    let selection = if table == 3 && owned(event).is_some() {
         match select(event, context) {
             Ok(selection) => Some(selection),
             Err(error) => {
@@ -164,7 +166,7 @@ unsafe extern "system" fn scan_detour(
     };
     if let Some(selection) = selection {
         if !dry_run && matches!(platform::u32_at(result + 8), Ok(0 | 1)) {
-            PUBLISHED.store(selection.target.raw(), Ordering::Release);
+            *PUBLISHED.lock().unwrap_or_else(|error| error.into_inner()) = Some(selection.target);
         }
     }
     returned
@@ -189,7 +191,7 @@ unsafe extern "system" fn building_detour(
     pending: bool,
     position: usize,
 ) -> usize {
-    let selection = if owned(event) {
+    let selection = if owned(event).is_some() {
         match select(event, context) {
             Ok(selection) => Some(selection),
             Err(error) => {
@@ -217,11 +219,14 @@ unsafe extern "system" fn building_detour(
             position,
         )
     };
-    if let Some(selection) = SELECTION.get().filter(|selection| selection.event == event) {
+    if let Some(selection) = SELECTION
+        .get()
+        .filter(|selection| selection.event == event && selection.target.kind == TargetKind::Planet)
+    {
         if building != 0 {
             let actual = platform::pointer(building + 0x70)
                 .and_then(|planet| unsafe { planet_address(planet) });
-            if actual != Ok(selection.target) {
+            if actual != Ok(selection.target.address) {
                 fail(
                     "NMS could not place a marker on the selected planet. Abandon Search Probe Target in the Log before retrying.",
                 );
@@ -238,12 +243,12 @@ unsafe extern "system" fn filter_detour(
     allow_dead: bool,
     class: u8,
 ) -> bool {
-    if let Some(selection) = SELECTION
-        .get()
-        .filter(|selection| parameters == selection.event || parameters == selection.event + 0xc0)
-    {
+    if let Some(selection) = SELECTION.get().filter(|selection| {
+        selection.target.kind == TargetKind::Planet
+            && (parameters == selection.event || parameters == selection.event + 0xc0)
+    }) {
         return match unsafe { planet_address(planet) } {
-            Ok(address) => address == selection.target,
+            Ok(address) => address == selection.target.address,
             Err(error) => {
                 fail(error);
                 false

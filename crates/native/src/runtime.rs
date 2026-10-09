@@ -325,6 +325,11 @@ impl Runtime {
                     .update(|state| state.error = Some(error.into()));
             }
         }
+        if let Err(error) = unsafe { self.scheduler.name_system_results(self.image.base()) } {
+            self.scheduler.session.fail(error);
+            self.controls
+                .update(|state| state.error = Some(error.into()));
+        }
         let statistics = self.scheduler.statistics();
         let work = statistics.work;
         let object_tables = self.scheduler.object_statistics();
@@ -435,7 +440,7 @@ impl Runtime {
                 self.scheduler.reset();
                 self.controls.reset_search_clock();
             }
-            Action::Navigate { address } => {
+            Action::Navigate { target } => {
                 let displayed = self
                     .controls
                     .state
@@ -443,11 +448,11 @@ impl Runtime {
                     .map_err(|_| "runtime state poisoned")?
                     .results
                     .iter()
-                    .any(|result| result.address == address);
-                if !displayed || address.system() == snapshot.address.system() {
+                    .any(|result| result.target() == target);
+                if !displayed {
                     return Err("destination is not a current search result");
                 }
-                unsafe { self.navigation.start(&self.image, snapshot, address) }?;
+                unsafe { self.navigation.start(&self.image, snapshot, target) }?;
                 self.navigation_polled = None;
             }
         }

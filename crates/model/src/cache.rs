@@ -3,6 +3,7 @@ use crate::{
     criteria::Plan,
     facts::{Facts, Verdict},
     settings::MAX_RESULTS,
+    target::{Target, TargetKind},
 };
 use std::collections::{BTreeMap, VecDeque};
 
@@ -14,6 +15,7 @@ pub struct SystemRecord {
     pub system: Facts,
     pub planets: [Facts; 8],
     names: [Option<Box<str>>; 8],
+    system_name: Option<Box<str>>,
     count: usize,
 }
 
@@ -21,7 +23,17 @@ pub struct SystemRecord {
 #[serde(deny_unknown_fields)]
 pub struct CachedMatch {
     pub address: Address,
+    pub kind: TargetKind,
     pub name: Option<Box<str>>,
+}
+
+impl CachedMatch {
+    pub fn target(&self) -> Target {
+        Target {
+            address: self.address,
+            kind: self.kind,
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -40,6 +52,7 @@ impl SystemRecord {
             system,
             planets,
             names: Default::default(),
+            system_name: None,
             count,
         })
     }
@@ -48,6 +61,13 @@ impl SystemRecord {
     }
     pub fn name(&self, index: usize) -> Option<&str> {
         self.names.get(index)?.as_deref()
+    }
+    pub fn set_system_name(&mut self, name: &str) -> Result<(), &'static str> {
+        if name.is_empty() || name.len() > MAX_NAME_BYTES {
+            return Err("invalid cached system name");
+        }
+        self.system_name = Some(name.into());
+        Ok(())
     }
     pub fn set_name(&mut self, index: usize, name: &str) -> Result<(), &'static str> {
         if index >= self.count || name.len() > MAX_NAME_BYTES {
@@ -58,9 +78,12 @@ impl SystemRecord {
     }
     fn merge(&mut self, new: Self) -> Result<(), &'static str> {
         if new.count != self.count {
-            return Err("system planet count changed within the session");
+            return Err("system composition changed within the session");
         }
         self.system.merge(&new.system);
+        if new.system_name.is_some() {
+            self.system_name = new.system_name;
+        }
         for (index, facts) in new.planets.iter().enumerate().take(self.count) {
             self.planets[index].merge(facts);
             if let Some(name) = &new.names[index] {
@@ -78,6 +101,14 @@ impl SystemRecord {
         if system == Verdict::NoMatch {
             return result;
         }
+        if plan.planet.is_empty() {
+            match system {
+                Verdict::Match => result.matches = 1,
+                Verdict::Unknown => result.unknown = 1,
+                Verdict::NoMatch => {}
+            }
+            return result;
+        }
         for (index, facts) in self.planets.iter().enumerate().take(self.count) {
             match plan.planet_match(facts) {
                 Verdict::NoMatch => {}
@@ -86,6 +117,22 @@ impl SystemRecord {
             }
         }
         result
+    }
+
+    pub fn result(&self, address: Address, index: usize, plan: &Plan) -> CachedMatch {
+        if plan.planet.is_empty() {
+            CachedMatch {
+                address: address.system(),
+                kind: TargetKind::System,
+                name: self.system_name.clone(),
+            }
+        } else {
+            CachedMatch {
+                address: address.planet(index).expect("bounded result planet"),
+                kind: TargetKind::Planet,
+                name: self.names[index].clone(),
+            }
+        }
     }
 }
 
@@ -123,6 +170,12 @@ impl Cache {
     }
     pub fn get(&self, address: Address) -> Option<&SystemRecord> {
         self.records.get(&address.system()).map(Box::as_ref)
+    }
+    pub fn name_system(&mut self, address: Address, name: &str) -> Result<(), &'static str> {
+        if let Some(record) = self.records.get_mut(&address.system()) {
+            record.set_system_name(name)?;
+        }
+        Ok(())
     }
     pub fn insert(&mut self, address: Address, record: SystemRecord) -> Result<(), &'static str> {
         let address = address.system();
@@ -165,10 +218,7 @@ impl Cache {
                 if matches & (1 << index) == 0 {
                     continue;
                 }
-                result.push(CachedMatch {
-                    address: address.planet(index).expect("bounded cached planet"),
-                    name: record.names[index].clone(),
-                });
+                result.push(record.result(*address, index, plan));
                 if result.len() == limit {
                     return result;
                 }
@@ -189,6 +239,50 @@ mod tests {
         let mut system = Facts::default();
         system.set_planet_count(2);
         SystemRecord::new(system, [Facts::default(); 8]).unwrap()
+    }
+    #[test]
+    fn system_only_results_are_unique_and_planet_filters_preserve_planet_targets() {
+        let mut cache = Cache::new(2).unwrap();
+        for (id, population) in [(1, 0), (2, 1)] {
+            let mut entry = record();
+            entry.system.set(Field::Population, population);
+            for planet in &mut entry.planets[..2] {
+                planet.set(Field::Sky, 5);
+            }
+            cache.insert(address(id), entry).unwrap();
+        }
+        let mut criteria = Criteria::default();
+        let systems = cache.matching(&criteria.compile().unwrap(), 0, address(3), 10);
+        assert_eq!(
+            systems
+                .iter()
+                .map(|r| (r.address, r.kind))
+                .collect::<Vec<_>>(),
+            [
+                (address(2), TargetKind::System),
+                (address(1), TargetKind::System)
+            ]
+        );
+        criteria.choices.insert(Field::Sky, 1 << 5);
+        let planets = cache.matching(&criteria.compile().unwrap(), 0, address(3), 10);
+        assert_eq!(
+            planets
+                .iter()
+                .map(|r| (r.address, r.kind))
+                .collect::<Vec<_>>(),
+            [
+                (address(2).planet(0).unwrap(), TargetKind::Planet),
+                (address(2).planet(1).unwrap(), TargetKind::Planet),
+                (address(1).planet(0).unwrap(), TargetKind::Planet),
+                (address(1).planet(1).unwrap(), TargetKind::Planet)
+            ]
+        );
+        criteria.choices.insert(Field::Race, 1 << 1);
+        assert!(
+            cache
+                .matching(&criteria.compile().unwrap(), 0, address(3), 10)
+                .is_empty()
+        );
     }
     #[test]
     fn facts_from_nonmatches_can_satisfy_a_later_search() {
@@ -277,15 +371,27 @@ mod tests {
         assert!(cache.get(address(998)).is_none());
         let mut newer = record();
         newer.set_name(0, "Retained").unwrap();
+        newer.set_system_name("Retained system").unwrap();
         cache.insert(address(999), newer).unwrap();
         assert_eq!(cache.get(address(999)).unwrap().name(0), Some("Retained"));
+        cache.insert(address(999), record()).unwrap();
+        let plan = Criteria::default().compile().unwrap();
+        assert_eq!(
+            cache
+                .get(address(999))
+                .unwrap()
+                .result(address(999), 0, &plan)
+                .name
+                .as_deref(),
+            Some("Retained system")
+        );
         assert_eq!(cache.order.len(), 2);
         cache.clear();
         assert!(cache.is_empty());
         assert!(cache.order.is_empty());
         assert!(std::mem::size_of::<SystemRecord>() <= 2048);
         assert!(
-            (std::mem::size_of::<SystemRecord>() + 8 * MAX_NAME_BYTES + 256) * MAX_CACHED_SYSTEMS
+            (std::mem::size_of::<SystemRecord>() + 9 * MAX_NAME_BYTES + 256) * MAX_CACHED_SYSTEMS
                 < 64 * 1024 * 1024
         );
     }

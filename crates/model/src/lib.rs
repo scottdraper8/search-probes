@@ -10,6 +10,7 @@ pub mod session;
 pub mod settings;
 pub mod storage;
 pub mod supported;
+pub mod target;
 pub mod vocabulary;
 
 pub mod grass;

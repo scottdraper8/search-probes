@@ -32,6 +32,8 @@ mod solar;
 mod planet_query_context;
 
 pub mod search;
+#[cfg(any(windows, test))]
+mod system_name;
 
 #[cfg(all(windows, feature = "investigation"))]
 mod investigation;
