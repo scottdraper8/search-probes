@@ -50,6 +50,10 @@ impl Scheduler {
         self.object_summaries.clear();
         self.reset_statistics();
     }
+    pub fn refresh_resources(&mut self) {
+        self.session.clear_cached_facts();
+        self.object_summaries.clear();
+    }
     pub fn statistics(&self) -> Statistics {
         self.statistics
     }

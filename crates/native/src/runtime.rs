@@ -11,7 +11,7 @@ use crate::{
 };
 use search_probes_model::{
     controls::Controls,
-    runtime::{Action, Availability, Command, Metrics, State},
+    runtime::{Action, Availability, Command, Metrics, SearchPause, State},
     session::Phase,
     settings::Settings,
     storage,
@@ -51,10 +51,9 @@ struct Runtime {
     scheduler: Scheduler,
     settings: Settings,
     epoch: Option<Epoch>,
+    session: u64,
     navigation: Navigation,
     navigation_polled: Option<Instant>,
-    started: Option<Instant>,
-    elapsed_ms: u64,
 }
 
 pub fn initialize() -> Result<(), String> {
@@ -148,10 +147,9 @@ fn attach(image: Image, controls: Arc<Controls>, settings: Settings) -> Result<(
         scheduler: Scheduler::default(),
         settings,
         epoch: None,
+        session: lifecycle_hook::session(),
         navigation: Navigation::default(),
         navigation_polled: None,
-        started: None,
-        elapsed_ms: 0,
     };
     let hooks: Result<(), String> = (|| {
         unsafe { lifecycle_hook::enable(base) }
@@ -216,8 +214,7 @@ impl Runtime {
         self.navigation = Navigation::default();
         navigation_hook::reset();
         self.navigation_polled = None;
-        self.started = None;
-        self.elapsed_ms = 0;
+        self.controls.reset_search_clock();
     }
     fn tick(&mut self) {
         let available = self
@@ -233,34 +230,51 @@ impl Runtime {
             return;
         }
         let transition = lifecycle_hook::epoch();
-        self.controls.observe_transition(transition);
+        let session = lifecycle_hook::session();
+        self.controls.observe_transition(transition, session);
+        if session != self.session {
+            self.reset();
+            self.epoch = None;
+            self.session = session;
+        }
         let snapshot = match Snapshot::read(&self.image, transition) {
             Ok(snapshot) => snapshot,
             Err(_) => {
-                if self.epoch.take().is_some() {
-                    self.reset();
-                    self.controls
-                        .update(|state| state.generation = state.generation.wrapping_add(1));
-                }
                 self.controls.update(|state| {
-                    state.availability = Availability::MainMenu;
+                    state.availability = if lifecycle_hook::menu() {
+                        Availability::MainMenu
+                    } else {
+                        Availability::Loading
+                    };
                     state.player = None;
-                    state.progress = None;
-                    state.cached_systems = 0;
                     state.destination = None;
+                    state.search_pause = Some(SearchPause::Loading);
                 });
                 return;
             }
         };
         if self.epoch.as_ref() != Some(&snapshot.epoch) {
-            self.reset();
+            if self
+                .epoch
+                .as_ref()
+                .is_some_and(|epoch| epoch.evaluation_rules_changed(&snapshot.epoch))
+            {
+                self.reset();
+                self.controls.update(|state| {
+                    state.generation = state.generation.wrapping_add(1);
+                    state.progress = None;
+                    state.results.clear();
+                    state.search_pause = None;
+                });
+            }
+            if self
+                .epoch
+                .as_ref()
+                .is_none_or(|epoch| epoch.resources_changed(&snapshot.epoch))
+            {
+                self.scheduler.refresh_resources();
+            }
             self.epoch = Some(snapshot.epoch.clone());
-            self.controls.update(|state| {
-                state.generation = state.generation.wrapping_add(1);
-                state.progress = None;
-                state.cached_systems = 0;
-                state.destination = None;
-            });
         }
         while let Some(command) = self.controls.pop() {
             let id = command.id;
@@ -293,50 +307,38 @@ impl Runtime {
                     .update(|state| state.error = Some(error.into()));
             }
         }
-        if let Err(error) = unsafe {
-            self.scheduler.tick(
-                &self.pool,
-                self.image.base(),
-                snapshot.planet as *const u8,
-                snapshot.difficulty,
-                self.settings.workers,
-                Duration::from_millis(u64::from(self.settings.frame_budget_ms)),
-                &self.controls.cancel,
-            )
-        } {
-            self.scheduler.session.fail(error);
-            self.controls
-                .update(|state| state.error = Some(error.into()));
-        }
-        if let Some(started) = self.started {
-            self.elapsed_ms = started.elapsed().as_millis().min(u64::MAX as u128) as u64;
-            if self
-                .scheduler
-                .session
-                .progress()
-                .is_none_or(|progress| progress.phase != Phase::Running)
-            {
-                self.started = None;
+        let in_search_galaxy = self.scheduler.session.is_in_search_galaxy(snapshot.address);
+        if in_search_galaxy {
+            if let Err(error) = unsafe {
+                self.scheduler.tick(
+                    &self.pool,
+                    self.image.base(),
+                    snapshot.planet as *const u8,
+                    snapshot.difficulty,
+                    self.settings.workers,
+                    Duration::from_millis(u64::from(self.settings.frame_budget_ms)),
+                    &self.controls.cancel,
+                )
+            } {
+                self.scheduler.session.fail(error);
+                self.controls
+                    .update(|state| state.error = Some(error.into()));
             }
         }
         let statistics = self.scheduler.statistics();
         let work = statistics.work;
         let object_tables = self.scheduler.object_statistics();
         let progress = self.scheduler.session.progress().cloned();
-        let completed_results = progress
-            .as_ref()
-            .filter(|progress| {
-                matches!(progress.phase, Phase::Cached | Phase::Completed)
-                    && !progress.results.is_empty()
-            })
-            .map(|progress| progress.results.clone());
         self.controls.update(|state| {
             state.availability = Availability::Ready;
             state.player = Some(snapshot.address);
-            state.progress = progress;
-            if let Some(results) = completed_results {
-                state.results = results;
-            }
+            state.publish_progress(progress);
+            state.search_pause = (!in_search_galaxy
+                && state
+                    .progress
+                    .as_ref()
+                    .is_some_and(|progress| progress.phase == Phase::Running))
+            .then_some(SearchPause::OtherGalaxy);
             state.cached_systems = self.scheduler.session.cache_len();
             state.destination = self.navigation.destination();
             state.metrics = Metrics {
@@ -353,7 +355,7 @@ impl Runtime {
                 batches: statistics.batches,
                 active_ns: statistics.active_ns,
                 longest_batch_ns: statistics.longest_batch_ns,
-                elapsed_ms: self.elapsed_ms,
+                elapsed_ms: 0,
             };
         });
     }
@@ -369,11 +371,14 @@ impl Runtime {
         self.settings.search = preset.search.clone();
         self.controls.cancel.store(false, Ordering::Release);
         self.scheduler.reset_statistics();
-        self.started = Some(Instant::now());
-        self.elapsed_ms = 0;
+        self.controls.reset_search_clock();
         self.controls.update(|state| {
             state.settings = self.settings.clone();
             state.error = None;
+            state.availability = Availability::Ready;
+            state.search_pause = None;
+            state.metrics = Metrics::default();
+            state.publish_progress(self.scheduler.session.progress().cloned());
         });
         Ok(())
     }
@@ -400,16 +405,22 @@ impl Runtime {
                 )?;
                 self.controls.cancel.store(false, Ordering::Release);
                 self.scheduler.reset_statistics();
-                self.started = Some(Instant::now());
-                self.elapsed_ms = 0;
+                self.controls.reset_search_clock();
                 self.settings = settings;
-                self.controls
-                    .update(|state| state.settings = self.settings.clone());
+                self.controls.update(|state| {
+                    state.settings = self.settings.clone();
+                    state.availability = Availability::Ready;
+                    state.search_pause = None;
+                    state.metrics = Metrics::default();
+                    state.publish_progress(self.scheduler.session.progress().cloned());
+                });
             }
             Action::Continue { results } => {
                 self.scheduler.session.continue_live(results)?;
                 self.controls.cancel.store(false, Ordering::Release);
-                self.started = Some(Instant::now());
+                self.controls.update(|state| {
+                    state.publish_progress(self.scheduler.session.progress().cloned());
+                });
             }
             Action::Cancel {} => {
                 self.controls.cancel.store(true, Ordering::Release);
@@ -422,8 +433,7 @@ impl Runtime {
             }
             Action::ClearHistory {} => {
                 self.scheduler.reset();
-                self.started = None;
-                self.elapsed_ms = 0;
+                self.controls.reset_search_clock();
             }
             Action::Navigate { address } => {
                 let displayed = self

@@ -22,7 +22,7 @@ independently of NMS, with Khronos synchronization validation enabled and zero v
 Visual NMS HDR, native Windows, frame generation and coexistence with other graphics overlays
 remain unqualified.
 
-The production Windows build and all 106 workspace tests pass. Package verification checks all file
+The production Windows build and all 110 workspace tests pass. Package verification checks all file
 hashes and archive contents. Desktop HDR was enabled during the live checks, but NMS's captured
 swapchain was SDR and its saved HDR mode was Off; desktop HDR alone does not qualify game HDR output.
 
@@ -95,8 +95,25 @@ identities and all other generator configuration bytes remain stable. Replaying 
 snapshots through the corrected production identity function preserves one configuration identity;
 the old comparison produces fifteen. The pending-task vector and RNG are excluded from session
 identity, while borrowed resource pointers, vector headers and generation options remain checked.
-Regression tests cover both sides of that boundary. A fresh in-game flight with an active search
-remains pending after installation; captured replay does not establish that live acceptance.
+Regression tests cover both sides of that boundary. Search progress and result cards retain live
+matches through cancellation and resource refreshes. Application travel/loading transitions suspend
+work; save selection, title, shutdown and global save loading invalidate the search session. A search
+keeps its original galaxy and pauses while the player visits another galaxy. Deterministic controls
+cover live partial-result publication, travel suspension, session clearing and frontier retention.
+Passive native capture of an operator-initiated galaxy round trip confirms that the active search
+pauses outside its starting galaxy and resumes on return with the same origin and retained progress.
+Destination-system loading also suspends work and resumes it after gameplay becomes available;
+the checked count remains monotonic and neither runtime nor search diagnostics report an error.
+This run has no matches, so live result-card interaction and cancellation with partial matches
+remain pending in-game checks. Independent same-galaxy travel and save-session reset checks also
+remain pending for this candidate.
+
+Search-rate timing accumulates running time while gameplay resources are available in the search's
+galaxy. Deterministic clock controls cover loading, a different galaxy, return, completion,
+cancellation, continuation and a fresh search. Native work statistics remain independent of this
+clock. Passive samples of the operator's glow/grass query show comparable work per batch second
+before and after travel, with no additional object-table loads during a subsequent uninterrupted
+sample. A fresh in-game travel check of the corrected counter remains pending.
 
 Coordinate export tests cover the reported internal-address example, signed region bounds, leading
 zeroes, selected planet identity and galaxy omission. Result cards expose separate twelve-digit

@@ -84,6 +84,14 @@ impl Session {
     pub fn cache_len(&self) -> usize {
         self.cache.len()
     }
+    pub fn clear_cached_facts(&mut self) {
+        self.cache.clear();
+    }
+    pub fn is_in_search_galaxy(&self, player: Address) -> bool {
+        self.search.as_ref().is_none_or(|search| {
+            search.progress.origin.coordinates().galaxy == player.coordinates().galaxy
+        })
+    }
     pub fn record(&self, address: Address) -> Option<&SystemRecord> {
         self.cache.get(address)
     }
@@ -361,6 +369,34 @@ mod tests {
         session.start(options, origin(), false, false).unwrap();
         assert_eq!(session.progress().unwrap().previous_systems, 2);
         assert_eq!(session.next(1).unwrap(), Work::Systems(vec![addresses[2]]));
+    }
+    #[test]
+    fn resource_refresh_and_galaxy_travel_preserve_the_search_frontier() {
+        use crate::address::Coordinates;
+        let mut session = Session::default();
+        let options = SearchOptions::default();
+        session
+            .start(options.clone(), origin(), false, false)
+            .unwrap();
+        let addresses = load(&mut session);
+        session.apply(addresses[0], record(5), false).unwrap();
+        let moved = addresses[20];
+        assert!(session.is_in_search_galaxy(moved));
+        session.clear_cached_facts();
+        assert_eq!(session.cache_len(), 0);
+        assert_eq!(session.progress().unwrap().systems, 1);
+        assert_eq!(session.progress().unwrap().results.len(), 1);
+        let other_galaxy = Address::new(Coordinates {
+            galaxy: 1,
+            ..moved.coordinates()
+        })
+        .unwrap();
+        assert!(!session.is_in_search_galaxy(other_galaxy));
+        assert!(session.is_in_search_galaxy(moved));
+        assert_eq!(session.next(1).unwrap(), Work::Systems(vec![addresses[1]]));
+        session.cancel();
+        session.start(options, moved, false, false).unwrap();
+        assert_eq!(session.next(1).unwrap(), Work::Systems(vec![addresses[1]]));
     }
     #[test]
     fn grass_prefilter_can_finish_a_nonmatch_but_requires_generation_for_possible_matches() {

@@ -25,6 +25,19 @@ pub struct Snapshot {
     pub difficulty: usize,
 }
 
+impl Epoch {
+    pub fn evaluation_rules_changed(&self, other: &Self) -> bool {
+        self.language != other.language || self.difficulty != other.difficulty
+    }
+    pub fn resources_changed(&self, other: &Self) -> bool {
+        self.application != other.application
+            || self.root != other.root
+            || self.object_cache != other.object_cache
+            || self.solar_resources != other.solar_resources
+            || self.configuration != other.configuration
+    }
+}
+
 #[cfg(feature = "investigation")]
 impl Epoch {
     pub fn differences(&self, other: &Self) -> Vec<&'static str> {
@@ -48,6 +61,9 @@ impl Epoch {
 
 impl Snapshot {
     pub fn read(image: &Image, transition: u64) -> Result<Self, &'static str> {
+        if !crate::lifecycle_hook::ready() {
+            return Err("gameplay resources are loading");
+        }
         let base = image.base();
         let application = platform::pointer(base + 0x6e8d708)?;
         let root = platform::pointer(application + 0x72afb0)?;

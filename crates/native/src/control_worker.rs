@@ -16,7 +16,10 @@ pub fn start(controls: Arc<Controls>, directory: PathBuf) -> Result<(), String> 
         .spawn(move || {
             let mut published = Instant::now();
             loop {
-                controls.observe_transition(crate::lifecycle_hook::epoch());
+                controls.observe_transition(
+                    crate::lifecycle_hook::epoch(),
+                    crate::lifecycle_hook::session(),
+                );
                 if let Some(error) = crate::gameplay_hook::failure() {
                     controls.cancel.store(true, Ordering::Release);
                     controls.update(|state| {

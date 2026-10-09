@@ -65,10 +65,18 @@ impl Command {
 pub enum Availability {
     Starting,
     MainMenu,
+    Loading,
     Ready,
     Unsupported,
     Failed,
     Stopped,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SearchPause {
+    Loading,
+    OtherGalaxy,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -98,6 +106,7 @@ pub struct State {
     pub player: Option<Address>,
     pub settings: Settings,
     pub progress: Option<Progress>,
+    pub search_pause: Option<SearchPause>,
     pub results: Vec<CachedMatch>,
     pub metrics: Metrics,
     pub cached_systems: usize,
@@ -107,6 +116,16 @@ pub struct State {
 }
 
 impl State {
+    pub fn publish_progress(&mut self, progress: Option<Progress>) {
+        if let Some(progress) = progress
+            .as_ref()
+            .filter(|progress| !progress.results.is_empty())
+        {
+            self.results = progress.results.clone();
+        }
+        self.progress = progress;
+    }
+
     pub fn new(settings: Settings) -> Self {
         Self {
             generation: 1,
@@ -114,6 +133,7 @@ impl State {
             player: None,
             settings,
             progress: None,
+            search_pause: None,
             results: Vec::new(),
             metrics: Metrics::default(),
             cached_systems: 0,
@@ -121,5 +141,85 @@ impl State {
             error: None,
             destination: None,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{
+        cache::SystemRecord,
+        facts::Facts,
+        session::{Phase, Session, Work},
+    };
+
+    #[test]
+    fn live_matches_remain_available_after_cancel_and_empty_searches() {
+        let mut state = State::new(Settings::default());
+        let mut session = Session::default();
+        let origin = Address::from_raw(0).unwrap();
+        let previous = Address::from_raw(20 << 40).unwrap().planet(0).unwrap();
+        state.results.push(CachedMatch {
+            address: previous,
+            name: None,
+        });
+
+        let mut options = state.settings.search.clone();
+        options.results = 10;
+        session
+            .start(options.clone(), origin, false, false)
+            .unwrap();
+        let Work::Region(region) = session.next(16).unwrap() else {
+            panic!("expected region");
+        };
+        let addresses: Vec<_> = (1..=12)
+            .map(|index| Address::from_raw(region.raw() | (index << 40)).unwrap())
+            .collect();
+        session.load_region(region, addresses.clone()).unwrap();
+        for &address in &addresses[..8] {
+            let mut system = Facts::default();
+            system.set_planet_count(1);
+            session
+                .apply(
+                    address,
+                    SystemRecord::new(system, [Facts::default(); 8]).unwrap(),
+                    false,
+                )
+                .unwrap();
+        }
+        state.publish_progress(session.progress().cloned());
+        assert_eq!(state.progress.as_ref().unwrap().phase, Phase::Running);
+        assert_eq!(state.progress.as_ref().unwrap().results.len(), 8);
+        let expected: Vec<_> = addresses[..8]
+            .iter()
+            .map(|address| address.planet(0).unwrap())
+            .collect();
+        assert_eq!(
+            state
+                .results
+                .iter()
+                .map(|result| result.address)
+                .collect::<Vec<_>>(),
+            expected
+        );
+
+        session.cancel();
+        state.publish_progress(session.progress().cloned());
+        assert_eq!(state.progress.as_ref().unwrap().phase, Phase::Cancelled);
+        assert_eq!(state.results.len(), 8);
+
+        session.start(options, origin, false, false).unwrap();
+        state.publish_progress(session.progress().cloned());
+        session.cancel();
+        state.publish_progress(session.progress().cloned());
+        assert!(state.progress.as_ref().unwrap().results.is_empty());
+        assert_eq!(
+            state
+                .results
+                .iter()
+                .map(|result| result.address)
+                .collect::<Vec<_>>(),
+            expected
+        );
     }
 }

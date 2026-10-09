@@ -2,7 +2,7 @@ use egui::{self, Color32, RichText, Ui};
 use search_probes_model::controls::Controls;
 use search_probes_model::{
     criteria::{Criteria, Field, GiantFilter, PlanetFlag, ResourceMode, SystemFlag},
-    runtime::{Action, Availability, State},
+    runtime::{Action, Availability, SearchPause, State},
     session::Phase,
     settings::{BUDGET_LABELS, BUDGETS, MAX_PRESETS, MAX_RESULTS, Preset, Settings, validate_name},
     vocabulary::RESOURCE_LABELS,
@@ -538,6 +538,7 @@ impl App {
         if state.availability != Availability::Ready {
             ui.label(match state.availability {
                 Availability::MainMenu => "Load a save to search.",
+                Availability::Loading => "Waiting for the game to finish loading…",
                 Availability::Unsupported => {
                     "This game build is not supported by the installed mod."
                 }
@@ -586,7 +587,13 @@ impl App {
                 }
             } else {
                 ui.label(match progress.phase {
-                    Phase::Running => "Searching…",
+                    Phase::Running => match state.search_pause {
+                        Some(SearchPause::Loading) => "Search paused while the game loads.",
+                        Some(SearchPause::OtherGalaxy) => {
+                            "Search paused: return to its starting galaxy to resume."
+                        }
+                        None => "Searching…",
+                    },
                     Phase::Completed => "Search complete",
                     Phase::Cancelled => "Search cancelled",
                     Phase::Failed => "Search stopped after an error",
@@ -599,9 +606,12 @@ impl App {
                     number(progress.previous_systems)
                 ));
             }
-            if state.metrics.elapsed_ms > 0 && progress.phase == Phase::Running {
+            if state.metrics.elapsed_ms > 0
+                && progress.phase == Phase::Running
+                && state.search_pause.is_none()
+            {
                 ui.small(format!(
-                    "{:.0} generated systems/s · {} served from cache",
+                    "Average {:.0} generated systems/s · {} served from cache",
                     state.metrics.generated_systems as f64 * 1000.0
                         / state.metrics.elapsed_ms as f64,
                     number(progress.cached_systems)
@@ -667,7 +677,8 @@ impl App {
                                         ui.horizontal_wrapped(|ui| {
                                             if ui
                                                 .add_enabled(
-                                                    state.availability == Availability::Ready,
+                                                    state.availability == Availability::Ready
+                                                        && state.player.is_some_and(|player| player.coordinates().galaxy == coordinates.galaxy),
                                                     egui::Button::new("Set destination"),
                                                 )
                                                 .clicked()

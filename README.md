@@ -28,13 +28,15 @@ explicit **All** and **Any** selection modes.
 - **Cancel:** keeps completed matches and the continuation position.
 
 Search begins around your current region and traverses generated region lists outward. Results
-follow traversal order. Pausing NMS or leaving gameplay pauses progress. Completed matches remain
-available through cancellation, travel and search startup; a search with new matches replaces them.
+follow traversal order. Matches appear as they are found and can be selected as destinations while
+the search continues. Cancelling keeps those matches. The previous results remain available until
+a new search finds matches. Loading during system travel pauses work; it resumes after arrival.
+Visiting another galaxy pauses the original search until you return to its galaxy.
 Result cards show destinations outside your current system.
 
 Repeating the same criteria continues from the previous position within the same galaxy. Select
 **Restart from current location** to begin around your new position. Search history lasts for the
-current game session and clears on save reload or relevant native configuration changes.
+current game session and clears when a save is loaded or language or combat difficulty changes.
 
 ## Criteria
 
