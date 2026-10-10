@@ -1,5 +1,5 @@
 use crate::{
-    capture, grass_appearance,
+    capture, colour_appearance, grass_appearance,
     object_cache::ObjectTableCache,
     object_flags::ObjectTables,
     planet_query_context::PlanetQueryContext,
@@ -172,6 +172,15 @@ impl<'cache> Generator<'cache> {
                         return Ok(());
                     }
                     let needed = plan.missing_planet_requirements(facts);
+                    if needed.fauna {
+                        facts.set_planet_flag(
+                            PlanetFlag::PlayerAttackingFauna,
+                            crate::fauna::player_attacking(live)?,
+                        );
+                        if plan.planet_match(facts) == Verdict::NoMatch {
+                            return Ok(());
+                        }
+                    }
                     let metadata = if needed.metadata {
                         capture::METADATA
                     } else {
@@ -190,16 +199,23 @@ impl<'cache> Generator<'cache> {
                             return Ok(());
                         }
                     }
-                    let palette_colours = needed.colours & !1;
+                    if needed.terrain {
+                        let layers = crate::terrain::features(live)?;
+                        facts.observe_terrain_layers(layers);
+                        if plan.planet_match(facts) == Verdict::NoMatch { return Ok(()); }
+                    }
+                    let needed = plan.missing_planet_requirements(facts);
+                    let palette_colours = needed.colours & !3;
                     if palette_colours != 0 {
                         let details =
                             capture::capture(live, generator, u32::from(palette_colours) << 8)?;
-                        apply_capture(facts, &details, difficulty)?;
+                        colour_appearance::apply(facts, &details)?;
                         outcome.work.colour_captures += 1;
                         if plan.planet_match(facts) == Verdict::NoMatch {
                             return Ok(());
                         }
                     }
+                    let flora_needed = needed.colours & 2 != 0;
                     let grass = if needed.colours & 1 != 0 {
                         let captured = capture::capture(live, generator, capture::colour(0))?;
                         outcome.work.colour_captures += 1;
@@ -226,14 +242,16 @@ impl<'cache> Generator<'cache> {
                                     matches!(predicate, search_probes_model::criteria::Predicate::Planet(selected, _) if *selected == flag))
                                     && facts.planet_flag(flag).is_none() { 1 << bit } else { 0 }
                             });
-                        let flags = objects.flags(live, self.object_summaries, need_glow)?;
+                        let mut flora_models = Vec::new();
+                        let need_glow = need_glow | if flora_needed { 4 } else { 0 };
+                        let flags = objects.flags(live, self.object_summaries, need_glow, Some(&mut flora_models))?;
                         if flags.missing_tables != 0 {
                             return Err("an object table could not be loaded");
                         }
-                        facts.set_planet_flag(
-                            PlanetFlag::FloatingIslands,
-                            flags.floating_islands != 0,
-                        );
+                        if let Some(layers) = facts.terrain_layers() {
+                            facts.set(Field::Terrain, search_probes_model::terrain::FEATURE_SET | layers
+                                | if flags.floating_islands != 0 { search_probes_model::terrain::FLOATING_ISLANDS } else { 0 });
+                        }
                         if need_glow & 1 != 0 { facts.set_planet_flag(PlanetFlag::GlowingGrass, flags.glowing_grass); }
                         if need_glow & 2 != 0 { facts.set_planet_flag(PlanetFlag::GlowingFlora, flags.glowing_flora); }
                         outcome.work.object_scans += 1;
@@ -247,6 +265,26 @@ impl<'cache> Generator<'cache> {
                                 grass_appearance::get(&grass?, flags.ground_grass)?
                             };
                             facts.set(Field::Grass, colours);
+                        }
+                        if plan.planet_match(facts)==Verdict::NoMatch {return Ok(());}
+                        if flora_needed {
+                            let filter=capture::capture(live,generator,capture::SCREEN_FILTER)?.screen_filter;
+                            let context=crate::flora_appearance::Context {
+                                palettes:capture::flora_palettes(live),
+                                ground_colours:capture::flora_ground_colours(live),
+                                palette_mode:((self.base+0x5261a94) as *const u32).read_unaligned(),
+                            };
+                            let wanted = plan.planet.iter().find_map(|predicate| match predicate {
+                                search_probes_model::criteria::Predicate::Choice(choices)
+                                    if choices.field() == Field::FloraColour => Some(choices.mask() as u32),
+                                _ => None,
+                            }).ok_or("flora acquisition has no colour criterion")?;
+                            let observation=crate::flora_appearance::colours(&flora_models,&context,filter,wanted)?;
+                            facts.observe_flora_colours(observation.colours, observation.known);
+                            if observation.complete {
+                                facts.set(Field::FloraColour,observation.colours);
+                            }
+                            outcome.work.colour_captures+=1;
                         }
                     }
                     match plan.planet_match(facts) {

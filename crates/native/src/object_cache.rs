@@ -1,15 +1,16 @@
 use std::{
     collections::{BTreeMap, VecDeque},
     sync::{
-        RwLock,
+        Arc, RwLock,
         atomic::{AtomicU64, Ordering},
     },
 };
 
 const MAX_TABLES: usize = 1024;
+pub const MAX_OWNED_BYTES: usize = 16 * 1024 * 1024;
 pub const MAX_FILENAME_BYTES: usize = 256;
 
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct TableFacts {
     pub floating_islands: bool,
     pub objects: u32,
@@ -17,6 +18,19 @@ pub struct TableFacts {
     pub glowing_grass: bool,
     pub glowing_flora: bool,
     pub glow_known: u8,
+    pub flora_models: Arc<[crate::flora_appearance::Spawn]>,
+}
+
+impl TableFacts {
+    pub fn owned_bytes(&self) -> usize {
+        std::mem::size_of::<Self>()
+            + std::mem::size_of_val(self.flora_models.as_ref())
+            + self
+                .flora_models
+                .iter()
+                .map(crate::flora_appearance::Spawn::owned_bytes)
+                .sum::<usize>()
+    }
 }
 
 #[derive(Clone, Copy, Debug, Default)]
@@ -31,6 +45,7 @@ struct Cache {
     entries: BTreeMap<Vec<u8>, TableFacts>,
     order: VecDeque<Vec<u8>>,
     statistics: Statistics,
+    owned_bytes: usize,
 }
 
 #[derive(Default)]
@@ -57,7 +72,7 @@ impl ObjectTableCache {
             if let Some(facts) = cache
                 .entries
                 .get(filename)
-                .copied()
+                .cloned()
                 .filter(|facts| facts.glow_known & need_glow == need_glow)
             {
                 self.hits.fetch_add(1, Ordering::Relaxed);
@@ -71,7 +86,7 @@ impl ObjectTableCache {
         if let Some(facts) = cache
             .entries
             .get(filename)
-            .copied()
+            .cloned()
             .filter(|facts| facts.glow_known & need_glow == need_glow)
         {
             self.hits.fetch_add(1, Ordering::Relaxed);
@@ -88,20 +103,33 @@ impl ObjectTableCache {
             if old.glow_known & 2 != 0 && facts.glow_known & 2 == 0 {
                 facts.glowing_flora = old.glowing_flora;
             }
+            if old.glow_known & 4 != 0 && facts.glow_known & 4 == 0 {
+                facts.flora_models = old.flora_models.clone();
+            }
             facts.glow_known |= old.glow_known;
         }
-        let retained = cache.entries.contains_key(filename);
-        if !retained && cache.entries.len() == MAX_TABLES {
+        let bytes = facts.owned_bytes() + filename.len() * 2;
+        if bytes > MAX_OWNED_BYTES {
+            return Err("object-table summary exceeds byte bound");
+        }
+        if let Some(old) = cache.entries.remove(filename) {
+            cache.owned_bytes -= old.owned_bytes() + filename.len() * 2;
+            cache.order.retain(|key| key.as_slice() != filename);
+        }
+        while cache.entries.len() >= MAX_TABLES || cache.owned_bytes + bytes > MAX_OWNED_BYTES {
             let oldest = cache
                 .order
                 .pop_front()
                 .ok_or("object-table cache order is invalid")?;
-            cache.entries.remove(&oldest);
+            let old = cache
+                .entries
+                .remove(&oldest)
+                .ok_or("object-table cache entry is invalid")?;
+            cache.owned_bytes -= old.owned_bytes() + oldest.len() * 2;
         }
-        cache.entries.insert(filename.to_vec(), facts);
-        if !retained {
-            cache.order.push_back(filename.to_vec());
-        }
+        cache.entries.insert(filename.to_vec(), facts.clone());
+        cache.order.push_back(filename.to_vec());
+        cache.owned_bytes += bytes;
         cache.statistics.retained = cache.entries.len();
         Ok(Some(facts))
     }
@@ -146,6 +174,42 @@ mod tests {
     };
 
     #[test]
+    fn byte_budget_evicts_owned_recipes_during_upgrades_and_rejects_oversize_tables() {
+        let cache = ObjectTableCache::default();
+        let facts = |bytes| TableFacts {
+            glow_known: 4,
+            flora_models: vec![crate::flora_appearance::Spawn {
+                model: vec![b'a'; bytes],
+                ..Default::default()
+            }]
+            .into(),
+            ..Default::default()
+        };
+        cache
+            .resolve(b"first", 4, || Ok(Some(facts(MAX_OWNED_BYTES / 2))))
+            .unwrap();
+        cache
+            .resolve(b"second", 4, || Ok(Some(facts(MAX_OWNED_BYTES / 2))))
+            .unwrap();
+        assert_eq!(cache.statistics().retained, 1);
+        assert!(cache.cache.read().unwrap().owned_bytes <= MAX_OWNED_BYTES);
+        let mut partial = facts(0);
+        partial.glow_known = 0;
+        cache.resolve(b"upgrade", 0, || Ok(Some(partial))).unwrap();
+        cache
+            .resolve(b"upgrade", 4, || Ok(Some(facts(MAX_OWNED_BYTES / 2))))
+            .unwrap();
+        assert_eq!(cache.statistics().retained, 1);
+        let bytes = cache.cache.read().unwrap().owned_bytes;
+        assert!(
+            cache
+                .resolve(b"oversize", 4, || Ok(Some(facts(MAX_OWNED_BYTES))))
+                .is_err()
+        );
+        assert_eq!(cache.cache.read().unwrap().owned_bytes, bytes);
+    }
+
+    #[test]
     fn glow_requests_upgrade_partial_tables_without_duplicate_retention() {
         let cache = ObjectTableCache::default();
         cache
@@ -165,12 +229,14 @@ mod tests {
             ..Default::default()
         };
         assert_eq!(
-            cache.resolve(b"LUSH", 1, || Ok(Some(upgraded))).unwrap(),
-            Some(upgraded)
+            cache
+                .resolve(b"LUSH", 1, || Ok(Some(upgraded.clone())))
+                .unwrap(),
+            Some(upgraded.clone())
         );
         assert_eq!(
             cache.resolve(b"LUSH", 1, || unreachable!()).unwrap(),
-            Some(upgraded)
+            Some(upgraded.clone())
         );
         assert_eq!(cache.statistics().retained, 1);
         assert_eq!(cache.statistics().loads, 2);
@@ -188,7 +254,7 @@ mod tests {
         assert_eq!(flora.glow_known, 3);
         assert_eq!(
             cache.resolve(b"LUSH", 3, || unreachable!()).unwrap(),
-            Some(flora)
+            Some(flora.clone())
         );
     }
 

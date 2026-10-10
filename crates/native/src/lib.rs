@@ -5,6 +5,15 @@ pub mod capture;
 pub mod capture_session;
 #[cfg(any(windows, test))]
 mod destination;
+pub mod fauna;
+#[cfg(feature = "investigation")]
+pub mod flora_appearance;
+#[cfg(not(feature = "investigation"))]
+mod flora_appearance;
+#[cfg(feature = "investigation")]
+pub mod flora_geometry;
+#[cfg(not(feature = "investigation"))]
+mod flora_geometry;
 mod game_assets;
 pub mod grass_appearance;
 pub mod hook_code;
@@ -13,6 +22,7 @@ mod object_flags;
 pub mod query;
 pub mod region;
 pub mod snapshot;
+pub mod terrain;
 pub mod workers;
 
 #[cfg(windows)]
@@ -83,4 +93,5 @@ mod lifecycle_probe;
 #[cfg(all(windows, feature = "investigation"))]
 mod runtime_probe;
 
+mod colour_appearance;
 pub mod colour_lut;

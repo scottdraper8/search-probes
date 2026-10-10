@@ -1,4 +1,4 @@
-use crate::object_cache::{MAX_FILENAME_BYTES, ObjectTableCache, TableFacts};
+use crate::object_cache::{MAX_FILENAME_BYTES, MAX_OWNED_BYTES, ObjectTableCache, TableFacts};
 use search_probes_model::grass::GrassModel;
 use std::{marker::PhantomData, rc::Rc};
 
@@ -68,6 +68,7 @@ impl ObjectTables {
         planet: *const u8,
         summaries: &ObjectTableCache,
         need_glow: u8,
+        mut flora_models: Option<&mut Vec<crate::flora_appearance::Spawn>>,
     ) -> Result<ObjectFlags, &'static str> {
         if planet.is_null() {
             return Err("null planet object source");
@@ -77,6 +78,9 @@ impl ObjectTables {
             let (sources, count) = dynamic_array(planet.add(0x3210), 4096)?;
             for index in 0..count {
                 let source = sources.add(index * 0x58);
+                if source.add(0x53).read() != 0 {
+                    continue;
+                }
                 let (options, count) = dynamic_array(source.add(0x10), 4096)?;
                 if count == 0 || options.add(8).cast::<i32>().read_unaligned() <= 0 {
                     continue;
@@ -109,12 +113,23 @@ impl ObjectTables {
                         .objects
                         .checked_add(facts.objects)
                         .ok_or("object record count overflow")?;
-                    result.floating_islands |= u32::from(facts.floating_islands);
+                    if source.add(0x53).read() == 0 {
+                        result.floating_islands |= u32::from(facts.floating_islands);
+                    }
                     let decoration = key
                         .windows(b"/BIOMES/OBJECTS/".len())
                         .any(|part| part.eq_ignore_ascii_case(b"/BIOMES/OBJECTS/"));
                     if !decoration {
                         result.ground_grass |= facts.ground_grass;
+                    }
+                    if glow & 4 != 0 {
+                        if let Some(models) = flora_models.as_deref_mut() {
+                            let ground_index = source.add(0x4c).cast::<i32>().read_unaligned();
+                            models.extend(facts.flora_models.iter().cloned().map(|mut spawn| {
+                                spawn.source_ground_index = ground_index;
+                                spawn
+                            }));
+                        }
                     }
                     if glow != 0 {
                         result.glowing_grass |= facts.glowing_grass;
@@ -144,6 +159,8 @@ impl ObjectTables {
             glow_known: glow,
             ..Default::default()
         };
+        let mut flora_models = Vec::new();
+        let mut flora_bytes = 0usize;
         for offset in [0x10, 0x40, 0x30, 0x20] {
             let (objects, count) = unsafe { dynamic_array(resource.pointer.add(offset), 65_536) }?;
             facts.objects = facts
@@ -152,12 +169,20 @@ impl ObjectTables {
                 .ok_or("object record count overflow")?;
             for index in 0..count {
                 let object = unsafe { objects.add(index * 0x168) };
-                facts.floating_islands |= unsafe { object.add(0x15f).read() != 0 };
+                facts.floating_islands |= unsafe { floating_island(object) }?;
                 let grass = unsafe { ground_grass(object) }?;
                 facts.ground_grass |= grass;
                 if glow != 0 && unsafe { spawns(object) }? {
                     let path = unsafe { model_path(object) }?;
                     if !path.is_empty() {
+                        if glow & 4 != 0 && grass == 0 {
+                            let spawn = unsafe { flora_spawn(object, path) };
+                            flora_bytes = flora_bytes
+                                .checked_add(spawn.owned_bytes() + std::mem::size_of_val(&spawn))
+                                .filter(|&bytes| bytes <= MAX_OWNED_BYTES)
+                                .ok_or("object-table flora data exceeds byte bound")?;
+                            flora_models.push(spawn);
+                        }
                         let grass = grass != 0;
                         if (grass && glow & 1 != 0 && !facts.glowing_grass)
                             || (!grass && glow & 2 != 0 && !facts.glowing_flora)
@@ -173,7 +198,21 @@ impl ObjectTables {
                 }
             }
         }
+        flora_models.sort_unstable();
+        flora_models.dedup();
+        facts.flora_models = flora_models.into();
         Ok(Some(facts))
+    }
+}
+
+unsafe fn flora_spawn(object: *const u8, path: &[u8]) -> crate::flora_appearance::Spawn {
+    crate::flora_appearance::Spawn {
+        model: path.to_vec(),
+        match_ground_colour: unsafe { object.add(0x160).read() != 0 },
+        ground_colour_index: unsafe { object.add(0x100).cast::<u32>().read_unaligned() },
+        swap_primary_for_random: unsafe { object.add(0x164).read() != 0 },
+        swap_primary_for_secondary: unsafe { object.add(0x165).read() != 0 },
+        ..Default::default()
     }
 }
 
@@ -190,6 +229,10 @@ unsafe fn ground_grass(object: *const u8) -> Result<u32, &'static str> {
     } else {
         0
     })
+}
+
+unsafe fn floating_island(object: *const u8) -> Result<bool, &'static str> {
+    Ok(unsafe { object.add(0x15f).read() != 0 && spawns(object)? })
 }
 
 /// # Safety
@@ -235,6 +278,21 @@ unsafe fn dynamic_array(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn floating_islands_require_positive_spawn_density() {
+        let mut object = vec![0; 0x168];
+        let mut variant = [0u8; 0x48];
+        object[0xe0..0xe8].copy_from_slice(&(variant.as_ptr() as usize).to_ne_bytes());
+        object[0xe8..0xec].copy_from_slice(&1i32.to_ne_bytes());
+        object[0x15f] = 1;
+        assert!(!unsafe { floating_island(object.as_ptr()) }.unwrap());
+        variant[0x24..0x28].copy_from_slice(&1f32.to_ne_bytes());
+        variant[0x40..0x44].copy_from_slice(&0.2f32.to_ne_bytes());
+        assert!(unsafe { floating_island(object.as_ptr()) }.unwrap());
+        object[0x15f] = 0;
+        assert!(!unsafe { floating_island(object.as_ptr()) }.unwrap());
+    }
 
     #[test]
     fn grass_requires_a_ground_grass_model_and_nonzero_spawn_density() {

@@ -3,21 +3,20 @@ pub const METADATA: u32 = 2;
 pub const NAME: u32 = 4;
 pub const SCREEN_FILTER: u32 = 8;
 pub const INDEX: u32 = 16;
-pub const COLOUR_COUNT: usize = 11;
+pub const COLOUR_COUNT: usize = 10;
 pub const ALL: u32 = 31 | (((1 << COLOUR_COUNT) - 1) << 8);
 
 #[repr(usize)]
 #[derive(Clone, Copy, Debug)]
 pub enum Colour {
     Grass,
-    Plant,
-    Leaf,
+    Flora,
+    LeafPalette,
     Cloud,
     SkyFog,
     SkyHeightFog,
     SkyHorizon,
     Sky,
-    SkySunset,
     SkyNight,
     Water,
 }
@@ -27,7 +26,6 @@ pub enum Colour {
 pub struct Metadata {
     pub biome: u32,
     pub biome_subtype: u32,
-    pub building_density: u32,
     pub creature_life_level: u32,
     pub inhabiting_race: u32,
     pub life_level: u32,
@@ -155,7 +153,6 @@ pub unsafe fn capture(
             facts.metadata = Metadata {
                 biome: read(planet, 0x32b8),
                 biome_subtype: read(planet, 0x32bc),
-                building_density: read(planet, 0x3528),
                 creature_life_level: read(planet, 0x352c),
                 inhabiting_race: read(planet, 0x3534),
                 life_level: read(planet, 0x3538),
@@ -171,7 +168,7 @@ pub unsafe fn capture(
         if wanted & NAME != 0 {
             facts.name = read(planet, 0x3a4e);
         }
-        if wanted & (SCREEN_FILTER | colour(0)) != 0 {
+        if wanted & (SCREEN_FILTER | (ALL & !31)) != 0 {
             facts.screen_filter = read(planet, 0x1e44);
         }
         if wanted & colour(0) != 0 {
@@ -183,10 +180,7 @@ pub unsafe fn capture(
                 facts.colours[i] = read::<[f32; 4]>(planet, i * 0x70).map(f64::from);
             }
         }
-        if wanted
-            & (colour(3) | colour(4) | colour(5) | colour(6) | colour(7) | colour(8) | colour(9))
-            != 0
-        {
+        if wanted & (colour(3) | colour(4) | colour(5) | colour(6) | colour(7) | colour(8)) != 0 {
             if generator.is_null() {
                 return Err("null sky generator");
             }
@@ -200,21 +194,23 @@ pub unsafe fn capture(
             } else if subtype == 26 {
                 biome = 13;
             }
-            for period in 0..3 {
-                let fields: &[(usize, usize)] = match period {
-                    0 => &[(3, 0), (4, 0x20), (5, 0x30), (6, 0x40), (7, 0x70)],
-                    1 => &[(8, 0x70)],
-                    _ => &[(9, 0x70)],
-                };
+            for (table_offset, index_offset, fields) in [
+                (
+                    0x518,
+                    0x1e34,
+                    &[(3, 0), (4, 0x20), (5, 0x30), (6, 0x40), (7, 0x70)][..],
+                ),
+                (0x528, 0x1e3c, &[(8, 0x70)][..]),
+            ] {
                 if !fields.iter().any(|(i, _)| wanted & colour(*i) != 0) {
                     continue;
                 }
-                let table = pointer(read(generator, 0x518 + period * 8))?;
+                let table = pointer(read(generator, table_offset))?;
                 let mut header = table.add(biome as usize * 16);
                 if read::<i32>(header, 8) <= 0 {
                     header = table.add(0x120);
                 }
-                let row = record(header, read(planet, 0x1e34 + period * 4), 0xe0)?;
+                let row = record(header, read(planet, index_offset), 0xe0)?;
                 for &(i, offset) in fields {
                     if wanted & colour(i) != 0 {
                         facts.colours[i] = read::<[f32; 4]>(row, offset).map(f64::from);
@@ -222,18 +218,18 @@ pub unsafe fn capture(
                 }
             }
         }
-        if wanted & colour(10) != 0 {
+        if wanted & colour(9) != 0 {
             if generator.is_null() {
                 return Err("null water generator");
             }
             let header = pointer(read(generator, 0x530))?;
             let row = record(header, read(planet, 0x3518), 0x80)?;
-            facts.colours[10] =
+            facts.colours[9] =
                 water_reflectance(read(row, 0x40), read(row, 0x50), read(row, 0x68))?;
         }
     }
     facts.present = wanted
-        | if wanted & colour(0) != 0 {
+        | if wanted & (ALL & !31) != 0 {
             SCREEN_FILTER
         } else {
             0
@@ -251,7 +247,7 @@ mod tests {
     }
     #[test]
     fn palette_only_does_not_read_native_tables() {
-        let mut planet = [0u8; 0x80];
+        let mut planet = [0u8; 0x1e48];
         for (chunk, value) in planet[0x70..]
             .as_chunks_mut::<4>()
             .0
@@ -261,7 +257,7 @@ mod tests {
             chunk.copy_from_slice(&value.to_ne_bytes());
         }
         let facts = unsafe { capture(planet.as_ptr(), std::ptr::null(), colour(1)) }.unwrap();
-        assert_eq!(facts.present, colour(1));
+        assert_eq!(facts.present, colour(1) | SCREEN_FILTER);
         assert_eq!(facts.colours[1], [0.1f32, 0.2, 0.3, 1.].map(f64::from));
     }
     #[test]
@@ -284,9 +280,76 @@ mod tests {
         assert_eq!(captured.colours[0], [0.; 4]);
     }
     #[test]
+    fn night_and_water_use_their_native_tables_and_compiled_slots() {
+        use search_probes_model::criteria::{Criteria, Field};
+
+        fn put<T: Copy>(bytes: &mut [u8], offset: usize, value: T) {
+            assert!(offset + std::mem::size_of::<T>() <= bytes.len());
+            unsafe {
+                bytes
+                    .as_mut_ptr()
+                    .add(offset)
+                    .cast::<T>()
+                    .write_unaligned(value)
+            };
+        }
+
+        let mut planet = vec![0; 0x3540];
+        let mut generator = vec![0; 0x540];
+        let mut night_headers = vec![0; 19 * 16];
+        let mut night_rows = vec![0; 2 * 0xe0];
+        let mut water_header = [0; 16];
+        let mut water_row = [0; 0x80];
+        put(&mut planet, 0x32b8, 13i32);
+        put(&mut planet, 0x32bc, 1i32);
+        put(&mut planet, 0x1e3c, 1i32);
+        put(&mut night_rows, 0xe0 + 0x70, [0.3f32, 0.4, 0.5, 1.]);
+        put(&mut night_headers, 0x120, night_rows.as_ptr() as usize);
+        put(&mut night_headers, 0x128, 2i32);
+        put(&mut generator, 0x528, night_headers.as_ptr() as usize);
+        put(&mut water_row, 0x40, [0.8f32, 0.6, 0.4]);
+        put(&mut water_row, 0x50, [0.2f32, 0.4, 0.6]);
+        put(&mut water_row, 0x68, [1.0f32, 2.]);
+        put(&mut water_header, 0, water_row.as_ptr() as usize);
+        put(&mut water_header, 8, 1i32);
+        put(&mut generator, 0x530, water_header.as_ptr() as usize);
+
+        let mut criteria = Criteria::default();
+        criteria.choices.insert(Field::NightSky, 1 << 5);
+        criteria.choices.insert(Field::WaterColour, 1 << 3);
+        let wanted = u32::from(criteria.compile().unwrap().requirements.colours) << 8;
+        assert_eq!(
+            wanted,
+            colour(Colour::SkyNight as usize) | colour(Colour::Water as usize)
+        );
+        let facts = unsafe { capture(planet.as_ptr(), generator.as_ptr(), wanted) }.unwrap();
+        assert_eq!(facts.present, wanted | SCREEN_FILTER);
+        assert_eq!(facts.colours[8], [0.3f32, 0.4, 0.5, 1.].map(f64::from));
+        assert_eq!(
+            facts.colours[9],
+            water_reflectance([0.8, 0.6, 0.4], [0.2, 0.4, 0.6], [1., 2.]).unwrap()
+        );
+    }
+    #[test]
     fn invalid_optics_fail_explicitly() {
         assert!(water_reflectance([1.; 3], [1.; 3], [1.; 2]).is_err());
         assert!(water_reflectance([0.5; 3], [0.5; 3], [0., 1.]).is_err());
         assert!(water_reflectance([f32::NAN; 3], [0.5; 3], [1.; 2]).is_err());
     }
+}
+
+/// # Safety
+/// Requires the complete generated colour data of a live current-build planet.
+pub unsafe fn flora_palettes(planet: *const u8) -> [[[f32; 4]; 5]; 66] {
+    std::array::from_fn(|palette| {
+        std::array::from_fn(|alternative| unsafe {
+            read(planet, palette * 0x70 + alternative * 16)
+        })
+    })
+}
+
+/// # Safety
+/// Requires the complete generated colour data of a live current-build planet.
+pub unsafe fn flora_ground_colours(planet: *const u8) -> [[f32; 4]; 24] {
+    std::array::from_fn(|index| unsafe { read(planet, 0x1e60 + index * 16) })
 }

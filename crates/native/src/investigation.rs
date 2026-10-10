@@ -42,7 +42,12 @@ pub unsafe extern "system" fn sqn_object_flags(
     }
     let result = unsafe {
         crate::object_flags::ObjectTables::from_verified_image(base).and_then(|tables| {
-            tables.flags(planet, &crate::object_cache::ObjectTableCache::default(), 0)
+            tables.flags(
+                planet,
+                &crate::object_cache::ObjectTableCache::default(),
+                0,
+                None,
+            )
         })
     };
     match result {

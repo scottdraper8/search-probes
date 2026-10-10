@@ -364,7 +364,7 @@ mod tests {
         let mut system = Facts::default();
         system.set_planet_count(1);
         let mut planets = [Facts::default(); 8];
-        planets[0].set(Field::Sky, sky);
+        planets[0].set(Field::Sky, crate::vocabulary::GRASS_COLOUR_SET | 1 << sky);
         SystemRecord::new(system, planets).unwrap()
     }
     fn load(session: &mut Session) -> Vec<Address> {

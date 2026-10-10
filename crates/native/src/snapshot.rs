@@ -7,7 +7,7 @@ use crate::{
 };
 use search_probes_model::{
     criteria::{Field, PlanetFlag, SystemFlag},
-    facts::{Facts, hue},
+    facts::Facts,
     vocabulary::RESOURCE_IDS,
 };
 
@@ -104,7 +104,6 @@ impl Snapshot {
         let subtype = u32_at(bytes, query + 0x84);
         planet.set(Field::Biome, biome);
         planet.set(Field::Subtype, subtype);
-        planet.set(Field::Terrain, u32_at(bytes, query + 0x134));
         planet.set(Field::StormFrequency, u32_at(bytes, query + 0x168));
         let mut resources = 0;
         for offset in [0x88, 0x98, 0xa8] {
@@ -224,7 +223,6 @@ pub fn apply_capture(
         for (field, value) in [
             (Field::Flora, m.life_level),
             (Field::Fauna, m.creature_life_level),
-            (Field::Buildings, m.building_density),
             (Field::ResourceRichness, m.resource_level),
             (Field::Sentinels, m.sentinel_levels[difficulty]),
         ] {
@@ -257,15 +255,6 @@ pub fn apply_capture(
                 && captured.weather[0] == 0
                 && captured.weather[1] == 0,
         );
-    }
-    for &field in Field::ALL {
-        if let Some(index) = field.colour_index()
-            && field != Field::Grass
-            && captured.present & capture::colour(index) != 0
-        {
-            let colour = captured.colours[index];
-            facts.set(field, hue([colour[0], colour[1], colour[2]])?);
-        }
     }
     Ok(())
 }
@@ -413,7 +402,7 @@ mod tests {
         capture.present = capture::colour(7);
         capture.colours[7] = [0.0, 0.0, 1.0, 1.0];
         apply_capture(&mut facts, &capture, 0).unwrap();
-        assert_eq!(facts.get(Field::Sky), Some(5));
+        assert_eq!(facts.get(Field::Sky), None);
         assert_eq!(facts.get(Field::Flora), None);
         assert_eq!(facts.planet_flag(PlanetFlag::Paradise), None);
     }

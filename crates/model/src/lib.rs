@@ -1,4 +1,5 @@
 pub mod address;
+pub mod appearance;
 pub mod cache;
 pub mod criteria;
 pub mod facts;
@@ -11,6 +12,7 @@ pub mod settings;
 pub mod storage;
 pub mod supported;
 pub mod target;
+pub mod terrain;
 pub mod vocabulary;
 
 pub mod grass;

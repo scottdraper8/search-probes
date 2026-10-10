@@ -1,4 +1,7 @@
-use crate::vocabulary::*;
+use crate::{
+    terrain::{FEATURE_SET, FLOATING_ISLANDS, TERRAIN_FEATURES},
+    vocabulary::*,
+};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
@@ -7,8 +10,10 @@ pub enum Stage {
     System,
     Input,
     Query,
+    Fauna,
     Metadata,
     Weather,
+    Terrain,
     ScreenFilter,
     Colour,
     Objects,
@@ -39,26 +44,23 @@ fields! {
     Size => ("Size",PLANET_SIZES,Input),
     Biome => ("Biome",BIOMES,Query),
     Subtype => ("Biome subtype",BIOME_SUBTYPES,Query),
-    Terrain => ("Terrain",TERRAIN_SETTINGS,Query),
+    Terrain => ("Terrain",TERRAIN_FEATURES,Terrain),
     Sentinels => ("Sentinels",SENTINEL_LEVELS,Query),
     Flora => ("Flora",PLANET_LIFE_LEVELS,Metadata),
     Fauna => ("Fauna",PLANET_LIFE_LEVELS,Metadata),
-    Buildings => ("Building density",BUILDING_DENSITY_LEVELS,Metadata),
     ResourceRichness => ("Resource abundance",RESOURCE_LEVELS,Metadata),
     WeatherType => ("Weather type",WEATHER_TYPES,Weather),
     StormFrequency => ("Storm frequency",STORM_FREQUENCIES,Weather),
     WeatherIntensity => ("Weather intensity",WEATHER_INTENSITIES,Weather),
     Grass => ("Grass colour",GRASS_COLOURS,Objects),
-    Plant => ("Plant colour",HUE_FAMILIES,Colour),
-    Leaf => ("Leaf colour",HUE_FAMILIES,Colour),
-    Cloud => ("Cloud colour",HUE_FAMILIES,Colour),
-    SkyFog => ("Sky fog colour",HUE_FAMILIES,Colour),
-    SkyHeightFog => ("Height fog colour",HUE_FAMILIES,Colour),
-    Horizon => ("Horizon colour",HUE_FAMILIES,Colour),
-    Sky => ("Daytime sky colour",HUE_FAMILIES,Colour),
-    Sunset => ("Sunset colour",HUE_FAMILIES,Colour),
-    NightSky => ("Night sky colour",HUE_FAMILIES,Colour),
-    WaterColour => ("Water colour",HUE_FAMILIES,Colour),
+    FloraColour => ("Flora colour",GRASS_COLOURS,Objects),
+    Cloud => ("Cloud colour",GRASS_COLOURS,Colour),
+    SkyFog => ("Sky fog colour",GRASS_COLOURS,Colour),
+    SkyHeightFog => ("Height fog colour",GRASS_COLOURS,Colour),
+    Horizon => ("Horizon colour",GRASS_COLOURS,Colour),
+    Sky => ("Daytime sky colour",GRASS_COLOURS,Colour),
+    NightSky => ("Night sky colour",GRASS_COLOURS,Colour),
+    WaterColour => ("Water colour",GRASS_COLOURS,Colour),
     WorldColourFilter => ("World colour filter",WORLD_FILTERS,ScreenFilter),
 }
 
@@ -72,7 +74,13 @@ impl Field {
                 Self::Race => matches!(index, 0 | 1 | 2 | 7),
                 Self::Anomaly => matches!(index, 0 | 2 | 5),
                 Self::Biome => !(8..=11).contains(index),
-                Self::Terrain => !(10..=20).contains(index),
+                Self::Subtype => *index < 29,
+                Self::Flora => *index != 1,
+                Self::WeatherType => !(7..=9).contains(index),
+                Self::StormFrequency => *index < 3,
+                Self::Sky | Self::Horizon | Self::SkyFog => *index != 9,
+                Self::SkyHeightFog => !matches!(index, 6 | 8 | 9),
+
                 _ => true,
             })
     }
@@ -80,19 +88,18 @@ impl Field {
     pub fn colour_index(self) -> Option<usize> {
         [
             Self::Grass,
-            Self::Plant,
-            Self::Leaf,
+            Self::FloraColour,
             Self::Cloud,
             Self::SkyFog,
             Self::SkyHeightFog,
             Self::Horizon,
             Self::Sky,
-            Self::Sunset,
             Self::NightSky,
             Self::WaterColour,
         ]
         .iter()
         .position(|field| *field == self)
+        .map(|index| if index >= 2 { index + 1 } else { index })
     }
 
     pub fn native_value(self, choice: usize) -> Option<u32> {
@@ -101,6 +108,9 @@ impl Field {
         }
         if self == Self::WorldColourFilter {
             return WORLD_FILTER_VALUES.get(choice).copied();
+        }
+        if self == Self::Terrain {
+            return Some(FEATURE_SET | (1 << choice));
         }
         if self == Self::Biome && choice == 16 {
             return None;
@@ -166,11 +176,11 @@ flags! { PlanetFlag {
     RobotCreatureDiscovery => ("Suitable for robotic creature discovery",Query),
     Scrap => ("Salvageable scrap",Metadata),
     Paradise => ("Paradise conditions",Weather),
-    FloatingIslands => ("Floating islands",Objects),
     Dead => ("Dead",Query),
     Weird => ("Weird / Exotic",Query),
     GlowingGrass => ("Glowing grass",Objects),
     GlowingFlora => ("Glowing flora",Objects),
+    PlayerAttackingFauna => ("Player-attacking fauna",Fauna),
 }}
 
 flags! { SystemFlag {
@@ -256,50 +266,11 @@ impl Resources {
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct Criteria {
-    #[serde(deserialize_with = "deserialize_choices")]
     pub choices: BTreeMap<Field, u64>,
-    #[serde(deserialize_with = "deserialize_flags")]
     pub planets: BTreeMap<PlanetFlag, bool>,
-    #[serde(deserialize_with = "deserialize_flags")]
     pub systems: BTreeMap<SystemFlag, bool>,
     pub resources: Resources,
     pub minimum_planets: Option<u8>,
-}
-
-fn deserialize_choices<'de, D>(deserializer: D) -> Result<BTreeMap<Field, u64>, D::Error>
-where
-    D: serde::Deserializer<'de>,
-{
-    let mut choices = BTreeMap::<String, u64>::deserialize(deserializer)?
-        .into_iter()
-        .filter(|(name, _)| !matches!(name.as_str(), "weather_conditions" | "system_class"))
-        .map(|(name, value)| {
-            Field::deserialize(serde::de::value::StringDeserializer::<D::Error>::new(name))
-                .map(|field| (field, value))
-        })
-        .collect::<Result<BTreeMap<_, _>, _>>()?;
-    if let Some(mask) = choices.get_mut(&Field::Terrain) {
-        *mask &= !(((1u64 << 11) - 1) << 10);
-        if *mask == 0 {
-            choices.remove(&Field::Terrain);
-        }
-    }
-    Ok(choices)
-}
-
-fn deserialize_flags<'de, D, F>(deserializer: D) -> Result<BTreeMap<F, bool>, D::Error>
-where
-    D: serde::Deserializer<'de>,
-    F: Deserialize<'de> + Ord,
-{
-    BTreeMap::<String, bool>::deserialize(deserializer)?
-        .into_iter()
-        .filter(|(name, _)| !matches!(name.as_str(), "normal" | "prime" | "extreme_hazard"))
-        .map(|(name, value)| {
-            F::deserialize(serde::de::value::StringDeserializer::<D::Error>::new(name))
-                .map(|flag| (flag, value))
-        })
-        .collect()
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
@@ -316,9 +287,14 @@ impl Choices {
         self.mask
     }
     pub fn accepts(self, native_value: u32) -> bool {
-        if self.field == Field::Grass && native_value & GRASS_COLOUR_SET != 0 {
+        if self.field == Field::Terrain {
+            return native_value & FEATURE_SET != 0
+                && native_value & self.mask as u32 & !FEATURE_SET != 0;
+        }
+        if self.field.colour_index().is_some() {
             let mask = self.mask as u32;
-            return native_value & mask & !GRASS_COLOUR_SET != 0;
+            return native_value & GRASS_COLOUR_SET != 0
+                && native_value & mask & !GRASS_COLOUR_SET != 0;
         }
         if self.field == Field::Biome && native_value >= 16 {
             return false;
@@ -360,8 +336,10 @@ impl Predicate {
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct Requirements {
     pub planet_query: bool,
+    pub fauna: bool,
     pub metadata: bool,
     pub weather: bool,
+    pub terrain: bool,
     pub screen_filter: bool,
     pub colours: u16,
     pub objects: bool,
@@ -402,12 +380,49 @@ impl Criteria {
     }
 
     pub fn set_biome_choices(&mut self, mask: u64) {
+        if self.biome_choices() != Some(mask) {
+            self.choices.remove(&Field::Subtype);
+        }
         self.planets.remove(&PlanetFlag::Rgb);
         if mask == 0 {
             self.choices.remove(&Field::Biome);
         } else {
             self.choices.insert(Field::Biome, mask);
         }
+    }
+
+    pub fn subtype_options(&self) -> Vec<(u64, &'static str)> {
+        let Some(selected) = self.biome_choices() else {
+            return Vec::new();
+        };
+        let mut options: Vec<(u64, &'static str)> = Vec::new();
+        for choice in 0..29 {
+            let mut label = None;
+            let mut ambiguous = false;
+            for (biome, _) in Field::Biome.available_options() {
+                if (selected != 0 && selected & (1 << biome) == 0)
+                    || !biome_subtype_present(biome, choice)
+                {
+                    continue;
+                }
+                match biome_subtype_label(biome, choice) {
+                    Some(current) if label.is_none() || label == Some(current) => {
+                        label = Some(current);
+                    }
+                    _ => ambiguous = true,
+                }
+            }
+            if !ambiguous {
+                if let Some(label) = label {
+                    if let Some((mask, _)) = options.iter_mut().find(|(_, name)| *name == label) {
+                        *mask |= 1 << choice;
+                    } else {
+                        options.push((1 << choice, label));
+                    }
+                }
+            }
+        }
+        options
     }
 
     pub fn sentinel_choices(&self) -> Option<u64> {
@@ -497,6 +512,31 @@ impl Criteria {
             if mask >> field.options().len() != 0 {
                 return Err("unknown criterion choice");
             }
+            if field.colour_index().is_some()
+                || matches!(
+                    field,
+                    Field::Subtype
+                        | Field::Flora
+                        | Field::WeatherType
+                        | Field::StormFrequency
+                        | Field::WaterColour
+                        | Field::SkyHeightFog
+                        | Field::NightSky
+                )
+            {
+                let allowed = if field == Field::Subtype {
+                    self.subtype_options()
+                        .iter()
+                        .fold(0u64, |allowed, (mask, _)| allowed | mask)
+                } else {
+                    field
+                        .available_options()
+                        .fold(0u64, |allowed, (index, _)| allowed | (1 << index))
+                };
+                if mask & !allowed != 0 {
+                    return Err("unsupported criterion choice");
+                }
+            }
             let predicate = Predicate::Choice(Choices { field, mask });
             if field.stage() == Stage::System {
                 plan.system.push(predicate);
@@ -543,9 +583,15 @@ impl Criteria {
             plan.requirements.metadata |= predicate.stage() == Stage::Metadata
                 || *predicate == Predicate::Planet(PlanetFlag::Paradise, true)
                 || *predicate == Predicate::Planet(PlanetFlag::Paradise, false);
+            plan.requirements.fauna |= predicate.stage() == Stage::Fauna;
             plan.requirements.weather |= predicate.stage() == Stage::Weather;
+            plan.requirements.terrain |= predicate.stage() == Stage::Terrain;
             plan.requirements.screen_filter |= predicate.stage() == Stage::ScreenFilter;
             plan.requirements.objects |= predicate.stage() == Stage::Objects;
+            if let Predicate::Choice(choices) = predicate {
+                plan.requirements.objects |= choices.field() == Field::Terrain
+                    && choices.mask() & u64::from(FLOATING_ISLANDS) != 0;
+            }
         }
         plan.system
             .sort_by_key(|predicate| (predicate.stage(), *predicate));
@@ -560,6 +606,46 @@ impl Criteria {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn player_attacking_fauna_is_selective_and_unknown_until_observed() {
+        use crate::facts::{Facts, Verdict};
+        assert_eq!(
+            Criteria::default().compile().unwrap().requirements,
+            Requirements::default()
+        );
+        for required in [true, false] {
+            let mut criteria = Criteria::default();
+            criteria
+                .planets
+                .insert(PlanetFlag::PlayerAttackingFauna, required);
+            let plan = criteria.compile().unwrap();
+            assert_eq!(
+                plan.requirements,
+                Requirements {
+                    planet_query: true,
+                    fauna: true,
+                    ..Requirements::default()
+                }
+            );
+            let mut facts = Facts::default();
+            assert_eq!(plan.planet_match(&facts), Verdict::Unknown);
+            assert!(plan.missing_planet_requirements(&facts).fauna);
+            facts.set_planet_flag(PlanetFlag::PlayerAttackingFauna, !required);
+            assert_eq!(plan.planet_match(&facts), Verdict::NoMatch);
+            facts.set_planet_flag(PlanetFlag::PlayerAttackingFauna, required);
+            assert_eq!(plan.planet_match(&facts), Verdict::Match);
+            assert_eq!(
+                plan.missing_planet_requirements(&facts),
+                Requirements::default()
+            );
+            let encoded = serde_json::to_string(&criteria).unwrap();
+            assert_eq!(
+                serde_json::from_str::<Criteria>(&encoded).unwrap(),
+                criteria
+            );
+        }
+    }
 
     #[test]
     fn glow_filters_are_independent_and_require_objects_without_colours() {
@@ -624,42 +710,154 @@ mod tests {
         );
     }
     #[test]
-    fn filtered_menus_keep_native_selection_indices() {
-        assert_eq!(
-            Field::Race.available_options().collect::<Vec<_>>(),
-            [(0, "Gek"), (1, "Vy'keen"), (2, "Korvax"), (7, "None")]
+    fn subtype_labels_follow_the_selected_biome_and_group_equivalent_formations() {
+        let mut criteria = Criteria::default();
+        assert!(
+            !criteria
+                .subtype_options()
+                .iter()
+                .any(|(mask, _)| mask & (1 << 6) != 0)
         );
-        assert_eq!(
-            Field::Anomaly.available_options().collect::<Vec<_>>(),
-            [(0, "Atlas station"), (2, "Black hole"), (5, "None")]
+        criteria.set_biome_choices(1 << 0);
+        let options = criteria.subtype_options();
+        assert!(options.contains(&(1 << 6, "Bubble landscape")));
+        assert!(options.contains(&(1 << 19, "Fan mushrooms")));
+        assert!(options.contains(&((1 << 12) | (1 << 21) | (1 << 22), "Rock formations")));
+        criteria.choices.insert(Field::Subtype, 1 << 19);
+        criteria.set_biome_choices(1 << 2);
+        assert!(!criteria.choices.contains_key(&Field::Subtype));
+        assert!(
+            criteria
+                .subtype_options()
+                .contains(&(1 << 19, "Shield trees"))
         );
-        assert_eq!(
-            Field::Biome.available_options().skip(8).collect::<Vec<_>>(),
-            [
-                (12, "Swamp"),
-                (13, "Lava"),
-                (14, "Waterworld"),
-                (15, "GasGiant"),
-                (16, "Mega-exotic")
-            ]
+        criteria.set_biome_choices(1 << 7);
+        assert!(
+            criteria
+                .subtype_options()
+                .contains(&(1 << 6, "Bubble formations"))
         );
-        assert_eq!(
-            Field::Terrain
-                .available_options()
-                .map(|(index, _)| index)
-                .collect::<Vec<_>>(),
-            (0..10).chain(21..31).collect::<Vec<_>>()
+        criteria.set_biome_choices((1 << 0) | (1 << 7));
+        assert!(
+            !criteria
+                .subtype_options()
+                .iter()
+                .any(|(mask, _)| mask & (1 << 6) != 0)
         );
-        for (mask, native) in [(1, 1), (2, 2), (4, 3), (8, 4), (16, 5), (32, 0)] {
-            let criteria: Criteria =
-                serde_json::from_str(&format!(r#"{{"choices":{{"anomaly":{mask}}}}}"#)).unwrap();
-            let Predicate::Choice(rule) = criteria.compile().unwrap().system[0] else {
-                panic!()
-            };
-            for actual in 0..7 {
-                assert_eq!(rule.accepts(actual), actual == native);
+    }
+
+    #[test]
+    fn contextual_subtypes_match_only_their_native_archetypes() {
+        for (biome, _) in Field::Biome.available_options() {
+            let mut criteria = Criteria::default();
+            criteria.set_biome_choices(1 << biome);
+            for (mask, _) in criteria.subtype_options() {
+                criteria.choices.insert(Field::Subtype, mask);
+                let plan = criteria.compile().unwrap();
+                let rule = plan
+                    .planet
+                    .iter()
+                    .find_map(|predicate| match predicate {
+                        Predicate::Choice(rule) if rule.field == Field::Subtype => Some(rule),
+                        _ => None,
+                    })
+                    .unwrap();
+                for native in 0..=32 {
+                    assert_eq!(
+                        rule.accepts(native),
+                        native > 0 && native <= 31 && mask & (1 << (native - 1)) != 0
+                    );
+                }
             }
         }
+        let mut criteria = Criteria::default();
+        criteria.choices.insert(Field::Subtype, 1 << 6);
+        assert_eq!(
+            criteria.compile().unwrap_err(),
+            "unsupported criterion choice"
+        );
+        criteria.set_biome_choices(1 << 0);
+        criteria.choices.insert(Field::Subtype, 1 << 3);
+        assert_eq!(
+            criteria.compile().unwrap_err(),
+            "unsupported criterion choice"
+        );
+    }
+
+    #[test]
+    fn natural_planet_options_preserve_native_values() {
+        for (field, expected) in [
+            (Field::Flora, vec![0, 2, 3]),
+            (Field::Fauna, vec![0, 1, 2, 3]),
+            (Field::WeatherType, (0..7).chain(10..17).collect()),
+            (Field::StormFrequency, vec![0, 1, 2]),
+        ] {
+            let options = field.available_options().collect::<Vec<_>>();
+            assert_eq!(
+                options.iter().map(|&(index, _)| index).collect::<Vec<_>>(),
+                expected
+            );
+            for (choice, _) in options {
+                let mut criteria = Criteria::default();
+                criteria.choices.insert(field, 1 << choice);
+                let Predicate::Choice(rule) = criteria.compile().unwrap().planet[0] else {
+                    panic!()
+                };
+                let native = field.native_value(choice).unwrap();
+                for actual in 0..=field.options().len() as u32 {
+                    assert_eq!(rule.accepts(actual), actual == native);
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn unreachable_planet_choices_cannot_start_a_search() {
+        for (field, choices) in [
+            (Field::Flora, vec![1]),
+            (Field::Subtype, vec![29, 30]),
+            (Field::WeatherType, vec![7, 8, 9]),
+            (Field::StormFrequency, vec![3]),
+        ] {
+            for choice in choices {
+                for mask in [1 << choice, (1 << choice) | 1] {
+                    let mut criteria = Criteria::default();
+                    criteria.choices.insert(field, mask);
+                    assert_eq!(
+                        criteria.compile().unwrap_err(),
+                        "unsupported criterion choice"
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn appearance_controls_share_classes_and_keep_capture_bindings_distinct() {
+        for field in Field::ALL
+            .iter()
+            .copied()
+            .filter(|field| field.colour_index().is_some())
+        {
+            assert_eq!(field.options(), GRASS_COLOURS);
+            assert!(!field.options().contains(&"Neutral"));
+            let mut criteria = Criteria::default();
+            criteria.choices.insert(field, 1 << 10);
+            let plan = criteria.compile().unwrap();
+            let mut facts = crate::facts::Facts::default();
+            facts.set(field, 10);
+            assert_eq!(plan.planet_match(&facts), crate::facts::Verdict::NoMatch);
+            facts.set(field, GRASS_COLOUR_SET | (1 << 3));
+            assert_eq!(plan.planet_match(&facts), crate::facts::Verdict::NoMatch);
+            facts.set(field, GRASS_COLOUR_SET | (1 << 10));
+            if field == Field::WaterColour {
+                facts.set_planet_flag(PlanetFlag::Water, true);
+            }
+            assert_eq!(plan.planet_match(&facts), crate::facts::Verdict::Match);
+        }
+        assert_eq!(Field::FloraColour.colour_index(), Some(1));
+        assert_eq!(Field::Cloud.colour_index(), Some(3));
+        assert_eq!(Field::WaterColour.colour_index(), Some(9));
     }
 
     #[test]
@@ -720,56 +918,6 @@ mod tests {
         criteria.set_sentinel_choices(0);
         assert_eq!(criteria.sentinel_choices(), Some(0));
         assert!(!criteria.choices.contains_key(&Field::Sentinels));
-    }
-
-    #[test]
-    fn retired_filters_are_removed_without_dropping_supported_saved_criteria() {
-        let criteria: Criteria = serde_json::from_str(
-            r#"{
-                "choices":{"weather_conditions":7,"system_class":2,"terrain":1075838976,"biome":1,"storm_frequency":4,"weather_intensity":2,"weather_type":8},
-                "planets":{"normal":true,"prime":false,"extreme_hazard":true,"infested":false,"extreme_weather":true},
-                "systems":{"normal":false,"water":true}
-            }"#
-        ).unwrap();
-        assert_eq!(
-            criteria.choices,
-            BTreeMap::from([
-                (Field::Terrain, 1075838976),
-                (Field::Biome, 1),
-                (Field::StormFrequency, 4),
-                (Field::WeatherIntensity, 2),
-                (Field::WeatherType, 8),
-            ])
-        );
-        assert_eq!(
-            criteria.planets,
-            BTreeMap::from([
-                (PlanetFlag::Infested, false),
-                (PlanetFlag::ExtremeWeather, true)
-            ])
-        );
-        assert_eq!(
-            criteria.systems,
-            BTreeMap::from([(SystemFlag::Water, true)])
-        );
-        criteria.compile().unwrap();
-        for (mask, expected) in [
-            (1024, None),
-            (1048576, None),
-            (1073743872, Some(1073741824)),
-            (2097664, Some(2097664)),
-        ] {
-            let criteria: Criteria =
-                serde_json::from_str(&format!(r#"{{"choices":{{"terrain":{mask}}}}}"#)).unwrap();
-            assert_eq!(criteria.choices.get(&Field::Terrain).copied(), expected);
-        }
-        for invalid in [
-            r#"{"choices":{"unknown":1}}"#,
-            r#"{"planets":{"unknown":true}}"#,
-            r#"{"systems":{"unknown":true}}"#,
-        ] {
-            assert!(serde_json::from_str::<Criteria>(invalid).is_err());
-        }
     }
 
     #[test]
@@ -999,7 +1147,9 @@ mod tests {
     fn criteria_round_trip_and_reject_unknown_fields() {
         let mut criteria = Criteria::default();
         criteria.choices.insert(Field::Biome, 1);
-        criteria.planets.insert(PlanetFlag::FloatingIslands, true);
+        criteria
+            .choices
+            .insert(Field::Terrain, u64::from(FLOATING_ISLANDS));
         let text = serde_json::to_string(&criteria).unwrap();
         assert_eq!(serde_json::from_str::<Criteria>(&text).unwrap(), criteria);
         assert!(serde_json::from_str::<Criteria>(r#"{"unknown":true}"#).is_err());

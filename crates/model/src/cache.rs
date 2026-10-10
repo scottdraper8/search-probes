@@ -247,7 +247,7 @@ mod tests {
             let mut entry = record();
             entry.system.set(Field::Population, population);
             for planet in &mut entry.planets[..2] {
-                planet.set(Field::Sky, 5);
+                planet.set(Field::Sky, crate::vocabulary::GRASS_COLOUR_SET | 1 << 5);
             }
             cache.insert(address(id), entry).unwrap();
         }
@@ -288,9 +288,9 @@ mod tests {
     fn facts_from_nonmatches_can_satisfy_a_later_search() {
         let mut cache = Cache::new(2).unwrap();
         let mut entry = record();
-        entry.planets[0].set(Field::Sky, 5);
+        entry.planets[0].set(Field::Sky, crate::vocabulary::GRASS_COLOUR_SET | 1 << 5);
         entry.planets[0].set(Field::Biome, 1);
-        entry.planets[1].set(Field::Sky, 0);
+        entry.planets[1].set(Field::Sky, crate::vocabulary::GRASS_COLOUR_SET | 1);
         let mut x = Criteria::default();
         x.choices.extend([(Field::Sky, 32), (Field::Biome, 1)]);
         assert_eq!(entry.evaluate(&x.compile().unwrap()).matches, 0);
@@ -351,7 +351,7 @@ mod tests {
     fn unknowns_do_not_become_exclusions_or_false_matches() {
         let entry = record();
         let mut criteria = Criteria::default();
-        criteria.planets.insert(PlanetFlag::FloatingIslands, false);
+        criteria.planets.insert(PlanetFlag::GlowingGrass, false);
         assert_eq!(
             entry.evaluate(&criteria.compile().unwrap()),
             Evaluation {

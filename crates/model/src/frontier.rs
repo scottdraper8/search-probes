@@ -168,7 +168,7 @@ mod tests {
         let mut history = History::default();
         for mask in 1..=MAX_FRONTIERS + 1 {
             let mut criteria = Criteria::default();
-            criteria.choices.insert(Field::Subtype, mask as u64);
+            criteria.choices.insert(Field::Grass, mask as u64);
             let plan = criteria.compile().unwrap();
             assert_eq!(
                 history.remember(plan, 0, Frontier::new(origin())),

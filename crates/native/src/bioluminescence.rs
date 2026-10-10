@@ -14,27 +14,32 @@ pub struct ModelFacts {
     pub glowing_flora: bool,
 }
 
-struct Mbin<'a>(&'a [u8]);
+pub(crate) struct Mbin<'a>(pub(crate) &'a [u8]);
 
 impl<'a> Mbin<'a> {
-    fn bytes(&self, offset: usize, size: usize) -> Result<&'a [u8]> {
+    pub(crate) fn bytes(&self, offset: usize, size: usize) -> Result<&'a [u8]> {
         self.0
             .get(offset..offset.checked_add(size).ok_or("asset extent overflow")?)
             .ok_or("truncated vegetation asset")
     }
-    fn word(&self, offset: usize) -> Result<u32> {
+    pub(crate) fn word(&self, offset: usize) -> Result<u32> {
         Ok(u32::from_le_bytes(
             self.bytes(offset, 4)?.try_into().unwrap(),
         ))
     }
-    fn pointer(&self, offset: usize) -> Result<usize> {
+    pub(crate) fn pointer(&self, offset: usize) -> Result<usize> {
         let relative = i64::from_le_bytes(self.bytes(offset, 8)?.try_into().unwrap());
         offset
             .checked_add_signed(isize::try_from(relative).map_err(|_| "invalid asset pointer")?)
             .filter(|&value| value <= self.0.len())
             .ok_or("asset pointer outside file")
     }
-    fn array(&self, offset: usize, stride: usize, bound: usize) -> Result<std::ops::Range<usize>> {
+    pub(crate) fn array(
+        &self,
+        offset: usize,
+        stride: usize,
+        bound: usize,
+    ) -> Result<std::ops::Range<usize>> {
         let count = self.word(offset + 8)? as usize;
         if count > bound {
             return Err("vegetation asset array exceeds bound");
@@ -47,13 +52,13 @@ impl<'a> Mbin<'a> {
         self.bytes(start, size)?;
         Ok(start..start + size)
     }
-    fn string(&self, offset: usize) -> Result<&'a str> {
+    pub(crate) fn string(&self, offset: usize) -> Result<&'a str> {
         let range = self.array(offset, 1, 4096)?;
         let bytes = &self.0[range];
         std::str::from_utf8(bytes.strip_suffix(&[0]).unwrap_or(bytes))
             .map_err(|_| "invalid vegetation asset string")
     }
-    fn header(&self, hash: u32) -> Result<()> {
+    pub(crate) fn header(&self, hash: u32) -> Result<()> {
         if self.bytes(0, 8)? != [0xcc; 8] || self.word(12)? != hash {
             return Err("unexpected vegetation asset template");
         }
@@ -87,7 +92,7 @@ impl Assets {
             entities: BTreeMap::new(),
         }
     }
-    fn read(&mut self, archive: &str, name: &str, bound: usize) -> Result<Vec<u8>> {
+    pub(crate) fn read(&mut self, archive: &str, name: &str, bound: usize) -> Result<Vec<u8>> {
         if !self.archives.contains_key(archive) {
             let file = std::fs::read_dir(self.root.join("GAMEDATA/PCBANKS"))
                 .map_err(|_| "cannot find vegetation archives")?
@@ -112,7 +117,7 @@ impl Assets {
             .asset(name, bound)?
             .ok_or("missing vegetation asset")
     }
-    fn flora(&mut self, name: &str) -> Result<bool> {
+    pub(crate) fn flora(&mut self, name: &str) -> Result<bool> {
         let name = path(name)?;
         if let Some(&value) = self.entities.get(&name) {
             return Ok(value);
@@ -180,6 +185,59 @@ impl Assets {
         }
         self.materials.insert(name, emissive);
         Ok(emissive)
+    }
+    pub(crate) fn flora_materials(&mut self, name: &str, depth: usize) -> Result<Vec<String>> {
+        if depth > 32 {
+            return Err("flora scene reference depth exceeded");
+        }
+        let bytes = self.read("NMSARC.EntitySceneMBIN.pak", &path(name)?, 16 * 1024 * 1024)?;
+        let mbin = Mbin(&bytes);
+        mbin.header(0x3db87e47)?;
+        let mut materials = Vec::new();
+        let mut entities = Vec::new();
+        let mut scenes = Vec::new();
+        let mut pending = vec![(0x20, 0)];
+        let mut visited = 0;
+        while let Some((node, level)) = pending.pop() {
+            visited += 1;
+            if visited > 65536 || level > 128 {
+                return Err("flora scene node bound exceeded");
+            }
+            for offset in mbin.array(node, 0x20, 4096)?.step_by(0x20) {
+                let key = mbin.bytes(offset, 16)?;
+                let key = &key[..key.iter().position(|&byte| byte == 0).unwrap_or(16)];
+                let value = mbin.string(offset + 0x10)?;
+                if value.is_empty() {
+                    continue;
+                }
+                match key {
+                    b"MATERIAL" if mbin.bytes(node + 0x40, 16)?.starts_with(b"MESH\0") => {
+                        materials.push(path(value)?)
+                    }
+                    b"ATTACHMENT" => entities.push(path(value)?),
+                    b"SCENEGRAPH" => scenes.push(path(value)?),
+                    _ => {}
+                }
+            }
+            pending.extend(
+                mbin.array(node + 0x10, 0x80, 65536)?
+                    .step_by(0x80)
+                    .map(|child| (child, level + 1)),
+            );
+        }
+        let mut flora = false;
+        for entity in entities {
+            flora |= self.flora(&entity)?;
+        }
+        if !flora {
+            materials.clear();
+        }
+        for scene in scenes {
+            materials.extend(self.flora_materials(&scene, depth + 1)?);
+        }
+        materials.sort_unstable();
+        materials.dedup();
+        Ok(materials)
     }
     pub fn model(&mut self, name: &str) -> Result<ModelFacts> {
         self.model_at(name, 0)

@@ -7,6 +7,73 @@ on an i9-13900KF, with the permitted save's purple systems unlocked. Native Wind
 not been tested. Game updates require native-interface validation before the executable guard can
 be changed. Other native hook mods and alternate WinMM proxies are outside the tested scope.
 
+## Visible filter qualification
+
+Player-attacking fauna uses spawnable generated `PlayerPredator` roles, with positive finite group
+density. The verified query generates this role array before the visitor runs; the predicate reads
+it before metadata, colour or object acquisition and retains only a known boolean. Ordinary
+`Predator` and `FishPredator` roles are separate. Captured Arbyis XIX has two player-predator
+species and two ordinary predator species; its five loaded neighbours provide ordinary-predator,
+fish-predator and empty-role negative controls. Replaying those arrays through the production reader
+and compiled Require/Exclude predicates passes, including cache merges. Tests reject malformed
+arrays and roles and defer exclusions until the fact is acquired. Species classification is
+independent of settings or behaviour mods that suppress attacks. The operator confirms the installed fresh-process filter works in game, including the requested
+Require/Exclude check.
+
+Terrain uses positive generated geometry dimensions and enabled shapes, together with positive,
+unsuppressed island spawns. It exposes seven formation choices and includes underwater geometry.
+Deterministic controls distinguish disabled or zero-sized shapes, subtractive canyons and craters,
+additive arches, multiple plateau strata and caves. Mixed choices can settle from inline geometry
+without object acquisition; partial cache observations defer island absence until the tables have
+been checked. Current source and retained generator replay cover those acquisition and cache paths.
+A fresh visual check of each terrain choice remains pending.
+
+Biome subtype labels depend on the selected biome. Equivalent native archetypes share a label;
+ambiguous meanings are omitted for mixed biomes. Changing biome clears its dependent subtype.
+Current vanilla archetype and placement assets support the labels, with native-index and grouping
+controls. Paradise retains its existing native predicate and acquisition path.
+
+Sky, cloud, fog, horizon, night sky and water use acquired canonical appearance sets. Clear daylight
+anchors apply to daytime colours, clear night to night sky and intrinsic body colour to water.
+The shared classifier applies tone mapping, world grading and mild-cast adaptation. Raw palette
+indices cannot establish a colour match. Synthetic controls cover named hues, neutral lightness,
+grading, and each capture binding. Current vanilla inputs and grading provide constructive witnesses
+for exposed choices; they are not a population-wide rendered-colour oracle.
+
+Flora colour combines discoverable surface mesh materials and correlates each sampled UV with its
+vertex colour and local triangle area. Current scene, geometry, texture, material and shader assets
+support diffuse recolouring, ground matching, primary and secondary texture blending, alpha gates
+and vertex RGB/alpha. Deterministic controls cover those interactions and malformed inputs. Recipe
+selections not acquired by the query are uncertainty bounds: only colours shared by possible variants
+qualify a material. This can omit colours unique to one selected recipe. Sampling estimates authored
+surface appearance, not camera-dependent coverage, lighting, animation, translucency or HDR output.
+Independent visual validation of the combined flora filter remains pending.
+
+Acquisition follows the selected criteria and rejects cheap nonmatches first. Flora observations
+retain proven present and absent colours while leaving other choices unknown. Positive matches can
+stop before checking remaining materials; impossible requested colours can stop a variant scan.
+Within one model evaluation, meshes reuse prepared materials and lazily composed texture recipes.
+An exact RGB memo shares colour classification across meshes under the same world grading.
+Majority decisions track the requested colour categories; other categories remain unknown.
+Controls cover distinct mesh colours, primary/secondary namespaces, transparency, weighted
+majority boundaries, multiselect absence and subsequent acquisition of other cached choices.
+
+Healthy-host release component measurements put generated terrain evaluation at about 54 ns per
+planet and one canonical colour anchor at about 0.5 µs. These checks use existing generated data.
+Flora colour requires authored mesh, texture and material processing only when selected. A retained
+palette replay of positive surface-source models measures Black classification medians of 2.1–2.4 ms
+per model, 95th percentiles of 13–27 ms and a maximum of 221 ms. Green-or-White medians are 1.8–2.7 ms,
+with 95th percentiles of 15–31 ms and a maximum of 178 ms. Paired evaluations with unchanged inputs
+and samples reduce total calculation time by 43% and 24% respectively, preserving every requested
+colour decision. Full-colour controls preserve the complete observations. Repeated observations
+take about 2 µs per model. Model retention counts shared allocations once and has a 256 MiB bound;
+material, texture and result caches have separate 32, 128 and 16 MiB bounds. Expensive classification
+runs outside the shared asset-cache lock. Each worker's model calculation retains at most 16 MiB
+of prepared texture entries and 65,536 exact RGB classifications, released after that calculation.
+Cold archive preparation, native generation, actual world
+source selection and frame pacing are outside the per-model measurements. These results do not
+establish a whole-search slowdown; a fresh native throughput and visual check remains pending.
+
 ## Overlay qualification
 
 The 0.2.0 overlay is being qualified against 7.06 on Steam Proton. Actual in-game rendering passes
@@ -22,7 +89,7 @@ independently of NMS, with Khronos synchronization validation enabled and zero v
 Visual NMS HDR, native Windows, frame generation and coexistence with other graphics overlays
 remain unqualified.
 
-The production Windows build and all 114 workspace tests pass. Package verification checks all file
+The production Windows build and workspace tests pass. Package verification checks all file
 hashes and archive contents. Desktop HDR was enabled during the live checks, but NMS's captured
 swapchain was SDR and its saved HDR mode was Off; desktop HDR alone does not qualify game HDR output.
 
@@ -67,12 +134,13 @@ span the hue circle, several lightness/texture-brightness levels, hue removal an
 through grading. Mild warm/cool cast controls preserve named hues, including true yellow and
 yellow-green; strong colour effects and hue rotations remain effective. Adaptation math matches
 independent published D50-to-D65 reference vectors. Shared archive bounds remain enforced. These synthetic controls
-and seven observed worlds do not establish population-wide precision or recall.
+and eight observed worlds do not establish population-wide precision or recall.
 
 Grass acquisition rejects impossible main-tint hues before object-table scans. Its cached colour
 bounds can reject a criterion but cannot establish grass presence or a positive match; surviving
-candidates still acquire the selected tables and material brightness. Other cheap palette colours
-and floating-island rejection precede material classification. Common tint/grading work is prepared
+candidates still acquire the selected tables and material brightness. Requested sky, fog and water appearance checks, generated terrain, and grass rejection
+precede flora material classification. Geometry matches omit island-table acquisition when it is
+not needed to settle the selected terrain alternatives. Common tint/grading work is prepared
 once per planet. Object-table cache hits use shared reads; misses retain exclusive loading.
 
 Paired release microbenchmarks on the healthy Linux host preserve all seven reference outcomes and
@@ -85,9 +153,9 @@ about 1.3 ms. These component measurements exclude native generation, cold asset
 in-game frame pacing. They do not establish a whole-search speedup or the effect of rarer matches.
 A paired native before/after performance check remains pending.
 
-The reported glow/grass-colour query passes a fresh native search after installation. Texture
-medians are an appearance estimate, not rendered surface coverage; scene lighting, exposure, procedural texture
-recolouring, distance-dependent blending and HDR grading are not reproduced.
+The reported glow/grass-colour query passes a fresh native search after installation. Grass texture
+medians estimate material appearance; scene lighting, exposure, distance-dependent blending and
+HDR grading are not reproduced.
 
 Passive capture of a same-system flight between two planets reproduces false session resets as the
 live generator's pending-task count changes. Application, lifecycle, language, difficulty, resource

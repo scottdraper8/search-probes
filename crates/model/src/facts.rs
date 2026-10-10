@@ -5,6 +5,9 @@ pub struct Facts {
     values: [u32; Field::ALL.len()],
     known_values: u64,
     grass_candidates: Option<u32>,
+    terrain_layers: Option<u32>,
+    flora_colours_observed: u32,
+    flora_colours_known: u32,
     planet_flags: u32,
     known_planet_flags: u32,
     system_flags: u16,
@@ -33,6 +36,17 @@ impl Facts {
     }
     pub fn get(&self, field: Field) -> Option<u32> {
         (self.known_values & (1u64 << (field as usize)) != 0).then_some(self.values[field as usize])
+    }
+    pub fn observe_terrain_layers(&mut self, features: u32) {
+        self.terrain_layers = Some(features);
+    }
+    pub fn terrain_layers(&self) -> Option<u32> {
+        self.terrain_layers
+    }
+    pub fn observe_flora_colours(&mut self, colours: u32, known: u32) {
+        let colours = colours & !crate::vocabulary::GRASS_COLOUR_SET;
+        self.flora_colours_observed |= colours;
+        self.flora_colours_known |= (known & !crate::vocabulary::GRASS_COLOUR_SET) | colours;
     }
     pub fn set_planet_flag(&mut self, flag: PlanetFlag, value: bool) {
         let bit = 1u32 << (flag as usize);
@@ -66,6 +80,10 @@ impl Facts {
     }
 
     pub fn merge(&mut self, new: &Self) {
+        self.observe_flora_colours(new.flora_colours_observed, new.flora_colours_known);
+        if let Some(features) = new.terrain_layers {
+            self.observe_terrain_layers(features);
+        }
         if let Some(candidates) = new.grass_candidates {
             self.restrict_grass_colours(candidates);
         }
@@ -94,6 +112,21 @@ impl Facts {
 
     pub fn evaluate(&self, predicate: Predicate) -> Verdict {
         let accepted = match predicate {
+            Predicate::Choice(choices) if choices.field() == Field::Terrain => self
+                .get(Field::Terrain)
+                .map(|value| choices.accepts(value))
+                .or_else(|| {
+                    self.terrain_layers.and_then(|features| {
+                        if choices.accepts(crate::terrain::FEATURE_SET | features) {
+                            Some(true)
+                        } else if choices.mask() & u64::from(crate::terrain::FLOATING_ISLANDS) == 0
+                        {
+                            Some(false)
+                        } else {
+                            None
+                        }
+                    })
+                }),
             Predicate::Choice(choices) if choices.field() == Field::Race => self
                 .get(Field::Population)
                 .and_then(|population| match population {
@@ -109,6 +142,20 @@ impl Facts {
                 .or_else(|| {
                     self.grass_candidates
                         .and_then(|candidates| (!choices.accepts(candidates)).then_some(false))
+                }),
+            Predicate::Choice(choices) if choices.field() == Field::FloraColour => self
+                .get(Field::FloraColour)
+                .map(|value| choices.accepts(value))
+                .or_else(|| {
+                    if choices
+                        .accepts(crate::vocabulary::GRASS_COLOUR_SET | self.flora_colours_observed)
+                    {
+                        Some(true)
+                    } else if choices.mask() & !u64::from(self.flora_colours_known) == 0 {
+                        Some(false)
+                    } else {
+                        None
+                    }
                 }),
             Predicate::Choice(choices) => self
                 .get(choices.field())
@@ -152,10 +199,14 @@ impl Plan {
             needed.planet_query |= predicate.stage() >= Stage::Query;
             needed.metadata |= predicate.stage() == Stage::Metadata
                 || matches!(predicate, Predicate::Planet(PlanetFlag::Paradise, _));
+            needed.fauna |= predicate.stage() == Stage::Fauna;
             needed.weather |= predicate.stage() == Stage::Weather;
+            needed.terrain |= predicate.stage() == Stage::Terrain;
             needed.screen_filter |= predicate.stage() == Stage::ScreenFilter;
             needed.objects |= predicate.stage() == Stage::Objects;
             if let Predicate::Choice(choices) = predicate {
+                needed.objects |= choices.field() == Field::Terrain
+                    && choices.mask() & u64::from(crate::terrain::FLOATING_ISLANDS) != 0;
                 if let Some(index) = choices.field().colour_index() {
                     needed.colours |= 1 << index;
                 }
@@ -220,12 +271,97 @@ mod tests {
     #[test]
     fn missing_data_is_never_a_negative_fact() {
         let mut criteria = Criteria::default();
-        criteria.planets.insert(PlanetFlag::FloatingIslands, false);
+        criteria.planets.insert(PlanetFlag::GlowingGrass, false);
         let plan = criteria.compile().unwrap();
         let mut facts = Facts::default();
         assert_eq!(plan.planet_match(&facts), Verdict::Unknown);
-        facts.set_planet_flag(PlanetFlag::FloatingIslands, false);
+        facts.set_planet_flag(PlanetFlag::GlowingGrass, false);
         assert_eq!(plan.planet_match(&facts), Verdict::Match);
+    }
+
+    #[test]
+    fn partial_flora_observations_preserve_unknowns_and_merge_proven_absences() {
+        use crate::vocabulary::GRASS_COLOUR_SET;
+        let mut criteria = Criteria::default();
+        criteria.choices.insert(Field::FloraColour, 1 << 3);
+        let green = criteria.compile().unwrap();
+        criteria.choices.insert(Field::FloraColour, 1 << 10);
+        let white = criteria.compile().unwrap();
+        let mut observed = Facts::default();
+        observed.observe_flora_colours(GRASS_COLOUR_SET | 1 << 3, 1 << 3);
+        let mut cached = Facts::default();
+        cached.merge(&observed);
+        assert_eq!(green.planet_match(&cached), Verdict::Match);
+        assert_eq!(green.missing_planet_requirements(&cached).colours & 2, 0);
+        assert_eq!(white.planet_match(&cached), Verdict::Unknown);
+        assert_ne!(white.missing_planet_requirements(&cached).colours & 2, 0);
+        observed.observe_flora_colours(1 << 10, 1 << 10);
+        cached.merge(&observed);
+        assert_eq!(white.planet_match(&cached), Verdict::Match);
+
+        criteria.choices.insert(Field::FloraColour, 1 << 5);
+        let blue = criteria.compile().unwrap();
+        assert_eq!(blue.planet_match(&cached), Verdict::Unknown);
+        observed.observe_flora_colours(0, 1 << 5);
+        cached.merge(&observed);
+        assert_eq!(blue.planet_match(&cached), Verdict::NoMatch);
+        assert_eq!(blue.missing_planet_requirements(&cached).colours & 2, 0);
+        criteria
+            .choices
+            .insert(Field::FloraColour, (1 << 5) | (1 << 0));
+        let blue_or_red = criteria.compile().unwrap();
+        assert_eq!(blue_or_red.planet_match(&cached), Verdict::Unknown);
+        observed.observe_flora_colours(0, 1 << 0);
+        cached.merge(&observed);
+        assert_eq!(blue_or_red.planet_match(&cached), Verdict::NoMatch);
+        cached.set(Field::FloraColour, GRASS_COLOUR_SET | 1 << 3 | 1 << 10);
+        assert_eq!(blue.planet_match(&cached), Verdict::NoMatch);
+    }
+
+    #[test]
+    fn terrain_layers_match_features_and_defer_unknown_floating_objects() {
+        use crate::terrain::{FEATURE_SET, FLOATING_ISLANDS};
+        let mut criteria = Criteria::default();
+        let mountain = 1 << 1;
+        let cave = 1 << 6;
+        criteria.choices.insert(Field::Terrain, mountain | cave);
+        let layers = criteria.compile().unwrap();
+        assert!(layers.requirements.terrain);
+        assert!(!layers.requirements.objects);
+        let mut facts = Facts::default();
+        assert_eq!(layers.planet_match(&facts), Verdict::Unknown);
+        facts.observe_terrain_layers(mountain as u32);
+        assert_eq!(layers.planet_match(&facts), Verdict::Match);
+        assert!(!layers.missing_planet_requirements(&facts).terrain);
+        facts.observe_terrain_layers(1 << 4);
+        assert_eq!(layers.planet_match(&facts), Verdict::NoMatch);
+
+        criteria
+            .choices
+            .insert(Field::Terrain, u64::from(FLOATING_ISLANDS) | mountain);
+        let either = criteria.compile().unwrap();
+        assert!(either.requirements.objects);
+        assert_eq!(either.planet_match(&facts), Verdict::Unknown);
+        assert!(either.missing_planet_requirements(&facts).objects);
+        facts.observe_terrain_layers(mountain as u32);
+        assert_eq!(either.planet_match(&facts), Verdict::Match);
+        assert!(!either.missing_planet_requirements(&facts).objects);
+
+        criteria
+            .choices
+            .insert(Field::Terrain, u64::from(FLOATING_ISLANDS));
+        let floating = criteria.compile().unwrap();
+        let mut retained = Facts::default();
+        retained.merge(&facts);
+        assert_eq!(floating.planet_match(&retained), Verdict::Unknown);
+        retained.set(Field::Terrain, FEATURE_SET | mountain as u32);
+        assert_eq!(floating.planet_match(&retained), Verdict::NoMatch);
+        retained.set(
+            Field::Terrain,
+            FEATURE_SET | mountain as u32 | FLOATING_ISLANDS,
+        );
+        assert_eq!(floating.planet_match(&retained), Verdict::Match);
+        assert!(!floating.missing_planet_requirements(&retained).objects);
     }
 
     #[test]

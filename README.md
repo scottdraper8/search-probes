@@ -1,7 +1,7 @@
 # Search Probes
 
 Find No Man's Sky systems and planets by their generated properties, then set a destination or
-copy their portal codes. Search Probes provides an in-game overlay, saved presets and background
+copy their portal codes. Search Probes provides an in-game overlay, saved presets and parallel
 search workers.
 
 ## Supported game
@@ -48,6 +48,10 @@ properties. Some options benefit from a little context:
 - **Dominant lifeform:** Gek, Vy'keen, Korvax or None. None matches uninhabited systems. Abandoned
   systems retain their species; choose **Population → Abandoned** to find them.
 - **Biome → Mega-exotic:** groups the game's Red, Green and Blue biome families.
+- **Biome subtype:** offers named features for the selected biome, such as giant trees or spores.
+- **Terrain:** selects generated floating islands, mountains, plateaus, canyons, craters, arches
+  or caves. Features can occupy part of a planet, including underwater areas; exploration may
+  be needed to find them.
 - **World colour filter:** selects the assigned world colour grading independently of biome.
   **Default** requires default grading. Options include the filters used by planet definitions
   and the corrupted-Sentinel grading override.
@@ -59,13 +63,20 @@ properties. Some options benefit from a little context:
 - **Glowing grass / Glowing flora:** independent **Any / Require / Exclude** controls under
   Biome & Environment. These identify light-emitting surface grass and other discoverable surface
   plants respectively. Glow is independent of colour and can be most apparent at night.
+- **Player-attacking fauna:** requires or excludes generated species that naturally hunt players,
+  independently of predators that hunt other animals. Creature hostility settings and behaviour
+  mods can affect whether those species actually attack.
 - **Sentinels:** Low / absent, Standard, Aggressive or Corrupted, based on the current combat
   difficulty's native level.
 
-Grass colour estimates daylight appearance; other colour fields describe generated palettes.
+Colour filters estimate appearance with the world's colour grading. Sky and fog use representative
+clear-weather colours; water uses its body colour. Flora colour describes colours present on surface
+plants in daylight, whose parts and species can differ.
 Colour and glow filters assume standard game scenes, materials and textures. Appearance can vary
 with lighting, vegetation and asset mods. Expensive criteria require more processing than basic
-system filters.
+system filters. Search generation and classification run on parallel workers, but gameplay waits
+for each batch to finish. Settings persistence and diagnostic writing run independently of those
+batches.
 
 Saved choices that need updating appear as **Unavailable selection**. Choose **Any** or a listed
 option to replace them.

@@ -403,14 +403,12 @@ impl App {
                                 Field::WorldColourFilter,
                                 Field::Cloud,
                                 Field::Sky,
+                                Field::FloraColour,
                                 Field::Grass,
                                 Field::SkyHeightFog,
                                 Field::Horizon,
-                                Field::Leaf,
                                 Field::NightSky,
-                                Field::Plant,
                                 Field::SkyFog,
-                                Field::Sunset,
                                 Field::WaterColour,
                             ],
                             input_width,
@@ -433,6 +431,7 @@ impl App {
                             ui,
                             criteria,
                             &[
+                                PlanetFlag::PlayerAttackingFauna,
                                 PlanetFlag::CreatureDiscovery,
                                 PlanetFlag::CreatureTaming,
                                 PlanetFlag::RobotCreatureDiscovery,
@@ -445,8 +444,6 @@ impl App {
                 egui::CollapsingHeader::new(RichText::new("Features").size(16.0).strong())
                     .default_open(true)
                     .show(ui, |ui| {
-                        choice_rows(ui, criteria, &[Field::Buildings], input_width);
-                        planet_flag_rows(ui, criteria, &[PlanetFlag::FloatingIslands], input_width);
                         planet_flag_rows(ui, criteria, &[PlanetFlag::Moons], input_width);
                         planet_flag_rows(ui, criteria, &[PlanetFlag::Rings], input_width);
                         planet_flag_rows(ui, criteria, &[PlanetFlag::Scrap], input_width);
@@ -828,9 +825,22 @@ fn filter_row(ui: &mut Ui, label: &str, control_width: f32, add_control: impl Fn
                 egui::Layout::left_to_right(egui::Align::Center),
                 |label_ui| {
                     let response = label_ui.add(egui::Label::new(label).wrap());
-                    if label == Field::Grass.label() {
-                        response.on_hover_text("Main grass colour in daylight; secondary patches do not qualify. Night, storms and nearby lights can change the colour you see.");
-                    }
+                    let tooltip = if label == Field::Terrain.label() {
+                        Some("These features can occupy part of the planet; you may need to explore to find them.")
+                    } else if label == Field::Subtype.label() {
+                        Some("Vegetation and formations associated with the selected biome. Explore the planet to find them.")
+                    } else if label == Field::Grass.label() {
+                        Some("Main grass colour in daylight; secondary patches do not qualify. Night, storms and nearby lights can change the colour you see.")
+                    } else if label == Field::FloraColour.label() {
+                        Some("Colours present on surface flora in daylight; different parts and species can have different colours.")
+                    } else if label == Field::WaterColour.label() {
+                        Some("The water's own colour in clear daylight. Reflections, foam and nearby lights can change its appearance.")
+                    } else if label == Field::NightSky.label() {
+                        Some("Clear nighttime sky colour. Stars, nearby planets, storms and lights can change what you see.")
+                    } else if [Field::Cloud, Field::Sky, Field::Horizon, Field::SkyFog, Field::SkyHeightFog].iter().any(|field| label == field.label()) {
+                        Some("Typical colour in clear daylight. Looking toward the sun, sunset, storms and nearby lights can change what you see.")
+                    } else { None };
+                    if let Some(tooltip) = tooltip { response.on_hover_text(tooltip); }
                 },
             );
             row.add_space((row_width - label_width - control_width).max(0.0));
@@ -914,6 +924,10 @@ fn choice_rows(ui: &mut Ui, criteria: &mut Criteria, fields: &[Field], input_wid
 }
 
 fn choice_row(ui: &mut Ui, criteria: &mut Criteria, field: Field, input_width: f32) {
+    if field == Field::Subtype {
+        subtype_row(ui, criteria, input_width);
+        return;
+    }
     let original = if field == Field::Biome {
         criteria
             .biome_choices()
@@ -938,6 +952,56 @@ fn choice_row(ui: &mut Ui, criteria: &mut Criteria, field: Field, input_width: f
             criteria.choices.remove(&field);
         } else {
             criteria.choices.insert(field, mask);
+        }
+    }
+}
+
+fn subtype_row(ui: &mut Ui, criteria: &mut Criteria, input_width: f32) {
+    let options = criteria.subtype_options();
+    let original = criteria.choices.get(&Field::Subtype).copied().unwrap_or(0);
+    let mut selected = original;
+    let available = options.iter().fold(0u64, |mask, (option, _)| mask | option);
+    let text = if selected & !available != 0 {
+        "Unavailable selection".to_owned()
+    } else if selected == 0 {
+        "Any".to_owned()
+    } else {
+        options
+            .iter()
+            .filter(|(mask, _)| selected & mask != 0)
+            .map(|(_, label)| *label)
+            .collect::<Vec<_>>()
+            .join(", ")
+    };
+    filter_row(ui, Field::Subtype.label(), input_width, |ui| {
+        egui::ComboBox::from_id_salt("biome_subtype")
+            .selected_text(text)
+            .width(input_width)
+            .close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside)
+            .show_ui(ui, |ui| {
+                if ui.selectable_label(selected == 0, "Any").clicked() {
+                    selected = 0;
+                }
+                for &(mask, label) in &options {
+                    let mut checked = selected & mask != 0;
+                    if ui.checkbox(&mut checked, label).changed() {
+                        if checked {
+                            selected |= mask;
+                        } else {
+                            selected &= !mask;
+                        }
+                    }
+                }
+                if criteria.biome_choices() == Some(0) {
+                    ui.weak("Choose a biome to see its vegetation and formations.");
+                }
+            });
+    });
+    if selected != original {
+        if selected == 0 {
+            criteria.choices.remove(&Field::Subtype);
+        } else {
+            criteria.choices.insert(Field::Subtype, selected);
         }
     }
 }
