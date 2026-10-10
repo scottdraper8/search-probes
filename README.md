@@ -66,6 +66,10 @@ properties. Some options benefit from a little context:
 - **Player-attacking fauna:** requires or excludes generated species that naturally hunt players,
   independently of predators that hunt other animals. Creature hostility settings and behaviour
   mods can affect whether those species actually attack.
+- **Unique resources:** Ancient bones, Salvageable scrap or Swarm debris, as listed by the game.
+  **Unique resource match** chooses **All selected** (default) or **Any selected**, independently
+  of the ordinary Resources match control.
+- **Vile Brood:** requires or excludes planets marked **Vile Brood Detected**.
 - **Sentinels:** Low / absent, Standard, Aggressive or Corrupted, based on the current combat
   difficulty's native level.
 

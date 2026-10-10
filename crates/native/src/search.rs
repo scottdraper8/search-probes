@@ -172,6 +172,14 @@ impl<'cache> Generator<'cache> {
                         return Ok(());
                     }
                     let needed = plan.missing_planet_requirements(facts);
+                    if needed.hints {
+                        let hints = crate::resource_hints::capture(live)?;
+                        facts.set(Field::UniqueResources, hints.unique_resources);
+                        facts.set_planet_flag(PlanetFlag::VileBrood, hints.vile_brood);
+                        if plan.planet_match(facts) == Verdict::NoMatch {
+                            return Ok(());
+                        }
+                    }
                     if needed.fauna {
                         facts.set_planet_flag(
                             PlanetFlag::PlayerAttackingFauna,

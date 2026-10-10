@@ -10,6 +10,7 @@ pub enum Stage {
     System,
     Input,
     Query,
+    Hints,
     Fauna,
     Metadata,
     Weather,
@@ -62,6 +63,7 @@ fields! {
     NightSky => ("Night sky colour",GRASS_COLOURS,Colour),
     WaterColour => ("Water colour",GRASS_COLOURS,Colour),
     WorldColourFilter => ("World colour filter",WORLD_FILTERS,ScreenFilter),
+    UniqueResources => ("Unique resources",UNIQUE_RESOURCES,Hints),
 }
 
 impl Field {
@@ -108,6 +110,9 @@ impl Field {
         }
         if self == Self::WorldColourFilter {
             return WORLD_FILTER_VALUES.get(choice).copied();
+        }
+        if self == Self::UniqueResources {
+            return Some(UNIQUE_RESOURCE_SET | (1 << choice));
         }
         if self == Self::Terrain {
             return Some(FEATURE_SET | (1 << choice));
@@ -174,13 +179,13 @@ flags! { PlanetFlag {
     WeirdCreatureDiscovery => ("Suitable for unusual creature discovery",Query),
     CreatureTaming => ("Suitable for creature taming",Query),
     RobotCreatureDiscovery => ("Suitable for robotic creature discovery",Query),
-    Scrap => ("Salvageable scrap",Metadata),
     Paradise => ("Paradise conditions",Weather),
     Dead => ("Dead",Query),
     Weird => ("Weird / Exotic",Query),
     GlowingGrass => ("Glowing grass",Objects),
     GlowingFlora => ("Glowing flora",Objects),
     PlayerAttackingFauna => ("Player-attacking fauna",Fauna),
+    VileBrood => ("Vile Brood",Hints),
 }}
 
 flags! { SystemFlag {
@@ -270,6 +275,7 @@ pub struct Criteria {
     pub planets: BTreeMap<PlanetFlag, bool>,
     pub systems: BTreeMap<SystemFlag, bool>,
     pub resources: Resources,
+    pub unique_resource_mode: ResourceMode,
     pub minimum_planets: Option<u8>,
 }
 
@@ -277,6 +283,7 @@ pub struct Criteria {
 pub struct Choices {
     field: Field,
     mask: u64,
+    mode: ResourceMode,
 }
 
 impl Choices {
@@ -287,6 +294,14 @@ impl Choices {
         self.mask
     }
     pub fn accepts(self, native_value: u32) -> bool {
+        if self.field == Field::UniqueResources {
+            return native_value & UNIQUE_RESOURCE_SET != 0
+                && Resources {
+                    selected: self.mask as u32,
+                    mode: self.mode,
+                }
+                .accepts(native_value & !UNIQUE_RESOURCE_SET);
+        }
         if self.field == Field::Terrain {
             return native_value & FEATURE_SET != 0
                 && native_value & self.mask as u32 & !FEATURE_SET != 0;
@@ -336,6 +351,7 @@ impl Predicate {
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct Requirements {
     pub planet_query: bool,
+    pub hints: bool,
     pub fauna: bool,
     pub metadata: bool,
     pub weather: bool,
@@ -537,7 +553,15 @@ impl Criteria {
                     return Err("unsupported criterion choice");
                 }
             }
-            let predicate = Predicate::Choice(Choices { field, mask });
+            let predicate = Predicate::Choice(Choices {
+                field,
+                mask,
+                mode: if field == Field::UniqueResources {
+                    self.unique_resource_mode
+                } else {
+                    ResourceMode::Any
+                },
+            });
             if field.stage() == Stage::System {
                 plan.system.push(predicate);
             } else {
@@ -583,6 +607,7 @@ impl Criteria {
             plan.requirements.metadata |= predicate.stage() == Stage::Metadata
                 || *predicate == Predicate::Planet(PlanetFlag::Paradise, true)
                 || *predicate == Predicate::Planet(PlanetFlag::Paradise, false);
+            plan.requirements.hints |= predicate.stage() == Stage::Hints;
             plan.requirements.fauna |= predicate.stage() == Stage::Fauna;
             plan.requirements.weather |= predicate.stage() == Stage::Weather;
             plan.requirements.terrain |= predicate.stage() == Stage::Terrain;
@@ -605,6 +630,127 @@ impl Criteria {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn unique_resource_alternatives_and_brood_are_independent() {
+        use crate::facts::{Facts, Verdict};
+        let mut criteria = Criteria::default();
+        criteria.unique_resource_mode = ResourceMode::Any;
+        criteria.choices.insert(Field::UniqueResources, 1 | 4);
+        criteria.planets.insert(PlanetFlag::VileBrood, false);
+        let plan = criteria.compile().unwrap();
+        assert_eq!(
+            plan.requirements,
+            Requirements {
+                planet_query: true,
+                hints: true,
+                ..Default::default()
+            }
+        );
+        let mut facts = Facts::default();
+        assert_eq!(plan.planet_match(&facts), Verdict::Unknown);
+        for (resources, expected) in [
+            (0, Verdict::NoMatch),
+            (1, Verdict::Match),
+            (2, Verdict::NoMatch),
+            (4, Verdict::Match),
+            (6, Verdict::Match),
+        ] {
+            facts.set(Field::UniqueResources, UNIQUE_RESOURCE_SET | resources);
+            facts.set_planet_flag(PlanetFlag::VileBrood, false);
+            assert_eq!(plan.planet_match(&facts), expected);
+            assert!(!plan.missing_planet_requirements(&facts).hints);
+        }
+        facts.set_planet_flag(PlanetFlag::VileBrood, true);
+        assert_eq!(plan.planet_match(&facts), Verdict::NoMatch);
+        let mut cached = Facts::default();
+        cached.merge(&facts);
+        assert_eq!(plan.planet_match(&cached), Verdict::NoMatch);
+        for choice in 0..3 {
+            assert_eq!(
+                Field::UniqueResources.native_value(choice),
+                Some(UNIQUE_RESOURCE_SET | 1 << choice)
+            );
+        }
+        criteria.choices.insert(Field::UniqueResources, 8);
+        assert!(criteria.compile().is_err());
+    }
+    #[test]
+    fn unique_resource_modes_match_same_planet_and_survive_cached_facts() {
+        use crate::facts::{Facts, Verdict};
+        let mut criteria = Criteria::default();
+        assert_eq!(criteria.unique_resource_mode, ResourceMode::All);
+        criteria.choices.insert(Field::UniqueResources, 2 | 4);
+        let all = criteria.compile().unwrap();
+        criteria.unique_resource_mode = ResourceMode::Any;
+        let any = criteria.compile().unwrap();
+        // Continuation keys must distinguish conjunctions from alternatives.
+        assert_ne!(all.planet, any.planet);
+        assert_eq!(all.requirements, any.requirements);
+        let mut facts = Facts::default();
+        for plan in [&all, &any] {
+            assert_eq!(plan.planet_match(&facts), Verdict::Unknown);
+            assert!(plan.missing_planet_requirements(&facts).hints);
+        }
+        for actual in 0..8 {
+            facts.set(Field::UniqueResources, UNIQUE_RESOURCE_SET | actual);
+            let mut cached = Facts::default();
+            cached.merge(&facts);
+            // Explicit expected sets include empty, unrelated and compound resources.
+            let expected_all = if matches!(actual, 6 | 7) {
+                Verdict::Match
+            } else {
+                Verdict::NoMatch
+            };
+            let expected_any = if matches!(actual, 2..=7) {
+                Verdict::Match
+            } else {
+                Verdict::NoMatch
+            };
+            assert_eq!(all.planet_match(&cached), expected_all);
+            assert_eq!(any.planet_match(&cached), expected_any);
+            assert!(!all.missing_planet_requirements(&cached).hints);
+        }
+    }
+
+    #[test]
+    fn resource_match_controls_are_independent_and_persist() {
+        use crate::facts::{Facts, Verdict};
+        for unique_mode in [ResourceMode::All, ResourceMode::Any] {
+            for ordinary_mode in [ResourceMode::All, ResourceMode::Any] {
+                let mut criteria = Criteria {
+                    unique_resource_mode: unique_mode,
+                    resources: Resources {
+                        selected: 1 | 2,
+                        mode: ordinary_mode,
+                    },
+                    ..Default::default()
+                };
+                criteria.choices.insert(Field::UniqueResources, 2 | 4);
+                let saved = serde_json::to_string(&criteria).unwrap();
+                let restored: Criteria = serde_json::from_str(&saved).unwrap();
+                assert_eq!(restored, criteria);
+                let plan = restored.compile().unwrap();
+                let mut facts = Facts::default();
+                facts.set(Field::UniqueResources, UNIQUE_RESOURCE_SET | 2);
+                facts.set_resources(1);
+                assert_eq!(
+                    plan.planet_match(&facts),
+                    if unique_mode == ResourceMode::Any && ordinary_mode == ResourceMode::Any {
+                        Verdict::Match
+                    } else {
+                        Verdict::NoMatch
+                    }
+                );
+            }
+        }
+        let mut criteria = Criteria::default();
+        let all = criteria.compile().unwrap();
+        criteria.unique_resource_mode = ResourceMode::Any;
+        let any = criteria.compile().unwrap();
+        assert_eq!(all.planet, any.planet);
+        assert_eq!(any.requirements, Requirements::default());
+    }
+
     use super::*;
 
     #[test]
@@ -1128,14 +1274,16 @@ mod tests {
         assert!(
             Choices {
                 field: Field::Subtype,
-                mask: 1
+                mask: 1,
+                mode: ResourceMode::Any
             }
             .accepts(1)
         );
         assert!(
             !Choices {
                 field: Field::Subtype,
-                mask: 1
+                mask: 1,
+                mode: ResourceMode::Any
             }
             .accepts(0)
         );

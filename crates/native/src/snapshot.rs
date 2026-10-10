@@ -228,7 +228,6 @@ pub fn apply_capture(
         ] {
             facts.set(field, value);
         }
-        facts.set_planet_flag(PlanetFlag::Scrap, m.has_scrap != 0);
     }
     if captured.present & capture::SCREEN_FILTER != 0 {
         let value =

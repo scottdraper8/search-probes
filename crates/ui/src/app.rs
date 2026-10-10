@@ -291,7 +291,7 @@ impl App {
         });
     }
     fn criteria(&mut self, ui: &mut Ui, input_width: f32) {
-        ui.label("Any skips a filter. Multiple choices within a field are alternatives; different fields must all match.");
+        ui.label("Any skips a filter. Different fields must all match. Multiple choices are alternatives, except resource lists set to All selected.");
         if ui.available_width() >= CRITERIA_SPLIT_MIN_WIDTH {
             ui.columns(2, |columns| {
                 self.system_criteria(&mut columns[0], input_width);
@@ -432,6 +432,7 @@ impl App {
                             criteria,
                             &[
                                 PlanetFlag::PlayerAttackingFauna,
+                                PlanetFlag::VileBrood,
                                 PlanetFlag::CreatureDiscovery,
                                 PlanetFlag::CreatureTaming,
                                 PlanetFlag::RobotCreatureDiscovery,
@@ -446,7 +447,6 @@ impl App {
                     .show(ui, |ui| {
                         planet_flag_rows(ui, criteria, &[PlanetFlag::Moons], input_width);
                         planet_flag_rows(ui, criteria, &[PlanetFlag::Rings], input_width);
-                        planet_flag_rows(ui, criteria, &[PlanetFlag::Scrap], input_width);
                         choice_rows(ui, criteria, &[Field::Terrain], input_width);
                     });
 
@@ -454,26 +454,21 @@ impl App {
                     .default_open(true)
                     .show(ui, |ui| {
                         choice_rows(ui, criteria, &[Field::ResourceRichness], input_width);
-                        filter_row(ui, "Resource match", input_width, |ui| {
-                            egui::ComboBox::from_id_salt("resource_mode")
-                                .width(input_width)
-                                .selected_text(match criteria.resources.mode {
-                                    ResourceMode::All => "All selected",
-                                    ResourceMode::Any => "Any selected",
-                                })
-                                .show_ui(ui, |ui| {
-                                    ui.selectable_value(
-                                        &mut criteria.resources.mode,
-                                        ResourceMode::All,
-                                        "All selected",
-                                    );
-                                    ui.selectable_value(
-                                        &mut criteria.resources.mode,
-                                        ResourceMode::Any,
-                                        "Any selected",
-                                    );
-                                });
-                        });
+                        resource_match_row(
+                            ui,
+                            "Unique resource match",
+                            "unique_resource_mode",
+                            &mut criteria.unique_resource_mode,
+                            input_width,
+                        );
+                        choice_rows(ui, criteria, &[Field::UniqueResources], input_width);
+                        resource_match_row(
+                            ui,
+                            "Resource match",
+                            "resource_mode",
+                            &mut criteria.resources.mode,
+                            input_width,
+                        );
                         filter_row(ui, "Resources", input_width, |ui| {
                             let mut selected = u64::from(criteria.resources.selected);
                             choices(
@@ -794,6 +789,27 @@ fn filter_control_width(ui: &Ui) -> f32 {
     let nested_indents = 2.0 * ui.spacing().indent;
     (ui.available_width() - nested_indents - FILTER_ROW_MIN_GAP - FILTER_LABEL_MIN_WIDTH)
         .clamp(FILTER_CONTROL_MIN_WIDTH, FILTER_CONTROL_WIDTH)
+}
+
+fn resource_match_row(
+    ui: &mut Ui,
+    label: &str,
+    id: &str,
+    mode: &mut ResourceMode,
+    control_width: f32,
+) {
+    filter_row(ui, label, control_width, |ui| {
+        egui::ComboBox::from_id_salt(id)
+            .width(control_width)
+            .selected_text(match mode {
+                ResourceMode::All => "All selected",
+                ResourceMode::Any => "Any selected",
+            })
+            .show_ui(ui, |ui| {
+                ui.selectable_value(mode, ResourceMode::All, "All selected");
+                ui.selectable_value(mode, ResourceMode::Any, "Any selected");
+            });
+    });
 }
 
 fn filter_row(ui: &mut Ui, label: &str, control_width: f32, add_control: impl FnOnce(&mut Ui)) {

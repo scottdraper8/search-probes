@@ -199,6 +199,7 @@ impl Plan {
             needed.planet_query |= predicate.stage() >= Stage::Query;
             needed.metadata |= predicate.stage() == Stage::Metadata
                 || matches!(predicate, Predicate::Planet(PlanetFlag::Paradise, _));
+            needed.hints |= predicate.stage() == Stage::Hints;
             needed.fauna |= predicate.stage() == Stage::Fauna;
             needed.weather |= predicate.stage() == Stage::Weather;
             needed.terrain |= predicate.stage() == Stage::Terrain;

@@ -21,6 +21,7 @@ pub mod object_cache;
 mod object_flags;
 pub mod query;
 pub mod region;
+pub mod resource_hints;
 pub mod snapshot;
 pub mod terrain;
 pub mod workers;

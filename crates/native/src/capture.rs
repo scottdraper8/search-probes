@@ -31,7 +31,6 @@ pub struct Metadata {
     pub life_level: u32,
     pub resource_level: u32,
     pub sentinel_levels: [u32; 4],
-    pub has_scrap: u32,
     pub in_abandoned_system: u32,
     pub in_empty_system: u32,
     pub in_gas_giant_system: u32,
@@ -159,7 +158,6 @@ pub unsafe fn capture(
                 resource_level: read(planet, 0x3540),
                 sentinel_levels: [0x34cc, 0x34e4, 0x34fc, 0x3514]
                     .map(|offset| read(planet, offset)),
-                has_scrap: u32::from(read::<u8>(planet, 0x3ace) != 0),
                 in_abandoned_system: u32::from(read::<u8>(planet, 0x3acf) != 0),
                 in_empty_system: u32::from(read::<u8>(planet, 0x3ad0) != 0),
                 in_gas_giant_system: u32::from(read::<u8>(planet, 0x3ad1) != 0),

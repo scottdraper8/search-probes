@@ -9,6 +9,25 @@ be changed. Other native hook mods and alternate WinMM proxies are outside the t
 
 ## Visible filter qualification
 
+Unique resources and Vile Brood read the generated `ExtraResourceHints` array before metadata,
+colour or object acquisition. The native query builds these hints from selected external object
+lists before the planet visitor runs. Reads retain only a resource bit set and a brood boolean;
+empty arrays establish absence, while malformed arrays fail explicitly. Unique resource match
+selects All selected (default) or Any selected independently of the ordinary resource match control.
+Both modes reuse the same captured facts; compiled continuation keys include the selected mode.
+
+Current loaded-planet captures cover Ancient Bones on Exleywoo Major (discovery name Apam Woods),
+Vile Brood on ordinary-subtype Hersfiel XVI, and Salvageable Scrap on Sebash Prime. A dissonant Scrap
+planet, Sisenil Minor, has no Swarm Debris hint and is a negative control for the compound shortcut.
+Current generator configuration supplies `UI_B_SWARM_HINT` through an optional list with corrupted
+Sentinels, scrap, biome and probability conditions. The installed explicit Swarm Debris search
+returns ten matches after 166 systems within a 1,000-system budget, without a reported error.
+Wafford Prime independently has Swarm Debris, Scrap and Brood hints; the operator confirms all
+three labels in its tooltip. Production decoding and all seven nonempty selections in both match modes pass replay across 22
+counted loaded planets, including cached fact merges, empty hints and the dissonant-Scrap negative.
+Unit checks cover independent resource modes, persistence and distinct compiled continuation keys. Installed searches
+using Bones selections and Brood Require/Exclude have not been separately exercised.
+
 Player-attacking fauna uses spawnable generated `PlayerPredator` roles, with positive finite group
 density. The verified query generates this role array before the visitor runs; the predicate reads
 it before metadata, colour or object acquisition and retains only a known boolean. Ordinary
