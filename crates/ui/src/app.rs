@@ -14,7 +14,8 @@ use search_probes_model::{
 use std::sync::Arc;
 
 const CRITERIA_SPLIT_MIN_WIDTH: f32 = 820.0;
-const MAIN_SPLIT_MIN_WIDTH: f32 = 960.0;
+const CRITERIA_THREE_COLUMN_MIN_WIDTH: f32 = 1230.0;
+const MAIN_SPLIT_MIN_WIDTH: f32 = 2460.0;
 const SEARCH_PANEL_SPLIT_MIN_WIDTH: f32 = 800.0;
 const RESULT_CARD_MIN_WIDTH: f32 = 280.0;
 
@@ -299,15 +300,25 @@ impl App {
         });
     }
     fn criteria(&mut self, ui: &mut Ui, input_width: f32) {
-        if ui.available_width() >= CRITERIA_SPLIT_MIN_WIDTH {
+        if ui.available_width() >= CRITERIA_THREE_COLUMN_MIN_WIDTH {
+            ui.columns(3, |columns| {
+                self.system_criteria(&mut columns[0], input_width);
+                self.planet_criteria(&mut columns[1], input_width);
+                self.fauna_criteria(&mut columns[2], input_width);
+            });
+        } else if ui.available_width() >= CRITERIA_SPLIT_MIN_WIDTH {
             ui.columns(2, |columns| {
                 self.system_criteria(&mut columns[0], input_width);
+                columns[0].add_space(8.0);
+                self.fauna_criteria(&mut columns[0], input_width);
                 self.planet_criteria(&mut columns[1], input_width);
             });
         } else {
             self.system_criteria(ui, input_width);
             ui.add_space(8.0);
             self.planet_criteria(ui, input_width);
+            ui.add_space(8.0);
+            self.fauna_criteria(ui, input_width);
         }
     }
     fn criteria_panel(&mut self, ui: &mut Ui) {
@@ -401,6 +412,36 @@ impl App {
                     });
             });
     }
+    fn fauna_criteria(&mut self, ui: &mut Ui, input_width: f32) {
+        let criteria = &mut self.settings.search.criteria;
+        egui::CollapsingHeader::new(RichText::new("Fauna Criteria").size(19.0).strong())
+            .default_open(true)
+            .show(ui, |ui| {
+                egui::CollapsingHeader::new(RichText::new("General").size(16.0).strong())
+                    .default_open(true)
+                    .show(ui, |ui| {
+                        match_mode_row(ui, criteria, Section::GeneralFauna);
+                        choice_rows(ui, criteria, &[Field::Fauna], input_width);
+                        planet_flag_rows(
+                            ui,
+                            criteria,
+                            &[
+                                PlanetFlag::PlayerAttackingFauna,
+                                PlanetFlag::VileBrood,
+                                PlanetFlag::TitanWorms,
+                                PlanetFlag::Sandworms,
+                            ],
+                            input_width,
+                        );
+                    });
+                for &domain in Domain::ALL {
+                    egui::CollapsingHeader::new(RichText::new(domain.label()).size(16.0).strong())
+                        .id_salt(("fauna_criteria_domain", domain))
+                        .default_open(true)
+                        .show(ui, |ui| fauna_domain(ui, criteria, domain, input_width));
+                }
+            });
+    }
     fn planet_criteria(&mut self, ui: &mut Ui, input_width: f32) {
         let criteria = &mut self.settings.search.criteria;
         egui::CollapsingHeader::new(RichText::new("Planet Criteria").size(19.0).strong())
@@ -451,30 +492,6 @@ impl App {
                         match_mode_row(ui, criteria, Section::Conditions);
                         sentinel_row(ui, criteria, input_width);
                         water_row(ui, "planet_water", &mut criteria.planet_water, input_width);
-                    });
-
-                egui::CollapsingHeader::new(RichText::new("Fauna").size(16.0).strong())
-                    .default_open(true)
-                    .show(ui, |ui| {
-                        match_mode_row(ui, criteria, Section::Fauna);
-                        choice_rows(ui, criteria, &[Field::Fauna], input_width);
-                        planet_flag_rows(
-                            ui,
-                            criteria,
-                            &[
-                                PlanetFlag::PlayerAttackingFauna,
-                                PlanetFlag::VileBrood,
-                                PlanetFlag::TitanWorms,
-                                PlanetFlag::Sandworms,
-                            ],
-                            input_width,
-                        );
-                        for &domain in Domain::ALL {
-                            egui::CollapsingHeader::new(domain.label())
-                                .id_salt(("fauna_domain", domain))
-                                .default_open(false)
-                                .show(ui, |ui| fauna_domain(ui, criteria, domain, input_width));
-                        }
                     });
 
                 egui::CollapsingHeader::new(RichText::new("Features").size(16.0).strong())
@@ -1176,19 +1193,18 @@ fn height_bound_row(
                 if ui.checkbox(&mut any, "Any").changed() {
                     *bound = if any { None } else { Some(initial) };
                 }
-                if let Some(cm) = bound {
-                    let mut metres = *cm as f64 / 100.;
-                    if ui
-                        .add(
-                            egui::DragValue::new(&mut metres)
-                                .range(0.0..=1000.0)
-                                .speed(0.1)
-                                .max_decimals(2),
-                        )
-                        .changed()
-                    {
-                        *cm = (metres * 100.).round() as u32;
-                    }
+                let mut metres = bound.unwrap_or(initial) as f64 / 100.;
+                if ui
+                    .add_enabled(
+                        !any,
+                        egui::DragValue::new(&mut metres)
+                            .range(0.0..=1000.0)
+                            .speed(0.1)
+                            .max_decimals(2),
+                    )
+                    .changed()
+                {
+                    *bound = Some((metres * 100.).round() as u32);
                 }
             })
         });

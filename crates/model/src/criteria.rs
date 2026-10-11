@@ -160,7 +160,7 @@ macro_rules! flags {
 }
 
 flags! { PlanetFlag {
-    Rings => ("Rings",Input),
+    Rings => ("Has rings",Input),
     Moons => ("Has moons",Input),
     Dissonant => ("Dissonant",Query),
     Sentinels => ("Sentinels",Query),
@@ -175,9 +175,9 @@ flags! { PlanetFlag {
     GlowingGrass => ("Glowing grass",Objects),
     GlowingFlora => ("Glowing flora",Objects),
     PlayerAttackingFauna => ("Player-attacking fauna",Fauna),
-    VileBrood => ("Vile Brood",Hints),
-    Sandworms => ("Sandworms",Fauna),
-    TitanWorms => ("Titan worms",Objects),
+    VileBrood => ("Has vile brood",Hints),
+    Sandworms => ("Has sandworms",Fauna),
+    TitanWorms => ("Has titan worms",Objects),
 }}
 
 flags! { SystemFlag {
@@ -238,7 +238,7 @@ pub enum Section {
     Environment,
     Colours,
     Conditions,
-    Fauna,
+    GeneralFauna,
     AquaticFauna,
     LandFauna,
     AirborneFauna,
@@ -248,19 +248,13 @@ pub enum Section {
     Weather,
 }
 impl Section {
-    pub fn parent(self) -> Option<Self> {
-        match self {
-            Self::AquaticFauna | Self::LandFauna | Self::AirborneFauna => Some(Self::Fauna),
-            _ => None,
-        }
-    }
     pub const ALL: &[Self] = &[
         Self::Composition,
         Self::Profile,
         Self::Environment,
         Self::Colours,
         Self::Conditions,
-        Self::Fauna,
+        Self::GeneralFauna,
         Self::AquaticFauna,
         Self::LandFauna,
         Self::AirborneFauna,
@@ -283,7 +277,7 @@ impl Field {
             Self::Biome | Self::Subtype | Self::Flora => Section::Environment,
             Self::Size => Section::Type,
             Self::Sentinels => Section::Conditions,
-            Self::Fauna => Section::Fauna,
+            Self::Fauna => Section::GeneralFauna,
             Self::Terrain => Section::Features,
             Self::ResourceRichness | Self::UniqueResources => Section::Resources,
             Self::StormType | Self::StormFrequency => Section::Weather,
@@ -301,7 +295,7 @@ impl PlanetFlag {
             Self::ExtremeStorms => Section::Weather,
             Self::GlowingGrass | Self::GlowingFlora | Self::Rgb => Section::Environment,
             Self::Dead | Self::Weird | Self::Infested | Self::Relic => Section::Type,
-            _ => Section::Fauna,
+            _ => Section::GeneralFauna,
         }
     }
 }

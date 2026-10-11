@@ -20,7 +20,8 @@ releases input capture, and returning to NMS restores the visible overlay.
 Choose your criteria and click **Search**. Each subsection offers **Match all selected criteria**
 (default) or **Match any selected criteria**. All requires every active criterion in that subsection;
 Any requires at least one, including exclusion criteria. Different top-level sections must all match.
-Nested fauna subsections each count as one criterion in their parent Fauna section.
+Fauna Criteria is a peer of System Criteria and Planet Criteria. Its General, Aquatic, Land and
+Airborne subsections match independently; every active subsection must pass.
 **Any** in a dropdown skips that field. Multiple values within ordinary planet and system-profile
 fields are alternatives; resource lists have independent All/Any selection controls.
 
@@ -84,16 +85,16 @@ properties. Some options benefit from a little context:
 - **Glowing grass / Glowing flora:** independent **Any / Require / Exclude** controls under
   Biome & Environment. These identify light-emitting surface grass and other discoverable surface
   plants respectively. Glow is independent of colour and can be most apparent at night.
-- **Fauna → Quantity:** selects the planet’s generated fauna abundance level.
-- **Aquatic Fauna / Land Fauna / Airborne Fauna:** collapsed subsections with **Has <domain> fauna**
+- **Fauna Criteria → General → Quantity:** selects the planet’s generated fauna abundance level.
+- **Aquatic Fauna / Land Fauna / Airborne Fauna:** expanded subsections with **Has <domain> fauna**
   (Any / Require / Exclude), body family, category, activity time, rarity and minimum/maximum
   discovery height in metres. In All mode, one species must satisfy all selected species criteria;
   in Any mode, one criterion is enough. Land fauna also offers Surface and Cave habitats.
   Categories and body families are specific to each subsection. Each subsection can match a
-  different species. The parent Fauna mode combines its direct filters and active subsections:
-  All requires each to pass; Any requires only one. Empty subsections impose no requirement.
-- **Titan worms:** requires or excludes generated titan-worm burrows.
-- **Sandworms:** requires or excludes planets with the giant travelling sandworm population.
+  different species. Every active subsection must pass independently, alongside General.
+  Empty subsections impose no requirement.
+- **Has titan worms:** requires or excludes generated titan-worm burrows.
+- **Has sandworms:** requires or excludes planets with the giant travelling sandworm population.
 - **Player-attacking fauna:** requires or excludes generated species that naturally hunt players,
   independently of predators that hunt other animals. Creature hostility settings and behaviour
   mods can affect whether those species actually attack. Vile Brood and worm encounters have
@@ -101,7 +102,7 @@ properties. Some options benefit from a little context:
 - **Unique resources:** Ancient bones, Salvageable scrap or Swarm debris, as listed by the game.
   **Unique resource match** chooses **All selected** (default) or **Any selected**, independently
   of the ordinary Resources match control.
-- **Vile Brood:** requires or excludes planets marked **Vile Brood Detected**.
+- **Has vile brood:** requires or excludes planets marked **Vile Brood Detected**.
 - **Sentinels:** Low / absent, Standard, Aggressive or Corrupted, based on the current combat
   difficulty's native level.
 
@@ -188,21 +189,27 @@ cargo run --locked -p search-probes-package -- package ./dist/SearchProbes-0.2.0
 cargo run --locked -p search-probes-package -- verify ./dist/SearchProbes-0.2.0
 ```
 
-`tooling/windows.Containerfile` supplies the GNU cross compiler for Linux builds. The packager
+The parent repository's `games/no-mans-sky/tooling/runtime/windows.Containerfile` supplies the
+GNU cross compiler for Linux builds. It is development tooling and is not included in releases. The packager
 copies declarative assets, retains dependency licenses, records hashes, verifies the expanded
 package and produces a ZIP archive. MBINCompiler supports development schema and roundtrip checks.
 
 ## UI development preview
 
-Run `./tooling/preview-ui` from this repository to open an interactive desktop window using the
-same UI as the in-game overlay. While NMS is running, the launcher suspends the preview and
-closes its window. It resumes after the game exits. With NMS stopped, it rebuilds and reopens after changes to UI or model Rust sources
-or their Cargo configuration. A failed build keeps the current window open and prints the compiler
-error in the terminal. Window geometry, expanded sections, scrolling and draft settings persist
-across reloads in the preview's own storage. Close the window or press Ctrl+C to stop the watcher.
+The standalone development host lives in the parent squinchmods repository's
+[runtime tooling](../../tooling/runtime/README.md). From that repository's root, run:
 
-The preview supports editing filters and local presets; searches and navigation run in NMS.
-It uses separate settings from the installed mod. The launcher requires Python 3 and Rust;
-`./tooling/preview-ui --no-watch` opens once. To run directly with Cargo, use
-`cargo run --locked --manifest-path tooling/ui-preview/Cargo.toml`.
-The development host has its own Cargo workspace and lockfile.
+```sh
+games/no-mans-sky/tooling/runtime/preview-ui
+```
+
+It opens an interactive desktop window using this product's exact Rust UI. Source changes reload
+while NMS is stopped; the launcher suspends and closes the preview while NMS runs, then resumes
+when the game exits. The preview uses separate settings and supports local filter/preset editing.
+Searching and navigation run in NMS. Python is needed by the parent launcher, not by this mod.
+
+## License
+
+Search Probes uses [PolyForm Strict 1.0.0](LICENSE.txt), matching the parent squinchmods repository.
+Dependency licenses and required notices retain their original terms and ship under `THIRD-PARTY`.
+No Man's Sky and its game assets belong to Hello Games; referenced game textures are not bundled.

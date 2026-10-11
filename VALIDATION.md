@@ -61,14 +61,16 @@ arrays and roles and defer exclusions until the fact is acquired. Species classi
 independent of settings or behaviour mods that suppress attacks. The operator confirms the installed fresh-process filter works in game, including the requested
 Require/Exclude check.
 
-Fauna's Aquatic, Land and Airborne subsections select positive generated species on the same
-planet. Within each subsection, All mode requires one species to satisfy every active criterion;
+Fauna Criteria is a top-level peer of System Criteria and Planet Criteria. Its General,
+Aquatic, Land and Airborne subsections are independent: every active subsection must pass.
+Within each domain subsection, All mode requires one species to satisfy every active criterion;
 Any mode accepts a species meeting one criterion. Body-family/category options are contextual.
-Each active fauna subsection counts as one criterion in the parent Fauna section, alongside its
-direct filters. Parent All requires every active child/direct criterion; parent Any requires one.
-Nested Any/Any therefore accepts a single matching subsection field. Broad domain presence controls
-support Require and Exclude without selecting a family. Unknown observations cannot prove absence.
-Resolved parents skip unnecessary child acquisitions; empty subsections do not satisfy parent Any.
+General's All/Any mode combines only its quantity, aggression and encounter criteria. Its success
+cannot bypass another active fauna subsection or skip its unknown species acquisition. Empty
+subsections impose no requirement. Broad domain presence controls support Require and Exclude
+without selecting a family. Unknown observations cannot prove absence.
+All fauna subsections start expanded. Height inputs remain visible and disabled while their Any
+checkbox is checked. The standalone preview shares these controls with the product UI.
 Land habitat uses the actual cave tile. Height bounds use either generated discovery gender height
 in metres; they do not imply every spawned individual has that height. Rarity uses the discovery
 Common/Uncommon/Rare field. There is no aquatic shallow/deep species classification.

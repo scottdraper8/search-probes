@@ -84,7 +84,7 @@ fn manifest(root: &Path) -> Result<BTreeMap<String, Value>> {
 }
 
 fn licenses(workspace: &Path, output: &Path) -> Result<()> {
-    let supplemental = workspace.join("tooling/licenses");
+    let supplemental = workspace.join("licenses");
     let sources: Vec<Value> =
         serde_json::from_slice(&fs::read(supplemental.join("sources.json"))?)?;
     let metadata = Command::new(std::env::var_os("CARGO").unwrap_or_else(|| "cargo".into()))

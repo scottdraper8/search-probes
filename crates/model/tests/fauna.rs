@@ -193,7 +193,7 @@ fn defaults_request_no_fauna_and_presets_preserve_domain_rules() {
 }
 
 #[test]
-fn parent_fauna_mode_combines_subsections_as_independent_criteria() {
+fn independent_fauna_sections_cannot_be_bypassed_by_general_any() {
     use search_probes_model::criteria::{Field, Section};
     let mut c = criteria(
         Domain::Land,
@@ -208,26 +208,31 @@ fn parent_fauna_mode_combines_subsections_as_independent_criteria() {
             ..Default::default()
         },
     );
+    c.planets.insert(PlanetFlag::TitanWorms, true);
+    c.planets.insert(PlanetFlag::PlayerAttackingFauna, false);
+    c.match_modes
+        .insert(Section::GeneralFauna, ResourceMode::Any);
     let mut f = Facts::default();
+    f.set_planet_flag(PlanetFlag::TitanWorms, true);
+    f.set_planet_flag(PlanetFlag::PlayerAttackingFauna, true);
     f.set_fauna(vec![animal(Family::Cats, Domain::Land, false, 120, 0)]);
     assert_eq!(c.compile().unwrap().planet_match(&f), Verdict::NoMatch);
-    c.match_modes.insert(Section::Fauna, ResourceMode::Any);
-    assert_eq!(c.compile().unwrap().planet_match(&f), Verdict::Match);
     f.set_fauna(vec![
         animal(Family::Cats, Domain::Land, false, 120, 0),
         animal(Family::Squid, Domain::Aquatic, false, 80, 1),
     ]);
-    c.match_modes.remove(&Section::Fauna);
     assert_eq!(c.compile().unwrap().planet_match(&f), Verdict::Match);
-    // An unrelated section remains mandatory even when the Fauna parent uses Any.
-    c.match_modes.insert(Section::Fauna, ResourceMode::Any);
+    c.match_modes.remove(&Section::GeneralFauna);
+    assert_eq!(c.compile().unwrap().planet_match(&f), Verdict::NoMatch);
+    f.set_planet_flag(PlanetFlag::PlayerAttackingFauna, false);
+    assert_eq!(c.compile().unwrap().planet_match(&f), Verdict::Match);
     c.choices.insert(Field::Biome, 1);
     f.set(Field::Biome, 1);
     assert_eq!(c.compile().unwrap().planet_match(&f), Verdict::NoMatch);
 }
 
 #[test]
-fn parent_and_child_any_modes_accept_one_field_and_skip_unneeded_acquisition() {
+fn subsection_any_stays_local_and_general_success_keeps_needed_species_acquisition() {
     use search_probes_model::criteria::{Requirements, Section};
     let mut c = criteria(
         Domain::Land,
@@ -246,22 +251,25 @@ fn parent_and_child_any_modes_accept_one_field_and_skip_unneeded_acquisition() {
         },
     );
     c.planets.insert(PlanetFlag::TitanWorms, true);
-    c.match_modes.insert(Section::Fauna, ResourceMode::Any);
+    c.match_modes
+        .insert(Section::GeneralFauna, ResourceMode::Any);
     let mut f = Facts::default();
-    f.set_fauna(vec![animal(Family::Cats, Domain::Land, false, 120, 0)]);
+    f.set_planet_flag(PlanetFlag::TitanWorms, true);
     let p = c.compile().unwrap();
+    assert_eq!(p.planet_match(&f), Verdict::Unknown);
+    assert!(p.missing_planet_requirements(&f).fauna);
+    f.set_fauna(vec![animal(Family::Cats, Domain::Land, false, 120, 0)]);
+    assert_eq!(p.planet_match(&f), Verdict::NoMatch);
+    f.set_fauna(vec![
+        animal(Family::Cats, Domain::Land, false, 120, 0),
+        animal(Family::Fish, Domain::Aquatic, false, 80, 0),
+    ]);
     assert_eq!(p.planet_match(&f), Verdict::Match);
     assert_eq!(p.missing_planet_requirements(&f), Requirements::default());
     c.match_modes.insert(Section::LandFauna, ResourceMode::All);
-    assert_eq!(c.compile().unwrap().planet_match(&f), Verdict::Unknown);
-    f.set_planet_flag(PlanetFlag::TitanWorms, false);
     assert_eq!(c.compile().unwrap().planet_match(&f), Verdict::NoMatch);
-    // A direct parent criterion can settle unknown subsection facts in Any mode.
-    f = Facts::default();
-    f.set_planet_flag(PlanetFlag::TitanWorms, true);
-    let p = c.compile().unwrap();
-    assert_eq!(p.planet_match(&f), Verdict::Match);
-    assert_eq!(p.missing_planet_requirements(&f), Requirements::default());
+    // The removed parent mode is not accepted as a preset key.
+    assert!(serde_json::from_str::<Criteria>(r#"{"match_modes":{"fauna":"Any"}}"#).is_err());
 }
 
 #[test]
@@ -310,7 +318,7 @@ fn broad_domain_presence_supports_require_exclude_and_unknowns() {
     }
     let mut c = Criteria::default();
     c.match_modes.insert(
-        search_probes_model::criteria::Section::Fauna,
+        search_probes_model::criteria::Section::GeneralFauna,
         ResourceMode::Any,
     );
     assert_eq!(

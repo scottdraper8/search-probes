@@ -310,10 +310,6 @@ impl Plan {
             self.section_verdicts(&self.planet, |rule| self.evaluate_planet(rule, facts));
         for &predicate in &self.planet {
             if sections[predicate.section() as usize] != Verdict::Unknown
-                || predicate
-                    .section()
-                    .parent()
-                    .is_some_and(|parent| sections[parent as usize] != Verdict::Unknown)
                 || self.evaluate_planet(predicate, facts) != Verdict::Unknown
             {
                 continue;
@@ -368,23 +364,6 @@ impl Plan {
                 results[index] = Verdict::Unknown;
             }
         }
-        for &section in Section::ALL.iter().rev() {
-            let index = section as usize;
-            if let Some(parent) = section.parent() {
-                if present[index] {
-                    let parent_index = parent as usize;
-                    results[parent_index] = if present[parent_index] {
-                        combine(
-                            [results[parent_index], results[index]],
-                            self.match_modes[parent_index],
-                        )
-                    } else {
-                        results[index]
-                    };
-                    present[parent_index] = true;
-                }
-            }
-        }
         for index in 0..present.len() {
             if !present[index] {
                 results[index] = Verdict::Match;
@@ -429,10 +408,7 @@ impl Plan {
     pub fn planet_match(&self, facts: &Facts) -> Verdict {
         combine(
             self.section_verdicts(&self.planet, |rule| self.evaluate_planet(rule, facts))
-                .into_iter()
-                .enumerate()
-                .filter(|(index, _)| Section::ALL[*index].parent().is_none())
-                .map(|(_, verdict)| verdict),
+                .into_iter(),
             ResourceMode::All,
         )
     }
