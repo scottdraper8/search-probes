@@ -6,7 +6,7 @@ use crate::{
     },
 };
 use search_probes_model::{
-    criteria::{Field, PlanetFlag, SystemFlag},
+    criteria::{Field, PlanetFlag, SystemFlag, WaterPresence},
     facts::Facts,
     vocabulary::RESOURCE_IDS,
 };
@@ -46,11 +46,10 @@ impl Snapshot {
         ] {
             system.set(field, u32_at(bytes, METADATA_OFFSET + offset));
         }
-        let mut planets = [Facts::default(); 8];
+        let mut planets = std::array::from_fn(|_| Facts::default());
         let mut empty = false;
         let mut abandoned = false;
         let mut pirate = false;
-        let mut giant = false;
         for (index, planet) in planets.iter_mut().enumerate().take(count) {
             let input = PLANET_INPUT_OFFSET + index * PLANET_INPUT_SIZE;
             let native_index = u32_at(bytes, input + 0x3c);
@@ -68,7 +67,6 @@ impl Snapshot {
             empty |= bytes[input + 0x4f] != 0;
             abandoned |= bytes[input + 0x4e] != 0;
             pirate |= bytes[input + 0x51] != 0;
-            giant |= size == 4;
         }
         system.set(
             Field::Population,
@@ -81,7 +79,6 @@ impl Snapshot {
             },
         );
         system.set_system_flag(SystemFlag::Pirate, pirate);
-        system.set_system_flag(SystemFlag::Giant, giant);
         Ok(Self {
             system,
             planets,
@@ -104,7 +101,11 @@ impl Snapshot {
         let subtype = u32_at(bytes, query + 0x84);
         planet.set(Field::Biome, biome);
         planet.set(Field::Subtype, subtype);
-        planet.set(Field::StormFrequency, u32_at(bytes, query + 0x168));
+        search_probes_model::weather::apply_storms(
+            planet,
+            u32_at(bytes, query + 0x168),
+            bytes[query + 0x131] != 0,
+        )?;
         let mut resources = 0;
         for offset in [0x88, 0x98, 0xa8] {
             let id = &bytes[query + offset..query + offset + 16];
@@ -117,17 +118,18 @@ impl Snapshot {
             }
         }
         planet.set_resources(resources);
+        planet.set_water(if bytes[query + 0x121] != 0 {
+            WaterPresence::Deep
+        } else if bytes[query + 0x120] != 0 {
+            WaterPresence::Shallow
+        } else {
+            WaterPresence::Dry
+        });
         for (flag, offset) in [
-            (PlanetFlag::Water, 0x120),
-            (PlanetFlag::DeepWater, 0x121),
+            (PlanetFlag::Dissonant, 0x12c + 2),
             (PlanetFlag::Sentinels, 0x124 + difficulty),
             (PlanetFlag::ExtremeSentinels, 0x128 + difficulty),
             (PlanetFlag::CorruptSentinels, 0x12c + difficulty),
-            (PlanetFlag::ExtremeWeather, 0x130),
-            (PlanetFlag::CreatureDiscovery, 0x138),
-            (PlanetFlag::WeirdCreatureDiscovery, 0x139),
-            (PlanetFlag::CreatureTaming, 0x13a),
-            (PlanetFlag::RobotCreatureDiscovery, 0x13b),
         ] {
             planet.set_planet_flag(flag, bytes[query + offset] != 0);
         }
@@ -149,10 +151,6 @@ impl Snapshot {
             (PlanetFlag::Rgb, (8..=10).contains(&biome)),
             (PlanetFlag::Dead, biome == 6),
             (PlanetFlag::Weird, biome == 7),
-            (
-                PlanetFlag::NonGasGiant,
-                planet.get(Field::Size) == Some(4) && biome != 15,
-            ),
         ] {
             planet.set_planet_flag(flag, value);
         }
@@ -161,35 +159,16 @@ impl Snapshot {
 
     pub fn aggregate(&mut self) {
         for &flag in SystemFlag::ALL {
-            if matches!(flag, SystemFlag::Pirate | SystemFlag::Giant) {
+            if flag == SystemFlag::Pirate {
                 continue;
             }
             let mut unknown = false;
             let mut found = false;
             for planet in &self.planets[..self.count] {
                 let value = match flag {
-                    SystemFlag::GasGiant => planet.get(Field::Biome).map(|value| value == 15),
-                    SystemFlag::Waterworld => planet.get(Field::Biome).map(|value| value == 14),
-                    SystemFlag::Dead => planet.planet_flag(PlanetFlag::Dead),
-                    SystemFlag::Weird => planet.planet_flag(PlanetFlag::Weird),
-                    SystemFlag::ExtremeStorms => match (
-                        planet.planet_flag(PlanetFlag::ExtremeWeather),
-                        planet.get(Field::StormFrequency),
-                    ) {
-                        (Some(false), _) | (_, Some(0)) => Some(false),
-                        (Some(true), Some(_)) => Some(true),
-                        _ => None,
-                    },
-                    SystemFlag::NonGasGiant => planet.planet_flag(PlanetFlag::NonGasGiant),
-                    SystemFlag::Water => planet.planet_flag(PlanetFlag::Water),
-                    SystemFlag::DeepWater => planet.planet_flag(PlanetFlag::DeepWater),
-                    SystemFlag::Infested => planet.planet_flag(PlanetFlag::Infested),
-                    SystemFlag::Relic => planet.planet_flag(PlanetFlag::Relic),
-                    SystemFlag::Rgb => planet.planet_flag(PlanetFlag::Rgb),
-                    SystemFlag::CorruptSentinels => {
-                        planet.planet_flag(PlanetFlag::CorruptSentinels)
-                    }
-                    SystemFlag::Pirate | SystemFlag::Giant => unreachable!(),
+                    SystemFlag::ExtremeStorms => planet.planet_flag(PlanetFlag::ExtremeStorms),
+                    SystemFlag::Dissonance => planet.planet_flag(PlanetFlag::Dissonant),
+                    SystemFlag::Pirate => unreachable!(),
                 };
                 match value {
                     Some(true) => {
@@ -238,22 +217,12 @@ pub fn apply_capture(
         facts.set(Field::WorldColourFilter, value);
     }
     if captured.present & capture::WEATHER != 0 {
-        facts.set(Field::StormFrequency, captured.weather[0]);
-        facts.set(Field::WeatherIntensity, captured.weather[1]);
-        facts.set(Field::WeatherType, captured.weather[2]);
-    }
-    if captured.present & (capture::WEATHER | capture::METADATA)
-        == capture::WEATHER | capture::METADATA
-    {
-        let m = &captured.metadata;
-        facts.set_planet_flag(
-            PlanetFlag::Paradise,
-            m.biome == 0
-                && ![3, 24, 25].contains(&m.biome_subtype)
-                && m.sentinel_levels[difficulty] == 0
-                && captured.weather[0] == 0
-                && captured.weather[1] == 0,
-        );
+        let [frequency, intensity, weather_type] = captured.weather;
+        if intensity > 1 {
+            return Err("invalid native storm hazard profile");
+        }
+        search_probes_model::weather::apply_storms(facts, frequency, intensity == 1)?;
+        search_probes_model::weather::apply_storm_type(facts, frequency, weather_type)?;
     }
     Ok(())
 }
@@ -261,6 +230,93 @@ pub fn apply_capture(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn system_storm_exclusions_wait_for_every_planet_and_include_lush_extremes() {
+        let mut bytes = vec![0u8; QUERY_SIZE];
+        // Lush, with the native extreme-weather bit clear but the hazard profile extreme.
+        bytes[PLANET_QUERY_OFFSET + 0x131] = 1;
+        bytes[PLANET_QUERY_OFFSET + 0x168..PLANET_QUERY_OFFSET + 0x16c]
+            .copy_from_slice(&2u32.to_le_bytes());
+        let mut snapshot = Snapshot {
+            system: Facts::default(),
+            planets: std::array::from_fn(|_| Facts::default()),
+            count: 2,
+        };
+        snapshot.read_planet(&bytes, 0, 0).unwrap();
+        snapshot.aggregate();
+        assert_eq!(snapshot.system.system_flag(SystemFlag::ExtremeStorms), None);
+        let captured = capture::Facts {
+            present: capture::WEATHER,
+            weather: [2, 1, 2],
+            ..Default::default()
+        };
+        snapshot.planets[0].set_extreme_storm_profile(true);
+        apply_capture(&mut snapshot.planets[0], &captured, 0).unwrap();
+        snapshot.aggregate();
+        assert_eq!(
+            snapshot.system.system_flag(SystemFlag::ExtremeStorms),
+            Some(true)
+        );
+        let mut captured = captured;
+        captured.weather = [2, 1, 13];
+        snapshot.planets[0].set_extreme_storm_profile(false);
+        apply_capture(&mut snapshot.planets[0], &captured, 0).unwrap();
+        // Aggregate replaces the earlier positive result after the changed observation.
+        snapshot.system = Facts::default();
+        snapshot.aggregate();
+        assert_eq!(snapshot.system.system_flag(SystemFlag::ExtremeStorms), None);
+        snapshot.read_planet(&bytes, 1, 0).unwrap();
+        snapshot.aggregate();
+        assert_eq!(
+            snapshot.system.system_flag(SystemFlag::ExtremeStorms),
+            Some(false)
+        );
+        let captured = capture::Facts {
+            present: capture::WEATHER,
+            weather: [0, 1, 2],
+            ..Default::default()
+        };
+        apply_capture(&mut snapshot.planets[0], &captured, 0).unwrap();
+        assert_eq!(
+            snapshot.planets[0].planet_flag(PlanetFlag::ExtremeStorms),
+            Some(false)
+        );
+    }
+
+    #[test]
+    fn native_water_and_dissonance_are_world_properties() {
+        for (has_water, deep_water, expected) in [
+            (false, false, WaterPresence::Dry),
+            (true, false, WaterPresence::Shallow),
+            (false, true, WaterPresence::Deep),
+            (true, true, WaterPresence::Deep),
+        ] {
+            for difficulty in 0..4 {
+                let mut bytes = vec![0u8; QUERY_SIZE];
+                bytes[PLANET_QUERY_OFFSET + 0x120] = u8::from(has_water);
+                bytes[PLANET_QUERY_OFFSET + 0x121] = u8::from(deep_water);
+                bytes[PLANET_QUERY_OFFSET + 0x124 + 2] = 1;
+                bytes[PLANET_QUERY_OFFSET + 0x12c + 2] = 1;
+                let mut snapshot = Snapshot {
+                    system: Facts::default(),
+                    planets: std::array::from_fn(|_| Facts::default()),
+                    count: 1,
+                };
+                snapshot.read_planet(&bytes, 0, difficulty).unwrap();
+                snapshot.aggregate();
+                assert_eq!(snapshot.planets[0].water(), Some(expected));
+                assert_eq!(
+                    snapshot.system.system_flag(SystemFlag::Dissonance),
+                    Some(true)
+                );
+                assert_eq!(
+                    snapshot.planets[0].get(Field::Sentinels),
+                    Some(if difficulty == 2 { 3 } else { 0 })
+                );
+            }
+        }
+    }
 
     #[test]
     fn sentinel_levels_decode_native_query_flags_and_match_raw_metadata_for_each_difficulty() {
@@ -274,15 +330,15 @@ mod tests {
         for (difficulty, &level) in levels.iter().enumerate() {
             let mut snapshot = Snapshot {
                 system: Facts::default(),
-                planets: [Facts::default(); 8],
+                planets: std::array::from_fn(|_| Facts::default()),
                 count: 1,
             };
             snapshot.read_planet(&bytes, 0, difficulty).unwrap();
             assert_eq!(snapshot.planets[0].get(Field::Sentinels), Some(level));
             snapshot.aggregate();
             assert_eq!(
-                snapshot.system.system_flag(SystemFlag::CorruptSentinels),
-                Some(level == 3)
+                snapshot.system.system_flag(SystemFlag::Dissonance),
+                Some(levels[2] == 3)
             );
             let captured = capture::Facts {
                 present: capture::METADATA,
@@ -301,7 +357,7 @@ mod tests {
         }
         let mut snapshot = Snapshot {
             system: Facts::default(),
-            planets: [Facts::default(); 8],
+            planets: std::array::from_fn(|_| Facts::default()),
             count: 1,
         };
         let mut bytes = vec![0u8; QUERY_SIZE];
@@ -344,15 +400,18 @@ mod tests {
     fn aggregate_negatives_wait_for_every_planet() {
         let mut snapshot = Snapshot {
             system: Facts::default(),
-            planets: [Facts::default(); 8],
+            planets: std::array::from_fn(|_| Facts::default()),
             count: 2,
         };
-        snapshot.planets[0].set_planet_flag(PlanetFlag::Water, false);
+        snapshot.planets[0].set_planet_flag(PlanetFlag::Dissonant, false);
         snapshot.aggregate();
-        assert_eq!(snapshot.system.system_flag(SystemFlag::Water), None);
-        snapshot.planets[1].set_planet_flag(PlanetFlag::Water, true);
+        assert_eq!(snapshot.system.system_flag(SystemFlag::Dissonance), None);
+        snapshot.planets[1].set_planet_flag(PlanetFlag::Dissonant, true);
         snapshot.aggregate();
-        assert_eq!(snapshot.system.system_flag(SystemFlag::Water), Some(true));
+        assert_eq!(
+            snapshot.system.system_flag(SystemFlag::Dissonance),
+            Some(true)
+        );
     }
 
     #[test]
@@ -371,7 +430,7 @@ mod tests {
             .unwrap();
             apply_capture(&mut facts, &details, 0).unwrap();
             assert_eq!(facts.get(Field::WorldColourFilter), Some(filter as u32));
-            assert_eq!(facts.get(Field::WeatherType), None);
+            assert_eq!(facts.get(Field::StormType), None);
             let mut criteria = search_probes_model::criteria::Criteria::default();
             criteria
                 .choices
@@ -403,6 +462,6 @@ mod tests {
         apply_capture(&mut facts, &capture, 0).unwrap();
         assert_eq!(facts.get(Field::Sky), None);
         assert_eq!(facts.get(Field::Flora), None);
-        assert_eq!(facts.planet_flag(PlanetFlag::Paradise), None);
+        assert_eq!(facts.planet_flag(PlanetFlag::ExtremeStorms), None);
     }
 }

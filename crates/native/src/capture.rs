@@ -4,7 +4,8 @@ pub const NAME: u32 = 4;
 pub const SCREEN_FILTER: u32 = 8;
 pub const INDEX: u32 = 16;
 pub const COLOUR_COUNT: usize = 10;
-pub const ALL: u32 = 31 | (((1 << COLOUR_COUNT) - 1) << 8);
+pub const COLOURS: u32 = ((1 << COLOUR_COUNT) - 1) << 8;
+pub const ALL: u32 = 31 | COLOURS;
 
 #[repr(usize)]
 #[derive(Clone, Copy, Debug)]
@@ -78,7 +79,7 @@ unsafe fn read<T: Copy>(p: *const u8, offset: usize) -> T {
 
 fn pointer(value: usize) -> Result<*const u8, &'static str> {
     if !(0x10000..=0x0000_7fff_ffff_ffff).contains(&value) {
-        return Err("invalid colour table pointer");
+        return Err("invalid native capture pointer");
     }
     Ok(value as *const u8)
 }
@@ -118,6 +119,48 @@ pub fn water_reflectance(
         rgb[i] = 5. * (1. - 0.139 * a) * (1. - a) / (1. + 1.17 * a);
     }
     Ok(rgb)
+}
+
+/// # Safety
+/// Requires the same immutable, initialized generator and live planet ownership as capture.
+/// Reads the selected in-memory hazard overrides/defaults; retains no native reference.
+pub unsafe fn storm_profile(
+    planet: *const u8,
+    generator: *const u8,
+) -> Result<search_probes_model::weather::StormHazards, &'static str> {
+    if planet.is_null() {
+        return Err("null live planet");
+    }
+    let mut profile = [[[0.; 2]; 2]; 3];
+    unsafe {
+        if generator.is_null() {
+            return Err("null storm configuration generator");
+        }
+        let index: u32 = read(planet, 0x1e54);
+        let count: u32 = read(generator, 0x504);
+        if index >= count || count > 17 {
+            return Err("storm weather selection outside bounded native table");
+        }
+        let table = pointer(read(generator, 0x508))?;
+        let properties = pointer(read(table, index as usize * 8))?;
+        let defaults = pointer(read(generator, 0x4f8))?;
+        // Exact 7.06 native hazard selector: override booleans and two six-state
+        // value arrays, with [extreme, normal] floats in each state.
+        for (slot, (flag, offset, default_offset)) in profile.iter_mut().zip([
+            (0xbe0, 0xad0, 0x110), // Temperature
+            (0xbe1, 0xb30, 0x140), // Toxicity
+            (0xbe2, 0xb60, 0x170), // Radiation
+        ]) {
+            let (source, offset) = if read::<u8>(properties, flag) != 0 {
+                (properties, offset)
+            } else {
+                (defaults, default_offset)
+            };
+            *slot = [0, 3].map(|state| read(source, offset + state * 8));
+        }
+        search_probes_model::weather::extreme_storm_profile(&profile)?;
+    }
+    Ok(profile)
 }
 
 /// # Safety
@@ -166,7 +209,7 @@ pub unsafe fn capture(
         if wanted & NAME != 0 {
             facts.name = read(planet, 0x3a4e);
         }
-        if wanted & (SCREEN_FILTER | (ALL & !31)) != 0 {
+        if wanted & (SCREEN_FILTER | COLOURS) != 0 {
             facts.screen_filter = read(planet, 0x1e44);
         }
         if wanted & colour(0) != 0 {
@@ -227,7 +270,7 @@ pub unsafe fn capture(
         }
     }
     facts.present = wanted
-        | if wanted & (ALL & !31) != 0 {
+        | if wanted & COLOURS != 0 {
             SCREEN_FILTER
         } else {
             0
@@ -238,6 +281,72 @@ pub unsafe fn capture(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn storm_profiles_read_selected_loaded_overrides_and_defaults_without_colour_capture() {
+        let mut planet = vec![0u8; 0x3b00];
+        let mut generator = vec![0u8; 0x600];
+        let mut selected = vec![0u8; 0xbf0];
+        let mut defaults = vec![0u8; 0x200];
+        let rows = [selected.as_ptr() as usize; 17];
+        generator[0x504..0x508].copy_from_slice(&17u32.to_le_bytes());
+        generator[0x508..0x510].copy_from_slice(&(rows.as_ptr() as usize).to_le_bytes());
+        generator[0x4f8..0x500].copy_from_slice(&(defaults.as_ptr() as usize).to_le_bytes());
+        planet[0x1e48..0x1e4c].copy_from_slice(&2u32.to_le_bytes());
+        planet[0x1e50..0x1e54].copy_from_slice(&1u32.to_le_bytes());
+        planet[0x1e54..0x1e58].copy_from_slice(&2u32.to_le_bytes());
+        // An invalid colour filter and absent sky/water tables must be irrelevant.
+        planet[0x1e44..0x1e48].copy_from_slice(&(-1i32).to_le_bytes());
+        for (offset, values) in [
+            (0xad0, [20f32, 12.]),
+            (0xae8, [140., 92.]),
+            (0xb30, [0., 0.]),
+            (0xb48, [0., 0.]),
+            (0xb60, [0., 0.]),
+            (0xb78, [0., 0.]),
+        ] {
+            for (index, value) in values.into_iter().enumerate() {
+                selected[offset + index * 4..offset + index * 4 + 4]
+                    .copy_from_slice(&value.to_le_bytes());
+            }
+        }
+        // Toxicity comes from the default table, not the selected zero override.
+        for (offset, value) in [(0x140, 92f32), (0x144, 50.), (0x158, 100.), (0x15c, 92.)] {
+            defaults[offset..offset + 4].copy_from_slice(&value.to_le_bytes());
+        }
+        selected[0xbe0] = 1;
+        selected[0xbe1] = 0;
+        selected[0xbe2] = 1;
+        let wanted = WEATHER;
+        let captured = unsafe { capture(planet.as_ptr(), generator.as_ptr(), wanted) }.unwrap();
+        assert_eq!(captured.present, wanted);
+        assert_eq!(captured.screen_filter, -1);
+        assert_eq!(captured.weather, [2, 1, 2]);
+        let profile = unsafe { storm_profile(planet.as_ptr(), generator.as_ptr()) }.unwrap();
+        assert_eq!(
+            profile,
+            [
+                [[20., 12.], [140., 92.]],
+                [[92., 50.], [100., 92.]],
+                [[0.; 2]; 2],
+            ]
+        );
+        let mut facts = search_probes_model::facts::Facts::default();
+        facts.set_extreme_storm_profile(
+            search_probes_model::weather::extreme_storm_profile(&profile).unwrap(),
+        );
+        crate::snapshot::apply_capture(&mut facts, &captured, 0).unwrap();
+        assert_eq!(
+            facts.planet_flag(search_probes_model::criteria::PlanetFlag::ExtremeStorms),
+            Some(true)
+        );
+        assert!(unsafe { storm_profile(planet.as_ptr(), std::ptr::null()) }.is_err());
+        planet[0x1e54..0x1e58].copy_from_slice(&17u32.to_le_bytes());
+        assert!(unsafe { storm_profile(planet.as_ptr(), generator.as_ptr()) }.is_err());
+        planet[0x1e54..0x1e58].copy_from_slice(&2u32.to_le_bytes());
+        generator[0x504..0x508].copy_from_slice(&18u32.to_le_bytes());
+        assert!(unsafe { storm_profile(planet.as_ptr(), generator.as_ptr()) }.is_err());
+    }
     #[test]
     fn any_does_not_read_planet_or_generator() {
         let facts = unsafe { capture(std::ptr::null(), std::ptr::null(), 0) }.unwrap();

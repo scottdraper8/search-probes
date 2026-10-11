@@ -38,26 +38,17 @@ pub const GRASS_COLOURS: &[&str] = &[
     "White",
 ];
 pub const GRASS_COLOUR_SET: u32 = 1 << 31;
-pub const STORM_FREQUENCIES: &[&str] = &["None", "Low", "High", "Always"];
-pub const WEATHER_INTENSITIES: &[&str] = &["Default", "Extreme"];
-pub const WEATHER_TYPES: &[&str] = &[
-    "Clear",
-    "Dust",
-    "Humid",
-    "Snow",
-    "Toxic",
-    "Scorched",
-    "Radioactive",
-    "RedWeather",
-    "GreenWeather",
-    "BlueWeather",
-    "Swamp",
-    "Lava",
-    "Bubble",
-    "Weird",
-    "Fire",
-    "ClearCold",
-    "GasGiant",
+pub const STORM_FREQUENCIES: &[&str] = &["None", "Low", "High"];
+pub const STORM_TYPES: &[&str] = &[
+    "Superheated rainstorm",
+    "Blizzard",
+    "Toxic rainstorm",
+    "Radioactive supercell",
+    "Firestorm",
+    "Wall of flame",
+    "Gravitational anomaly",
+    "Bubble storm",
+    "Other storms",
 ];
 pub const RACE_ENUM: &[&str] = &[
     "Gek",

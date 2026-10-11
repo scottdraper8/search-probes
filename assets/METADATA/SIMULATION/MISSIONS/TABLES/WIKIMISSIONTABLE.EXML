@@ -2105,10 +2105,6 @@
             <Property name="NeedsEmptySystem" value="false" />
             <Property name="NeedsAbandonedSystem" value="false" />
             <Property name="NeedsResourceHint" value="" />
-            <Property name="SuitableForCreatureDiscovery" value="false" />
-            <Property name="SuitableForWeirdCreatureDiscovery" value="false" />
-            <Property name="SuitableForRobotCreatureDiscovery" value="false" />
-            <Property name="SuitableForCreatureTaming" value="false" />
             <Property name="NeedsSpecificCreature" value="" />
             <Property name="SamePlanetAsEvent" value="" />
             <Property name="SamePlanetAsSeasonParty" value="0" />
@@ -2179,10 +2175,6 @@
             <Property name="NeedsEmptySystem" value="false" />
             <Property name="NeedsAbandonedSystem" value="false" />
             <Property name="NeedsResourceHint" value="" />
-            <Property name="SuitableForCreatureDiscovery" value="false" />
-            <Property name="SuitableForWeirdCreatureDiscovery" value="false" />
-            <Property name="SuitableForRobotCreatureDiscovery" value="false" />
-            <Property name="SuitableForCreatureTaming" value="false" />
             <Property name="NeedsSpecificCreature" value="" />
             <Property name="SamePlanetAsEvent" value="" />
             <Property name="SamePlanetAsSeasonParty" value="0" />
@@ -2802,10 +2794,6 @@
             <Property name="NeedsEmptySystem" value="false" />
             <Property name="NeedsAbandonedSystem" value="false" />
             <Property name="NeedsResourceHint" value="" />
-            <Property name="SuitableForCreatureDiscovery" value="false" />
-            <Property name="SuitableForWeirdCreatureDiscovery" value="false" />
-            <Property name="SuitableForRobotCreatureDiscovery" value="false" />
-            <Property name="SuitableForCreatureTaming" value="false" />
             <Property name="NeedsSpecificCreature" value="" />
             <Property name="SamePlanetAsEvent" value="" />
             <Property name="SamePlanetAsSeasonParty" value="0" />
@@ -2876,10 +2864,6 @@
             <Property name="NeedsEmptySystem" value="false" />
             <Property name="NeedsAbandonedSystem" value="false" />
             <Property name="NeedsResourceHint" value="" />
-            <Property name="SuitableForCreatureDiscovery" value="false" />
-            <Property name="SuitableForWeirdCreatureDiscovery" value="false" />
-            <Property name="SuitableForRobotCreatureDiscovery" value="false" />
-            <Property name="SuitableForCreatureTaming" value="false" />
             <Property name="NeedsSpecificCreature" value="" />
             <Property name="SamePlanetAsEvent" value="" />
             <Property name="SamePlanetAsSeasonParty" value="0" />

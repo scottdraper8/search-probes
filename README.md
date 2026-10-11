@@ -17,9 +17,12 @@ Press **F7** in NMS to open or hide Search Probes. Move and resize the overlay a
 open, it captures keyboard and mouse input; F7 returns control to the game. Switching applications
 releases input capture, and returning to NMS restores the visible overlay.
 
-Choose your criteria and click **Search**. Select multiple values within a field to accept any
-selected value; selected fields must all match. **Any** skips that field. Resource fields offer
-explicit **All** and **Any** selection modes.
+Choose your criteria and click **Search**. Each subsection offers **Match all selected criteria**
+(default) or **Match any selected criteria**. All requires every active criterion in that subsection;
+Any requires at least one, including exclusion criteria. Different top-level sections must all match.
+Nested fauna subsections each count as one criterion in their parent Fauna section.
+**Any** in a dropdown skips that field. Multiple values within ordinary planet and system-profile
+fields are alternatives; resource lists have independent All/Any selection controls.
 
 - **Systems to search:** choose a budget from 1,000 to 1,000,000,000 systems. The default is 10,000.
 - **Results:** choose 1–100 matches. A search ends at its result cap, system budget or galaxy exhaustion.
@@ -47,8 +50,26 @@ properties. Some options benefit from a little context:
 
 - **Dominant lifeform:** Gek, Vy'keen, Korvax or None. None matches uninhabited systems. Abandoned
   systems retain their species; choose **Population → Abandoned** to find them.
+- **Planetary Composition:** includes or excludes systems by their planets' biomes, contextual
+  biome subtypes and sizes. In All mode, every included value must occur somewhere in the system;
+  in Any mode, an included value or another active composition criterion can satisfy the subsection.
+  Biome and subtype selections describe the same planet. An exclusion criterion passes when no
+  planet matches its selected values. Include/exclude biome and size selections clear conflicting
+  values automatically; changing a biome clears its dependent subtypes.
+- **Water:** requires any water or deep water, or excludes deep water or all water. Under System
+  Profile it checks the whole system; under Conditions it checks the target planet. Shallow water
+  satisfies Require any water type and Exclude deep water.
+- **Dissonance:** requires or excludes systems containing a dissonant planet, independently of
+  combat difficulty.
 - **Biome → Mega-exotic:** groups the game's Red, Green and Blue biome families.
 - **Biome subtype:** offers named features for the selected biome, such as giant trees or spores.
+- **Storm frequency:** None selects planets without storms. Low and High select recurring storms;
+  select both to accept either frequency. Individual storm intervals vary.
+- **Extreme storms:** requires or excludes storms with intensified heat, cold, toxicity or radiation.
+  **Contains extreme storms** checks for the same conditions anywhere in a system.
+- **Storm type:** selects storm families such as Superheated rainstorm, Blizzard, Toxic rainstorm,
+  Radioactive supercell, Firestorm, Wall of flame and Gravitational anomaly. Bubble storm describes
+  atmospheric bubble weather during storms; Other storms groups generic storm warnings.
 - **Terrain:** selects generated floating islands, mountains, plateaus, canyons, craters, arches
   or caves. Features can occupy part of a planet, including underwater areas; exploration may
   be needed to find them.
@@ -63,9 +84,20 @@ properties. Some options benefit from a little context:
 - **Glowing grass / Glowing flora:** independent **Any / Require / Exclude** controls under
   Biome & Environment. These identify light-emitting surface grass and other discoverable surface
   plants respectively. Glow is independent of colour and can be most apparent at night.
+- **Fauna → Quantity:** selects the planet’s generated fauna abundance level.
+- **Aquatic Fauna / Land Fauna / Airborne Fauna:** collapsed subsections with **Has <domain> fauna**
+  (Any / Require / Exclude), body family, category, activity time, rarity and minimum/maximum
+  discovery height in metres. In All mode, one species must satisfy all selected species criteria;
+  in Any mode, one criterion is enough. Land fauna also offers Surface and Cave habitats.
+  Categories and body families are specific to each subsection. Each subsection can match a
+  different species. The parent Fauna mode combines its direct filters and active subsections:
+  All requires each to pass; Any requires only one. Empty subsections impose no requirement.
+- **Titan worms:** requires or excludes generated titan-worm burrows.
+- **Sandworms:** requires or excludes planets with the giant travelling sandworm population.
 - **Player-attacking fauna:** requires or excludes generated species that naturally hunt players,
   independently of predators that hunt other animals. Creature hostility settings and behaviour
-  mods can affect whether those species actually attack.
+  mods can affect whether those species actually attack. Vile Brood and worm encounters have
+  independent controls.
 - **Unique resources:** Ancient bones, Salvageable scrap or Swarm debris, as listed by the game.
   **Unique resource match** chooses **All selected** (default) or **Any selected**, independently
   of the ordinary Resources match control.
@@ -89,7 +121,8 @@ option to replace them.
 
 **Show cached matches first** reuses previously acquired system and planet facts. Continue searching
 to obtain more matches. Continuing a full result page replaces it; continuing a partial page adds
-matches. The cache holds up to 16,384 systems within a 64 MiB structural budget. A separate cache
+matches. The cache holds up to 16,384 systems within a 64 MiB structural budget. Captured species have
+an additional byte limit within that budget, so species-heavy records can trigger earlier eviction. A separate cache
 holds up to 1,024 object-table summaries. Both clear on save reload, relevant native configuration
 changes or explicit history clearing.
 
@@ -158,3 +191,18 @@ cargo run --locked -p search-probes-package -- verify ./dist/SearchProbes-0.2.0
 `tooling/windows.Containerfile` supplies the GNU cross compiler for Linux builds. The packager
 copies declarative assets, retains dependency licenses, records hashes, verifies the expanded
 package and produces a ZIP archive. MBINCompiler supports development schema and roundtrip checks.
+
+## UI development preview
+
+Run `./tooling/preview-ui` from this repository to open an interactive desktop window using the
+same UI as the in-game overlay. While NMS is running, the launcher suspends the preview and
+closes its window. It resumes after the game exits. With NMS stopped, it rebuilds and reopens after changes to UI or model Rust sources
+or their Cargo configuration. A failed build keeps the current window open and prints the compiler
+error in the terminal. Window geometry, expanded sections, scrolling and draft settings persist
+across reloads in the preview's own storage. Close the window or press Ctrl+C to stop the watcher.
+
+The preview supports editing filters and local presets; searches and navigation run in NMS.
+It uses separate settings from the installed mod. The launcher requires Python 3 and Rust;
+`./tooling/preview-ui --no-watch` opens once. To run directly with Cargo, use
+`cargo run --locked --manifest-path tooling/ui-preview/Cargo.toml`.
+The development host has its own Cargo workspace and lockfile.

@@ -9,6 +9,7 @@ use std::collections::{BTreeMap, VecDeque};
 
 pub const MAX_CACHED_SYSTEMS: usize = 16_384;
 pub const MAX_NAME_BYTES: usize = 127;
+pub const MAX_CACHED_FAUNA_BYTES: usize = 8 * 1024 * 1024;
 
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct SystemRecord {
@@ -92,12 +93,26 @@ impl SystemRecord {
         }
         Ok(())
     }
+    fn fauna_bytes(&self) -> Result<usize, &'static str> {
+        self.planets
+            .iter()
+            .chain(std::iter::once(&self.system))
+            .try_fold(0, |bytes, facts| {
+                let Some(species) = facts.fauna() else {
+                    return Ok(bytes);
+                };
+                if species.len() > crate::fauna::MAX_SPECIES {
+                    return Err("cached fauna exceeds species bound");
+                }
+                Ok(bytes + std::mem::size_of_val(species) + 32)
+            })
+    }
     pub fn evaluate(&self, plan: &Plan) -> Evaluation {
         let mut result = Evaluation {
             matches: 0,
             unknown: 0,
         };
-        let system = plan.system_match(&self.system);
+        let system = plan.system_match(&self.system, &self.planets[..self.count]);
         if system == Verdict::NoMatch {
             return result;
         }
@@ -140,6 +155,7 @@ pub struct Cache {
     records: BTreeMap<Address, Box<SystemRecord>>,
     order: VecDeque<Address>,
     capacity: usize,
+    fauna_bytes: usize,
 }
 
 impl Cache {
@@ -151,6 +167,7 @@ impl Cache {
             records: BTreeMap::new(),
             order: VecDeque::new(),
             capacity,
+            fauna_bytes: 0,
         })
     }
     pub fn records(&self) -> impl Iterator<Item = (&Address, &SystemRecord)> {
@@ -167,6 +184,7 @@ impl Cache {
     pub fn clear(&mut self) {
         self.records.clear();
         self.order.clear();
+        self.fauna_bytes = 0;
     }
     pub fn get(&self, address: Address) -> Option<&SystemRecord> {
         self.records.get(&address.system()).map(Box::as_ref)
@@ -182,19 +200,34 @@ impl Cache {
         if address.coordinates().system == 0 {
             return Err("cannot cache a region as a system");
         }
-        if let Some(existing) = self.records.get_mut(&address) {
-            return existing.merge(record);
-        }
+        let added = record.fauna_bytes()?;
         if self.capacity == 0 {
             return Ok(());
         }
-        if self.records.len() == self.capacity {
-            let oldest = self.order.pop_front().expect("cache order tracks records");
-            self.records.remove(&oldest);
+        if let Some(existing) = self.records.get_mut(&address) {
+            let previous = existing.fauna_bytes()?;
+            existing.merge(record)?;
+            self.fauna_bytes = self.fauna_bytes - previous + existing.fauna_bytes()?;
+        } else {
+            if self.records.len() == self.capacity {
+                self.evict_oldest();
+            }
+            self.records.insert(address, Box::new(record));
+            self.order.push_back(address);
+            self.fauna_bytes += added;
         }
-        self.records.insert(address, Box::new(record));
-        self.order.push_back(address);
+        while self.fauna_bytes > MAX_CACHED_FAUNA_BYTES {
+            self.evict_oldest();
+        }
         Ok(())
+    }
+    fn evict_oldest(&mut self) {
+        let oldest = self.order.pop_front().expect("cache order tracks records");
+        let removed = self
+            .records
+            .remove(&oldest)
+            .expect("cache order tracks records");
+        self.fauna_bytes -= removed.fauna_bytes().expect("validated cached fauna");
     }
     pub fn matching(
         &self,
@@ -238,7 +271,7 @@ mod tests {
     fn record() -> SystemRecord {
         let mut system = Facts::default();
         system.set_planet_count(2);
-        SystemRecord::new(system, [Facts::default(); 8]).unwrap()
+        SystemRecord::new(system, std::array::from_fn(|_| Facts::default())).unwrap()
     }
     #[test]
     fn system_only_results_are_unique_and_planet_filters_preserve_planet_targets() {
@@ -392,6 +425,7 @@ mod tests {
         assert!(std::mem::size_of::<SystemRecord>() <= 2048);
         assert!(
             (std::mem::size_of::<SystemRecord>() + 9 * MAX_NAME_BYTES + 256) * MAX_CACHED_SYSTEMS
+                + MAX_CACHED_FAUNA_BYTES
                 < 64 * 1024 * 1024
         );
     }

@@ -363,7 +363,7 @@ mod tests {
     fn record(sky: u32) -> SystemRecord {
         let mut system = Facts::default();
         system.set_planet_count(1);
-        let mut planets = [Facts::default(); 8];
+        let mut planets = std::array::from_fn(|_| Facts::default());
         planets[0].set(Field::Sky, crate::vocabulary::GRASS_COLOUR_SET | 1 << sky);
         SystemRecord::new(system, planets).unwrap()
     }
@@ -390,7 +390,8 @@ mod tests {
             let mut system = Facts::default();
             system.set_planet_count(6);
             system.set(Field::Population, population);
-            let record = SystemRecord::new(system, [Facts::default(); 8]).unwrap();
+            let record =
+                SystemRecord::new(system, std::array::from_fn(|_| Facts::default())).unwrap();
             session.apply(addresses[index], record, false).unwrap();
             assert_eq!(session.unnamed_system_results(), [addresses[index]]);
             session
@@ -557,7 +558,7 @@ mod tests {
             .unwrap();
         let addresses = load(&mut session);
         let mut incomplete = record(0);
-        incomplete.planets = [Facts::default(); 8];
+        incomplete.planets = std::array::from_fn(|_| Facts::default());
         session.observe(addresses[0], incomplete).unwrap();
         session.cancel();
         session.start(options, origin(), false, false).unwrap();

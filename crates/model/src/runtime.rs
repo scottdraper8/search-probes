@@ -180,7 +180,7 @@ mod tests {
         for &address in &addresses[..8] {
             let mut system = Facts::default();
             system.set_planet_count(1);
-            let mut planets = [Facts::default(); 8];
+            let mut planets = std::array::from_fn(|_| Facts::default());
             planets[0].set(crate::criteria::Field::Size, 0);
             session
                 .apply(address, SystemRecord::new(system, planets).unwrap(), false)

@@ -48,11 +48,10 @@ fields! {
     Terrain => ("Terrain",TERRAIN_FEATURES,Terrain),
     Sentinels => ("Sentinels",SENTINEL_LEVELS,Query),
     Flora => ("Flora",PLANET_LIFE_LEVELS,Metadata),
-    Fauna => ("Fauna",PLANET_LIFE_LEVELS,Metadata),
+    Fauna => ("Quantity",PLANET_LIFE_LEVELS,Metadata),
     ResourceRichness => ("Resource abundance",RESOURCE_LEVELS,Metadata),
-    WeatherType => ("Weather type",WEATHER_TYPES,Weather),
-    StormFrequency => ("Storm frequency",STORM_FREQUENCIES,Weather),
-    WeatherIntensity => ("Weather intensity",WEATHER_INTENSITIES,Weather),
+    StormType => ("Storm type",STORM_TYPES,Weather),
+    StormFrequency => ("Storm frequency",STORM_FREQUENCIES,Query),
     Grass => ("Grass colour",GRASS_COLOURS,Objects),
     FloraColour => ("Flora colour",GRASS_COLOURS,Objects),
     Cloud => ("Cloud colour",GRASS_COLOURS,Colour),
@@ -77,9 +76,7 @@ impl Field {
                 Self::Anomaly => matches!(index, 0 | 2 | 5),
                 Self::Biome => !(8..=11).contains(index),
                 Self::Subtype => *index < 29,
-                Self::Flora => *index != 1,
-                Self::WeatherType => !(7..=9).contains(index),
-                Self::StormFrequency => *index < 3,
+                Self::Flora | Self::Fauna => *index != 1,
                 Self::Sky | Self::Horizon | Self::SkyFog => *index != 9,
                 Self::SkyHeightFog => !matches!(index, 6 | 8 | 9),
 
@@ -165,81 +162,230 @@ macro_rules! flags {
 flags! { PlanetFlag {
     Rings => ("Rings",Input),
     Moons => ("Has moons",Input),
-    Water => ("Water",Query),
-    DeepWater => ("Deep water",Query),
-    NonGasGiant => ("Giant rocky planet",Query),
+    Dissonant => ("Dissonant",Query),
     Sentinels => ("Sentinels",Query),
     ExtremeSentinels => ("Extreme sentinels",Query),
     CorruptSentinels => ("Corrupt sentinels",Query),
-    ExtremeWeather => ("Extreme weather",Query),
+    ExtremeStorms => ("Extreme storms",Weather),
     Infested => ("Infested",Query),
     Relic => ("Relic",Query),
     Rgb => ("Mega-exotic biome",Query),
-    CreatureDiscovery => ("Suitable for creature discovery",Query),
-    WeirdCreatureDiscovery => ("Suitable for unusual creature discovery",Query),
-    CreatureTaming => ("Suitable for creature taming",Query),
-    RobotCreatureDiscovery => ("Suitable for robotic creature discovery",Query),
-    Paradise => ("Paradise conditions",Weather),
     Dead => ("Dead",Query),
     Weird => ("Weird / Exotic",Query),
     GlowingGrass => ("Glowing grass",Objects),
     GlowingFlora => ("Glowing flora",Objects),
     PlayerAttackingFauna => ("Player-attacking fauna",Fauna),
     VileBrood => ("Vile Brood",Hints),
+    Sandworms => ("Sandworms",Fauna),
+    TitanWorms => ("Titan worms",Objects),
 }}
 
 flags! { SystemFlag {
     Pirate => ("Outlaw system",System),
-    Giant => ("Contains a giant planet",Input),
-    GasGiant => ("Contains a gas giant",Query),
-    NonGasGiant => ("Contains a giant rocky planet",Query),
-    Waterworld => ("Contains a waterworld",Query),
-    Water => ("Contains water",Query),
-    DeepWater => ("Contains deep water",Query),
-    Weird => ("Contains a weird / exotic planet",Query),
-    Infested => ("Contains an infested planet",Query),
-    Relic => ("Contains a relic planet",Query),
-    Rgb => ("Contains a mega-exotic biome",Query),
-    CorruptSentinels => ("Contains corrupt sentinels",Query),
-    ExtremeStorms => ("Contains extreme storms",Query),
-    Dead => ("Contains a dead planet",Query),
+    Dissonance => ("Dissonance",Query),
+    ExtremeStorms => ("Contains extreme storms",Weather),
 }}
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum GiantFilter {
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum WaterFilter {
+    #[default]
     Any,
-    AnyType,
-    Gas,
-    NonGas,
-    Exclude,
+    RequireAny,
+    RequireDeep,
+    ExcludeDeep,
+    ExcludeAll,
 }
-
-impl GiantFilter {
+impl WaterFilter {
     pub const ALL: &[Self] = &[
         Self::Any,
-        Self::AnyType,
-        Self::Gas,
-        Self::NonGas,
-        Self::Exclude,
+        Self::RequireAny,
+        Self::RequireDeep,
+        Self::ExcludeDeep,
+        Self::ExcludeAll,
     ];
-
     pub fn label(self) -> &'static str {
         match self {
             Self::Any => "Any",
-            Self::AnyType => "Require a giant",
-            Self::Gas => "Require a gas giant",
-            Self::NonGas => "Require a non-gas giant",
-            Self::Exclude => "Exclude all giants",
+            Self::RequireAny => "Require any water type",
+            Self::RequireDeep => "Require deep water",
+            Self::ExcludeDeep => "Exclude deep water",
+            Self::ExcludeAll => "Exclude all water",
         }
     }
-
-    fn rule(self) -> Option<(SystemFlag, bool)> {
+    pub fn accepts(self, water: WaterPresence) -> bool {
         match self {
-            Self::Any => None,
-            Self::AnyType => Some((SystemFlag::Giant, true)),
-            Self::Gas => Some((SystemFlag::GasGiant, true)),
-            Self::NonGas => Some((SystemFlag::NonGasGiant, true)),
-            Self::Exclude => Some((SystemFlag::Giant, false)),
+            Self::Any => true,
+            Self::RequireAny => water != WaterPresence::Dry,
+            Self::RequireDeep => water == WaterPresence::Deep,
+            Self::ExcludeDeep => water != WaterPresence::Deep,
+            Self::ExcludeAll => water == WaterPresence::Dry,
+        }
+    }
+}
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+pub enum WaterPresence {
+    Dry,
+    Shallow,
+    Deep,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Section {
+    Composition,
+    Profile,
+    Environment,
+    Colours,
+    Conditions,
+    Fauna,
+    AquaticFauna,
+    LandFauna,
+    AirborneFauna,
+    Features,
+    Resources,
+    Type,
+    Weather,
+}
+impl Section {
+    pub fn parent(self) -> Option<Self> {
+        match self {
+            Self::AquaticFauna | Self::LandFauna | Self::AirborneFauna => Some(Self::Fauna),
+            _ => None,
+        }
+    }
+    pub const ALL: &[Self] = &[
+        Self::Composition,
+        Self::Profile,
+        Self::Environment,
+        Self::Colours,
+        Self::Conditions,
+        Self::Fauna,
+        Self::AquaticFauna,
+        Self::LandFauna,
+        Self::AirborneFauna,
+        Self::Features,
+        Self::Resources,
+        Self::Type,
+        Self::Weather,
+    ];
+}
+impl Field {
+    pub fn section(self) -> Section {
+        match self {
+            Self::Star
+            | Self::Wealth
+            | Self::Economy
+            | Self::Conflict
+            | Self::Population
+            | Self::Race
+            | Self::Anomaly => Section::Profile,
+            Self::Biome | Self::Subtype | Self::Flora => Section::Environment,
+            Self::Size => Section::Type,
+            Self::Sentinels => Section::Conditions,
+            Self::Fauna => Section::Fauna,
+            Self::Terrain => Section::Features,
+            Self::ResourceRichness | Self::UniqueResources => Section::Resources,
+            Self::StormType | Self::StormFrequency => Section::Weather,
+            _ => Section::Colours,
+        }
+    }
+}
+impl PlanetFlag {
+    pub fn section(self) -> Section {
+        match self {
+            Self::Rings | Self::Moons => Section::Features,
+            Self::Sentinels | Self::ExtremeSentinels | Self::CorruptSentinels | Self::Dissonant => {
+                Section::Conditions
+            }
+            Self::ExtremeStorms => Section::Weather,
+            Self::GlowingGrass | Self::GlowingFlora | Self::Rgb => Section::Environment,
+            Self::Dead | Self::Weird | Self::Infested | Self::Relic => Section::Type,
+            _ => Section::Fauna,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum SelectionSide {
+    Include,
+    Exclude,
+}
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum CompositionField {
+    Biomes,
+    Subtypes,
+    Sizes,
+}
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct ExclusiveSelections {
+    pub include: u64,
+    pub exclude: u64,
+}
+impl ExclusiveSelections {
+    pub fn get(self, side: SelectionSide) -> u64 {
+        match side {
+            SelectionSide::Include => self.include,
+            SelectionSide::Exclude => self.exclude,
+        }
+    }
+    pub fn set(&mut self, side: SelectionSide, mask: u64) {
+        match side {
+            SelectionSide::Include => {
+                self.include = mask;
+                self.exclude &= !mask;
+            }
+            SelectionSide::Exclude => {
+                self.exclude = mask;
+                self.include &= !mask;
+            }
+        }
+    }
+}
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct Composition {
+    pub biomes: ExclusiveSelections,
+    pub subtypes: ExclusiveSelections,
+    pub sizes: ExclusiveSelections,
+}
+impl Composition {
+    pub fn selections(&self, field: CompositionField) -> ExclusiveSelections {
+        match field {
+            CompositionField::Biomes => self.biomes,
+            CompositionField::Subtypes => self.subtypes,
+            CompositionField::Sizes => self.sizes,
+        }
+    }
+    fn biome_scopes_overlap(&self) -> bool {
+        self.biomes.include == 0
+            || self.biomes.exclude == 0
+            || self.biomes.include & self.biomes.exclude != 0
+    }
+    pub fn set(&mut self, field: CompositionField, side: SelectionSide, mask: u64) {
+        match field {
+            CompositionField::Biomes => {
+                let old = self.biomes;
+                self.biomes.set(side, mask);
+                if old.include != self.biomes.include {
+                    self.subtypes.include = 0;
+                }
+                if old.exclude != self.biomes.exclude {
+                    self.subtypes.exclude = 0;
+                }
+            }
+            CompositionField::Subtypes => {
+                if self.biome_scopes_overlap() {
+                    self.subtypes.set(side, mask);
+                } else {
+                    match side {
+                        SelectionSide::Include => self.subtypes.include = mask,
+                        SelectionSide::Exclude => self.subtypes.exclude = mask,
+                    }
+                }
+            }
+            CompositionField::Sizes => self.sizes.set(side, mask),
         }
     }
 }
@@ -277,6 +423,11 @@ pub struct Criteria {
     pub resources: Resources,
     pub unique_resource_mode: ResourceMode,
     pub minimum_planets: Option<u8>,
+    pub composition: Composition,
+    pub system_water: WaterFilter,
+    pub planet_water: WaterFilter,
+    pub match_modes: BTreeMap<Section, ResourceMode>,
+    pub fauna: BTreeMap<crate::fauna::Domain, crate::fauna::FaunaCriteria>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
@@ -328,22 +479,57 @@ impl Choices {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub enum PlanetSelection {
+    Biome { biomes: u64, subtypes: u64 },
+    Size(u64),
+    Water(WaterFilter),
+}
+impl PlanetSelection {
+    pub fn stage(self) -> Stage {
+        match self {
+            Self::Size(_) => Stage::Input,
+            _ => Stage::Query,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Predicate {
     Choice(Choices),
     Planet(PlanetFlag, bool),
     System(SystemFlag, bool),
     Resources(Resources),
     MinimumPlanets(u8),
+    Water(WaterFilter),
+    Contains(PlanetSelection, bool),
+    Fauna(crate::fauna::Selection),
 }
 
 impl Predicate {
+    pub fn section(self) -> Section {
+        match self {
+            Self::Fauna(selection) => selection.domain.section(),
+            Self::Choice(choices) => choices.field.section(),
+            Self::Planet(flag, _) => flag.section(),
+            Self::System(SystemFlag::ExtremeStorms, _) | Self::MinimumPlanets(_) => {
+                Section::Composition
+            }
+            Self::System(_, _) | Self::Contains(PlanetSelection::Water(_), _) => Section::Profile,
+            Self::Resources(_) => Section::Resources,
+            Self::Water(_) => Section::Conditions,
+            Self::Contains(_, _) => Section::Composition,
+        }
+    }
     pub fn stage(self) -> Stage {
         match self {
+            Self::Fauna(_) => Stage::Fauna,
             Self::Choice(choices) => choices.field.stage(),
             Self::Planet(flag, _) => flag.stage(),
             Self::System(flag, _) => flag.stage(),
             Self::Resources(_) => Stage::Query,
             Self::MinimumPlanets(_) => Stage::System,
+            Self::Water(_) => Stage::Query,
+            Self::Contains(selection, _) => selection.stage(),
         }
     }
 }
@@ -366,6 +552,7 @@ pub struct Plan {
     pub system: Vec<Predicate>,
     pub planet: Vec<Predicate>,
     pub requirements: Requirements,
+    pub match_modes: [ResourceMode; Section::ALL.len()],
 }
 
 impl Criteria {
@@ -411,34 +598,7 @@ impl Criteria {
         let Some(selected) = self.biome_choices() else {
             return Vec::new();
         };
-        let mut options: Vec<(u64, &'static str)> = Vec::new();
-        for choice in 0..29 {
-            let mut label = None;
-            let mut ambiguous = false;
-            for (biome, _) in Field::Biome.available_options() {
-                if (selected != 0 && selected & (1 << biome) == 0)
-                    || !biome_subtype_present(biome, choice)
-                {
-                    continue;
-                }
-                match biome_subtype_label(biome, choice) {
-                    Some(current) if label.is_none() || label == Some(current) => {
-                        label = Some(current);
-                    }
-                    _ => ambiguous = true,
-                }
-            }
-            if !ambiguous {
-                if let Some(label) = label {
-                    if let Some((mask, _)) = options.iter_mut().find(|(_, name)| *name == label) {
-                        *mask |= 1 << choice;
-                    } else {
-                        options.push((1 << choice, label));
-                    }
-                }
-            }
-        }
-        options
+        subtype_options_for(selected)
     }
 
     pub fn sentinel_choices(&self) -> Option<u64> {
@@ -484,35 +644,86 @@ impl Criteria {
         }
     }
 
-    pub fn giant_filter(&self) -> Option<GiantFilter> {
-        let mut rules = self.systems.iter().filter_map(|(&flag, &value)| {
-            matches!(
-                flag,
-                SystemFlag::Giant | SystemFlag::GasGiant | SystemFlag::NonGasGiant
-            )
-            .then_some((flag, value))
-        });
-        let rule = rules.next();
-        if rules.next().is_some() {
-            return None;
-        }
-        GiantFilter::ALL
-            .iter()
-            .copied()
-            .find(|filter| filter.rule() == rule)
+    pub fn match_mode(&self, section: Section) -> ResourceMode {
+        self.match_modes.get(&section).copied().unwrap_or_default()
     }
-
-    pub fn set_giant_filter(&mut self, filter: GiantFilter) {
-        for flag in [
-            SystemFlag::Giant,
-            SystemFlag::GasGiant,
-            SystemFlag::NonGasGiant,
+    fn compile_composition(&self, plan: &mut Plan) -> Result<(), &'static str> {
+        for (field, pair) in [
+            (Field::Biome, self.composition.biomes),
+            (Field::Size, self.composition.sizes),
         ] {
-            self.systems.remove(&flag);
+            let allowed = field
+                .available_options()
+                .fold(0u64, |mask, (index, _)| mask | 1 << index);
+            if (pair.include | pair.exclude) & !allowed != 0 {
+                return Err("unsupported system composition choice");
+            }
+            if pair.include & pair.exclude != 0 {
+                return Err("conflicting system composition choices");
+            }
         }
-        if let Some((flag, value)) = filter.rule() {
-            self.systems.insert(flag, value);
+        if self.composition.biome_scopes_overlap()
+            && self.composition.subtypes.include & self.composition.subtypes.exclude != 0
+        {
+            return Err("conflicting system subtype choices");
         }
+        for side in [SelectionSide::Include, SelectionSide::Exclude] {
+            let biomes = self.composition.biomes.get(side);
+            let subtypes = self.composition.subtypes.get(side);
+            let options = subtype_options_for(biomes);
+            let allowed = options.iter().fold(0, |mask, (option, _)| mask | option);
+            if subtypes & !allowed != 0 {
+                return Err("unsupported system biome subtype");
+            }
+            let expected = side == SelectionSide::Include;
+            let all = expected && self.match_mode(Section::Composition) == ResourceMode::All;
+            if biomes != 0 || subtypes != 0 {
+                if all {
+                    for (index, _) in Field::Biome.available_options() {
+                        if biomes & (1 << index) != 0 {
+                            plan.system.push(Predicate::Contains(
+                                PlanetSelection::Biome {
+                                    biomes: 1 << index,
+                                    subtypes,
+                                },
+                                true,
+                            ));
+                        }
+                    }
+                    for (mask, _) in options {
+                        if subtypes & mask != 0 {
+                            plan.system.push(Predicate::Contains(
+                                PlanetSelection::Biome {
+                                    biomes,
+                                    subtypes: subtypes & mask,
+                                },
+                                true,
+                            ));
+                        }
+                    }
+                } else {
+                    plan.system.push(Predicate::Contains(
+                        PlanetSelection::Biome { biomes, subtypes },
+                        expected,
+                    ));
+                }
+            }
+            let sizes = self.composition.sizes.get(side);
+            if sizes != 0 {
+                if all {
+                    for (index, _) in Field::Size.available_options() {
+                        if sizes & (1 << index) != 0 {
+                            plan.system
+                                .push(Predicate::Contains(PlanetSelection::Size(1 << index), true));
+                        }
+                    }
+                } else {
+                    plan.system
+                        .push(Predicate::Contains(PlanetSelection::Size(sizes), expected));
+                }
+            }
+        }
+        Ok(())
     }
 
     pub fn compile(&self) -> Result<Plan, &'static str> {
@@ -520,6 +731,7 @@ impl Criteria {
             system: Vec::new(),
             planet: Vec::new(),
             requirements: Requirements::default(),
+            match_modes: std::array::from_fn(|index| self.match_mode(Section::ALL[index])),
         };
         for (&field, &mask) in &self.choices {
             if mask == 0 {
@@ -533,7 +745,7 @@ impl Criteria {
                     field,
                     Field::Subtype
                         | Field::Flora
-                        | Field::WeatherType
+                        | Field::Fauna
                         | Field::StormFrequency
                         | Field::WaterColour
                         | Field::SkyHeightFog
@@ -570,12 +782,23 @@ impl Criteria {
             if let Some(index) = field.colour_index() {
                 plan.requirements.colours |= 1 << index;
             }
-            if field == Field::Economy {
-                plan.system
-                    .push(Predicate::System(SystemFlag::Pirate, false));
-            }
-            if field == Field::WaterColour {
-                plan.planet.push(Predicate::Planet(PlanetFlag::Water, true));
+        }
+        if self.planet_water != WaterFilter::Any {
+            plan.planet.push(Predicate::Water(self.planet_water));
+        }
+        if self.system_water != WaterFilter::Any {
+            let (rule, expected) = match self.system_water {
+                WaterFilter::ExcludeDeep => (WaterFilter::RequireDeep, false),
+                WaterFilter::ExcludeAll => (WaterFilter::RequireAny, false),
+                rule => (rule, true),
+            };
+            plan.system
+                .push(Predicate::Contains(PlanetSelection::Water(rule), expected));
+        }
+        self.compile_composition(&mut plan)?;
+        for (&domain, criteria) in &self.fauna {
+            if let Some(selection) = criteria.compile(domain, self.match_mode(domain.section()))? {
+                plan.planet.push(Predicate::Fauna(selection));
             }
         }
         for (&flag, &value) in &self.planets {
@@ -604,9 +827,7 @@ impl Criteria {
         }
         for predicate in plan.system.iter().chain(&plan.planet) {
             plan.requirements.planet_query |= predicate.stage() >= Stage::Query;
-            plan.requirements.metadata |= predicate.stage() == Stage::Metadata
-                || *predicate == Predicate::Planet(PlanetFlag::Paradise, true)
-                || *predicate == Predicate::Planet(PlanetFlag::Paradise, false);
+            plan.requirements.metadata |= predicate.stage() == Stage::Metadata;
             plan.requirements.hints |= predicate.stage() == Stage::Hints;
             plan.requirements.fauna |= predicate.stage() == Stage::Fauna;
             plan.requirements.weather |= predicate.stage() == Stage::Weather;
@@ -626,6 +847,37 @@ impl Criteria {
         plan.planet.dedup();
         Ok(plan)
     }
+}
+
+pub fn subtype_options_for(selected: u64) -> Vec<(u64, &'static str)> {
+    let mut options: Vec<(u64, &'static str)> = Vec::new();
+    for choice in 0..29 {
+        let mut label = None;
+        let mut ambiguous = false;
+        for (biome, _) in Field::Biome.available_options() {
+            if (selected != 0 && selected & (1 << biome) == 0)
+                || !biome_subtype_present(biome, choice)
+            {
+                continue;
+            }
+            match biome_subtype_label(biome, choice) {
+                Some(current) if label.is_none() || label == Some(current) => {
+                    label = Some(current);
+                }
+                _ => ambiguous = true,
+            }
+        }
+        if !ambiguous {
+            if let Some(label) = label {
+                if let Some((mask, _)) = options.iter_mut().find(|(_, name)| *name == label) {
+                    *mask |= 1 << choice;
+                } else {
+                    options.push((1 << choice, label));
+                }
+            }
+        }
+    }
+    options
 }
 
 #[cfg(test)]
@@ -934,8 +1186,8 @@ mod tests {
     fn natural_planet_options_preserve_native_values() {
         for (field, expected) in [
             (Field::Flora, vec![0, 2, 3]),
-            (Field::Fauna, vec![0, 1, 2, 3]),
-            (Field::WeatherType, (0..7).chain(10..17).collect()),
+            (Field::Fauna, vec![0, 2, 3]),
+            (Field::StormType, (0..9).collect()),
             (Field::StormFrequency, vec![0, 1, 2]),
         ] {
             let options = field.available_options().collect::<Vec<_>>();
@@ -961,9 +1213,8 @@ mod tests {
     fn unreachable_planet_choices_cannot_start_a_search() {
         for (field, choices) in [
             (Field::Flora, vec![1]),
+            (Field::Fauna, vec![1]),
             (Field::Subtype, vec![29, 30]),
-            (Field::WeatherType, vec![7, 8, 9]),
-            (Field::StormFrequency, vec![3]),
         ] {
             for choice in choices {
                 for mask in [1 << choice, (1 << choice) | 1] {
@@ -997,7 +1248,7 @@ mod tests {
             assert_eq!(plan.planet_match(&facts), crate::facts::Verdict::NoMatch);
             facts.set(field, GRASS_COLOUR_SET | (1 << 10));
             if field == Field::WaterColour {
-                facts.set_planet_flag(PlanetFlag::Water, true);
+                facts.set_water(WaterPresence::Shallow);
             }
             assert_eq!(plan.planet_match(&facts), crate::facts::Verdict::Match);
         }
@@ -1048,14 +1299,14 @@ mod tests {
     #[test]
     fn editing_sentinels_replaces_legacy_rules_and_preserves_other_filters() {
         let mut criteria: Criteria = serde_json::from_str(
-            r#"{"choices":{"biome":1},"planets":{"sentinels":false,"extreme_sentinels":true,"water":true}}"#
+            r#"{"choices":{"biome":1},"planets":{"sentinels":false,"extreme_sentinels":true,"rings":true}}"#
         ).unwrap();
         assert_eq!(criteria.sentinel_choices(), None);
         criteria.set_sentinel_choices(1 << 3);
         assert_eq!(criteria.sentinel_choices(), Some(1 << 3));
         assert_eq!(
             criteria.planets,
-            BTreeMap::from([(PlanetFlag::Water, true)])
+            BTreeMap::from([(PlanetFlag::Rings, true)])
         );
         assert_eq!(criteria.choices.get(&Field::Biome), Some(&1));
         let plan = criteria.compile().unwrap();
@@ -1064,53 +1315,6 @@ mod tests {
         criteria.set_sentinel_choices(0);
         assert_eq!(criteria.sentinel_choices(), Some(0));
         assert!(!criteria.choices.contains_key(&Field::Sentinels));
-    }
-
-    #[test]
-    fn giant_dropdown_replaces_all_giant_rules_and_preserves_other_criteria() {
-        use crate::facts::{Facts, Verdict};
-
-        let mut criteria = Criteria::default();
-        criteria.systems.insert(SystemFlag::Water, true);
-        criteria.planets.insert(PlanetFlag::NonGasGiant, false);
-        criteria.systems.insert(SystemFlag::GasGiant, true);
-        criteria.systems.insert(SystemFlag::NonGasGiant, true);
-        assert_eq!(criteria.giant_filter(), None);
-        for (filter, expected) in [
-            (GiantFilter::Any, [true, true, true, true]),
-            (GiantFilter::AnyType, [false, true, true, true]),
-            (GiantFilter::Gas, [false, true, false, true]),
-            (GiantFilter::NonGas, [false, false, true, true]),
-            (GiantFilter::Exclude, [true, false, false, false]),
-        ] {
-            criteria.set_giant_filter(filter);
-            assert_eq!(criteria.giant_filter(), Some(filter));
-            assert_eq!(criteria.systems.get(&SystemFlag::Water), Some(&true));
-            assert_eq!(criteria.planets.get(&PlanetFlag::NonGasGiant), Some(&false));
-            let plan = criteria.compile().unwrap();
-            for ((gas, non_gas), accepted) in
-                [(false, false), (true, false), (false, true), (true, true)]
-                    .into_iter()
-                    .zip(expected)
-            {
-                let mut facts = Facts::default();
-                facts.set_system_flag(SystemFlag::Water, true);
-                facts.set_system_flag(SystemFlag::Giant, gas || non_gas);
-                facts.set_system_flag(SystemFlag::GasGiant, gas);
-                facts.set_system_flag(SystemFlag::NonGasGiant, non_gas);
-                assert_eq!(
-                    plan.system_match(&facts),
-                    if accepted {
-                        Verdict::Match
-                    } else {
-                        Verdict::NoMatch
-                    }
-                );
-            }
-        }
-        assert_eq!(criteria.systems.len(), 2);
-        criteria.set_giant_filter(GiantFilter::Any);
-        assert_eq!(criteria.systems.len(), 1);
     }
 
     #[test]
@@ -1176,14 +1380,14 @@ mod tests {
             }
         }
         let mut conflicting: Criteria =
-            serde_json::from_str(r#"{"choices":{"biome":1},"planets":{"rgb":true,"water":true}}"#)
+            serde_json::from_str(r#"{"choices":{"biome":1},"planets":{"rgb":true,"rings":true}}"#)
                 .unwrap();
         assert_eq!(conflicting.biome_choices(), None);
         conflicting.set_biome_choices(0);
         assert_eq!(conflicting.biome_choices(), Some(0));
         assert_eq!(
             conflicting.planets,
-            BTreeMap::from([(PlanetFlag::Water, true)])
+            BTreeMap::from([(PlanetFlag::Rings, true)])
         );
     }
 
@@ -1230,9 +1434,10 @@ mod tests {
                 ..Requirements::default()
             }
         );
-        criteria.planets.insert(PlanetFlag::Paradise, false);
+        criteria.choices.insert(Field::StormType, 1);
         let plan = criteria.compile().unwrap();
-        assert!(plan.requirements.metadata && plan.requirements.weather);
+        assert!(plan.requirements.weather);
+        assert!(!plan.requirements.metadata);
         assert!(!plan.requirements.objects);
     }
 

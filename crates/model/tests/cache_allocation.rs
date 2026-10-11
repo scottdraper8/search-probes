@@ -2,6 +2,7 @@ use search_probes_model::{
     address::{Address, Coordinates},
     cache::{Cache, MAX_CACHED_SYSTEMS, MAX_NAME_BYTES, SystemRecord},
     facts::Facts,
+    fauna::{Domain, Family, MAX_SPECIES, Species},
 };
 use std::{
     alloc::{GlobalAlloc, Layout, System},
@@ -53,7 +54,8 @@ fn full_cache_and_repeated_eviction_stay_below_memory_budget() {
             .unwrap();
             let mut facts = Facts::default();
             facts.set_planet_count(8);
-            let mut record = SystemRecord::new(facts, [Facts::default(); 8]).unwrap();
+            let mut record =
+                SystemRecord::new(facts, std::array::from_fn(|_| Facts::default())).unwrap();
             record.set_system_name(&name).unwrap();
             for planet in 0..8 {
                 record.set_name(planet, &name).unwrap();
@@ -61,6 +63,43 @@ fn full_cache_and_repeated_eviction_stay_below_memory_budget() {
             cache.insert(address, record).unwrap();
         }
         assert_eq!(cache.len(), MAX_CACHED_SYSTEMS);
+        retained.push(LIVE.load(Ordering::Relaxed).saturating_sub(baseline));
+    }
+    let species = Species {
+        family: Family::Cats,
+        domain: Domain::Land,
+        activity: 2,
+        rarity: 1,
+        cave: false,
+        heights_cm: [125, 150],
+    };
+    for _ in 0..2 {
+        for index in 0..MAX_CACHED_SYSTEMS {
+            let address = Address::new(Coordinates {
+                galaxy: 0,
+                x: (index / 4095) as i16,
+                y: 0,
+                z: 0,
+                system: (index % 4095 + 1) as u16,
+                planet: 0,
+            })
+            .unwrap();
+            let mut facts = Facts::default();
+            facts.set_planet_count(8);
+            let planets = std::array::from_fn(|_| {
+                let mut planet = Facts::default();
+                planet.set_fauna(vec![species; MAX_SPECIES]);
+                planet
+            });
+            let record = SystemRecord::new(facts, planets).unwrap();
+            cache.insert(address, record).unwrap();
+        }
+        assert!(
+            cache.len() < MAX_CACHED_SYSTEMS,
+            "species budget must evict populated records"
+        );
+        let last = cache.records().last().unwrap().1;
+        assert_eq!(last.planets[0].fauna().unwrap().len(), MAX_SPECIES);
         retained.push(LIVE.load(Ordering::Relaxed).saturating_sub(baseline));
     }
     let peak = PEAK.load(Ordering::Relaxed).saturating_sub(baseline);

@@ -13,6 +13,7 @@ pub const MAX_FILENAME_BYTES: usize = 256;
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct TableFacts {
     pub floating_islands: bool,
+    pub titan_worms: bool,
     pub objects: u32,
     pub ground_grass: u32,
     pub glowing_grass: bool,

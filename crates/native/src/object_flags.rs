@@ -27,6 +27,7 @@ impl Drop for Resource<'_> {
 #[repr(C)]
 pub struct ObjectFlags {
     pub floating_islands: u32,
+    pub titan_worms: bool,
     pub loaded_tables: u32,
     pub objects: u32,
     pub missing_tables: u32,
@@ -109,6 +110,7 @@ impl ObjectTables {
                 let facts = summaries.resolve(key, glow, || self.load(filename, glow))?;
                 if let Some(facts) = facts {
                     result.loaded_tables += 1;
+                    result.titan_worms |= facts.titan_worms;
                     result.objects = result
                         .objects
                         .checked_add(facts.objects)
@@ -170,6 +172,7 @@ impl ObjectTables {
             for index in 0..count {
                 let object = unsafe { objects.add(index * 0x168) };
                 facts.floating_islands |= unsafe { floating_island(object) }?;
+                facts.titan_worms |= unsafe { titan_worm(object) }?;
                 let grass = unsafe { ground_grass(object) }?;
                 facts.ground_grass |= grass;
                 if glow != 0 && unsafe { spawns(object) }? {
@@ -235,6 +238,12 @@ unsafe fn floating_island(object: *const u8) -> Result<bool, &'static str> {
     Ok(unsafe { object.add(0x15f).read() != 0 && spawns(object)? })
 }
 
+unsafe fn titan_worm(object: *const u8) -> Result<bool, &'static str> {
+    Ok(unsafe { model_path(object) }?.eq_ignore_ascii_case(
+        b"MODELS/PLANETS/CREATURES/SANDWORMMINI/GROUNDWORMSPAWNER.SCENE.MBIN",
+    ) && unsafe { spawns(object) }?)
+}
+
 /// # Safety
 /// The returned filename must not outlive the acquired native object resource.
 unsafe fn model_path<'a>(object: *const u8) -> Result<&'a [u8], &'static str> {
@@ -278,6 +287,25 @@ unsafe fn dynamic_array(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn titan_worms_require_an_enabled_burrow_spawn() {
+        let mut object = vec![0; 0x168];
+        let mut variant = [0u8; 0x48];
+        let model = b"MODELS/PLANETS/CREATURES/SANDWORMMINI/GROUNDWORMSPAWNER.SCENE.MBIN";
+        object[0x58..0x60].copy_from_slice(&(model.as_ptr() as usize).to_ne_bytes());
+        object[0x60..0x64].copy_from_slice(&(model.len() as i32).to_ne_bytes());
+        object[0xe0..0xe8].copy_from_slice(&(variant.as_ptr() as usize).to_ne_bytes());
+        object[0xe8..0xec].copy_from_slice(&1i32.to_ne_bytes());
+        assert!(!unsafe { titan_worm(object.as_ptr()) }.unwrap());
+        variant[0x24..0x28].copy_from_slice(&1f32.to_ne_bytes());
+        variant[0x40..0x44].copy_from_slice(&0.2f32.to_ne_bytes());
+        assert!(unsafe { titan_worm(object.as_ptr()) }.unwrap());
+        let other = b"MODELS/PLANETS/CREATURES/SANDWORM/SANDWORM.SCENE.MBIN";
+        object[0x58..0x60].copy_from_slice(&(other.as_ptr() as usize).to_ne_bytes());
+        object[0x60..0x64].copy_from_slice(&(other.len() as i32).to_ne_bytes());
+        assert!(!unsafe { titan_worm(object.as_ptr()) }.unwrap());
+    }
 
     #[test]
     fn floating_islands_require_positive_spawn_density() {

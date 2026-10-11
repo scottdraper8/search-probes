@@ -77,13 +77,11 @@ impl Default for Settings {
         let mut earthlike = SearchOptions::default();
         earthlike.criteria.choices.extend([
             (Field::Biome, 1),
+            (Field::StormFrequency, 1),
             (Field::Grass, 1 << 3),
             (Field::Sky, 1 << 5),
         ]);
-        earthlike
-            .criteria
-            .planets
-            .extend([(PlanetFlag::Paradise, true), (PlanetFlag::Moons, true)]);
+        earthlike.criteria.planets.insert(PlanetFlag::Moons, true);
         Self {
             schema: 1,
             search: SearchOptions::default(),

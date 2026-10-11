@@ -10,8 +10,9 @@ use crate::{
 use search_probes_model::{
     address::Address,
     cache::{MAX_NAME_BYTES, SystemRecord},
-    criteria::{Field, Plan, PlanetFlag},
+    criteria::{Field, Plan, PlanetFlag, Predicate, SystemFlag},
     facts::Verdict,
+    weather,
 };
 use std::sync::atomic::{AtomicBool, Ordering};
 
@@ -119,29 +120,44 @@ impl<'cache> Generator<'cache> {
             if cached.count() != outcome.snapshot.count {
                 return Err("cached system count changed");
             }
-            let mut system = cached.system;
+            let mut system = cached.system.clone();
             system.merge(&outcome.snapshot.system);
             outcome.snapshot.system = system;
             for index in 0..cached.count() {
-                let mut planet = cached.planets[index];
+                let mut planet = cached.planets[index].clone();
                 planet.merge(&outcome.snapshot.planets[index]);
                 outcome.snapshot.planets[index] = planet;
             }
             outcome.snapshot.aggregate();
         }
-        if plan.system_match(&outcome.snapshot.system) == Verdict::NoMatch {
+        if plan.system_match(
+            &outcome.snapshot.system,
+            &outcome.snapshot.planets[..outcome.snapshot.count],
+        ) == Verdict::NoMatch
+        {
             return Ok(outcome);
         }
         if plan.requirements.objects && self.objects.is_none() {
             self.objects = Some(unsafe { ObjectTables::from_verified_image(self.base) }?);
         }
         let generator = self.planet.as_mut_ptr();
+        let planet_storms = plan
+            .planet
+            .iter()
+            .any(|rule| matches!(rule, Predicate::Planet(PlanetFlag::ExtremeStorms, _)));
+        let system_storms = plan
+            .system
+            .iter()
+            .any(|rule| matches!(rule, Predicate::System(SystemFlag::ExtremeStorms, _)));
         for index in 0..outcome.snapshot.count {
             if cancel.load(Ordering::Relaxed) {
                 outcome.cancelled = true;
                 break;
             }
-            let system_verdict = plan.system_match(&outcome.snapshot.system);
+            let system_verdict = plan.system_match(
+                &outcome.snapshot.system,
+                &outcome.snapshot.planets[..outcome.snapshot.count],
+            );
             if system_verdict == Verdict::NoMatch
                 || (system_verdict == Verdict::Match && plan.planet.is_empty())
             {
@@ -168,6 +184,18 @@ impl<'cache> Generator<'cache> {
                 query.visit_planet(generator, index, |live, bytes| {
                     outcome.snapshot.read_planet(bytes, index, difficulty)?;
                     let facts = &mut outcome.snapshot.planets[index];
+                    // System storm criteria need the same per-planet hazard proof as
+                    // planet storm criteria, including when there is no planet target.
+                    if system_verdict == Verdict::Unknown
+                        && system_storms
+                        && facts.planet_flag(PlanetFlag::ExtremeStorms).is_none()
+                    {
+                        let details = capture::capture(live, generator, capture::WEATHER)?;
+                        let profile = capture::storm_profile(live, generator)?;
+                        facts.set_extreme_storm_profile(weather::extreme_storm_profile(&profile)?);
+                        apply_capture(facts, &details, difficulty)?;
+                        outcome.work.metadata_captures += 1;
+                    }
                     if plan.planet.is_empty() || plan.planet_match(facts) == Verdict::NoMatch {
                         return Ok(());
                     }
@@ -180,15 +208,20 @@ impl<'cache> Generator<'cache> {
                             return Ok(());
                         }
                     }
+                    let needed = plan.missing_planet_requirements(facts);
                     if needed.fauna {
-                        facts.set_planet_flag(
-                            PlanetFlag::PlayerAttackingFauna,
-                            crate::fauna::player_attacking(live)?,
-                        );
-                        if plan.planet_match(facts) == Verdict::NoMatch {
-                            return Ok(());
+                        if plan.planet.iter().any(|rule| matches!(rule, search_probes_model::criteria::Predicate::Fauna(_))) && facts.fauna().is_none() {
+                            let observed = crate::fauna::capture(live)?;
+                            facts.set_planet_flag(PlanetFlag::PlayerAttackingFauna, observed.player_attacking);
+                            facts.set_planet_flag(PlanetFlag::Sandworms, observed.sandworms);
+                            facts.set_fauna(observed.species);
+                        } else {
+                            facts.set_planet_flag(PlanetFlag::PlayerAttackingFauna, crate::fauna::player_attacking(live)?);
+                            facts.set_planet_flag(PlanetFlag::Sandworms, crate::fauna::sandworms(live)?);
                         }
+                        if plan.planet_match(facts) == Verdict::NoMatch { return Ok(()); }
                     }
+                    let needed = plan.missing_planet_requirements(facts);
                     let metadata = if needed.metadata {
                         capture::METADATA
                     } else {
@@ -201,12 +234,17 @@ impl<'cache> Generator<'cache> {
                         };
                     if metadata != 0 {
                         let details = capture::capture(live, generator, metadata)?;
+                        if needed.weather && planet_storms && facts.planet_flag(PlanetFlag::ExtremeStorms).is_none() {
+                            let profile = capture::storm_profile(live, generator)?;
+                            facts.set_extreme_storm_profile(weather::extreme_storm_profile(&profile)?);
+                        }
                         apply_capture(facts, &details, difficulty)?;
                         outcome.work.metadata_captures += 1;
                         if plan.planet_match(facts) == Verdict::NoMatch {
                             return Ok(());
                         }
                     }
+                    let needed = plan.missing_planet_requirements(facts);
                     if needed.terrain {
                         let layers = crate::terrain::features(live)?;
                         facts.observe_terrain_layers(layers);
@@ -262,6 +300,7 @@ impl<'cache> Generator<'cache> {
                         }
                         if need_glow & 1 != 0 { facts.set_planet_flag(PlanetFlag::GlowingGrass, flags.glowing_grass); }
                         if need_glow & 2 != 0 { facts.set_planet_flag(PlanetFlag::GlowingFlora, flags.glowing_flora); }
+                        facts.set_planet_flag(PlanetFlag::TitanWorms, flags.titan_worms);
                         outcome.work.object_scans += 1;
                         if plan.planet_match(facts) == Verdict::NoMatch {
                             return Ok(());
@@ -324,7 +363,10 @@ impl<'cache> Generator<'cache> {
             outcome.matches.clear();
             return Ok(outcome);
         }
-        match plan.system_match(&outcome.snapshot.system) {
+        match plan.system_match(
+            &outcome.snapshot.system,
+            &outcome.snapshot.planets[..outcome.snapshot.count],
+        ) {
             Verdict::NoMatch => outcome.matches.clear(),
             Verdict::Unknown => return Err("selected system criterion has no acquired value"),
             Verdict::Match => {}
@@ -350,7 +392,7 @@ mod tests {
             let outcome = Outcome {
                 snapshot: Snapshot {
                     system,
-                    planets: [Facts::default(); 8],
+                    planets: std::array::from_fn(|_| Facts::default()),
                     count: 1,
                 },
                 matches: vec![Match {

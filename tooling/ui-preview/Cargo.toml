@@ -1,0 +1,13 @@
+[package]
+name = "search-probes-ui-preview"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.98"
+license = "MIT"
+
+[workspace]
+
+[dependencies]
+search-probes-ui = { path = "../../crates/ui" }
+search-probes-model = { path = "../../crates/model" }
+eframe = { version = "=0.36.2", default-features = false, features = ["default_fonts", "glow", "persistence", "wayland", "x11"] }

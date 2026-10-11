@@ -14,7 +14,10 @@ pub mod supported;
 pub mod target;
 pub mod terrain;
 pub mod vocabulary;
+pub mod weather;
 
 pub mod grass;
 
 pub mod controls;
+
+pub mod fauna;

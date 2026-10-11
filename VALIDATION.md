@@ -9,6 +9,28 @@ be changed. Other native hook mods and alternate WinMM proxies are outside the t
 
 ## Visible filter qualification
 
+System composition predicates evaluate the system's owned planet observations. Include/exclude
+biome and size masks clear conflicting selections; subtype choices retain their biome context and
+group equivalent native variants. All mode requires each included value somewhere in the system;
+Any mode combines active composition criteria as alternatives, including exclusions. An excluded
+biome/subtype pair matches one planet, while different included criteria can match different planets.
+System-only searches retain system destinations and names. Size uses solar input; biome, subtype,
+water and dissonance reuse the native query. Dissonance uses the normal-difficulty corrupted-Sentinel
+entry as a world property; the planet Sentinel control follows the selected combat difficulty.
+
+Each subsection has independent All/Any criterion matching. Top-level sections remain conjunctive, and
+empty subsections impose no requirement. Native dependent checks, including water presence for
+water colour, remain attached to their criterion. Owned partial facts retain unknown values;
+negative system predicates wait until all planets are known unless a positive counterexample is
+found. A successful Any subsection skips its remaining acquisitions. Model controls cover mixed
+systems, contextual subtypes, variant grouping, water truth tables, exclusions, cache reuse,
+persistence and continuation-plan identity. Native decoder checks cover water and difficulty-independent
+dissonance. The standalone window uses the production UI and reloads on source changes while NMS is stopped.
+The launcher closes/suspends the preview while NMS runs and resumes after exit; watcher controls
+exercise edits during suspension and a clean resume without taking gameplay focus.
+The updated controls have passed deterministic checks and Windows compilation; fresh in-game
+qualification of the composition and subsection modes remains pending.
+
 Unique resources and Vile Brood read the generated `ExtraResourceHints` array before metadata,
 colour or object acquisition. The native query builds these hints from selected external object
 lists before the planet visitor runs. Reads retain only a resource bit set and a brood boolean;
@@ -39,6 +61,41 @@ arrays and roles and defer exclusions until the fact is acquired. Species classi
 independent of settings or behaviour mods that suppress attacks. The operator confirms the installed fresh-process filter works in game, including the requested
 Require/Exclude check.
 
+Fauna's Aquatic, Land and Airborne subsections select positive generated species on the same
+planet. Within each subsection, All mode requires one species to satisfy every active criterion;
+Any mode accepts a species meeting one criterion. Body-family/category options are contextual.
+Each active fauna subsection counts as one criterion in the parent Fauna section, alongside its
+direct filters. Parent All requires every active child/direct criterion; parent Any requires one.
+Nested Any/Any therefore accepts a single matching subsection field. Broad domain presence controls
+support Require and Exclude without selecting a family. Unknown observations cannot prove absence.
+Resolved parents skip unnecessary child acquisitions; empty subsections do not satisfy parent Any.
+Land habitat uses the actual cave tile. Height bounds use either generated discovery gender height
+in metres; they do not imply every spawned individual has that height. Rarity uses the discovery
+Common/Uncommon/Rare field. There is no aquatic shallow/deep species classification.
+
+The native visitor copies compact species once, without another generation call or retained game
+pointers. Cached facts share owned immutable species, preserve unknown/empty distinctions and have
+a separate byte cap within the existing structural budget. Default searches acquire no species.
+Model controls cover joint-species matching, domain conjunction, heights, unavailable options,
+presets and cache ownership. Native controls distinguish actual underwater placement, ordinary air
+families and non-air families using flying behaviour engines. The four suitability controls are
+absent from model, UI, native query reads and authored mission assets.
+
+Sandworms read the generated population flag. Titan worms identify positive burrow spawns in
+selected non-superseded object tables. Brood hints and naturally player-attacking species remain
+independent. Tests distinguish disabled burrows and giant travelling worm models. Current assets
+and exact native generation disassembly support these separate surfaces.
+
+Passive Eggyon IV capture contains land, flying, underwater and cave roles. The operator confirms
+its 14-species discovery count; photographs confirm prawn/shark, flying-lizard and bipedal land
+appearance with discovery heights matching the captured gender heights at displayed precision.
+Production decoder replay checks present and absent families by domain, alongside the Wafford
+Prime and earlier aggression references. Source tests, authored-asset checks and Windows builds
+pass. Installed candidate searches and positive/negative worm-world acceptance remain pending;
+these passive reads do not qualify the new controls in-game. Arena affinity/stat filters and complete
+bioluminescent-fauna classification remain unimplemented pending native resolution evidence.
+The focused fauna contract records source witnesses, raw evidence and remaining gates.
+
 Terrain uses positive generated geometry dimensions and enabled shapes, together with positive,
 unsuppressed island spawns. It exposes seven formation choices and includes underwater geometry.
 Deterministic controls distinguish disabled or zero-sized shapes, subtractive canyons and craters,
@@ -50,7 +107,19 @@ A fresh visual check of each terrain choice remains pending.
 Biome subtype labels depend on the selected biome. Equivalent native archetypes share a label;
 ambiguous meanings are omitted for mixed biomes. Changing biome clears its dependent subtype.
 Current vanilla archetype and placement assets support the labels, with native-index and grouping
-controls. Paradise retains its existing native predicate and acquisition path.
+controls.
+
+Weather exposes cadence (including None for no storms), extreme storm hazards and storm families. Current
+executable scheduling returns before interval/fallback selection when frequency is zero. Query facts
+settle occurrence and cadence immediately; absence or normal intensity settles extreme-storm
+absence. Positive severity candidates acquire owned ambient/storm hazard profiles from the loaded
+weather override/default tables. Both system and planet checks use that same predicate, including
+Lush extreme rainstorms and mild gravitational/bubble weather. Storm families follow the emulated
+17-entry HUD warning table; Bubble storm is a descriptive label supported by its atmospheric asset.
+Deterministic tests cover native offsets/default fallbacks, table bounds, unknown exclusions,
+subsection modes, cache parity and removed serialization keys. Fresh live weather-result and visual
+checks remain pending. Investigation evidence is recorded in the repository's focused weather
+contract.
 
 Sky, cloud, fog, horizon, night sky and water use acquired canonical appearance sets. Clear daylight
 anchors apply to daytime colours, clear night to night sky and intrinsic body colour to water.
