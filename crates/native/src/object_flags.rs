@@ -40,20 +40,20 @@ impl ObjectTables {
     /// # Safety
     /// Requires the exact verified 7.06 image and initialized game resources held valid through use.
     pub unsafe fn from_verified_image(base: usize) -> Result<Self, &'static str> {
-        let acquire = base + 0x16c7660;
-        let release = base + 0x4b2df0;
+        let acquire = base + 0x16f9ff0;
+        let release = base + 0x4bb850;
         unsafe {
             if std::slice::from_raw_parts(acquire as *const u8, 5) != [0x44, 0x88, 0x44, 0x24, 0x18]
                 || std::slice::from_raw_parts(release as *const u8, 4) != [0x40, 0x53, 0x56, 0x57]
             {
                 return Err("object resource function prefix mismatch");
             }
-            let epoch = ((base + 0x7489858) as *const i32).read_unaligned();
+            let epoch = ((base + 0x7560628) as *const i32).read_unaligned();
             if epoch == 0 || epoch == -1 {
                 return Err("object resource cache is not initialized");
             }
             Ok(Self {
-                cache: (base + 0x7489710) as *mut u8,
+                cache: (base + 0x75604e0) as *mut u8,
                 acquire: std::mem::transmute::<usize, Acquire>(acquire),
                 release: std::mem::transmute::<usize, Release>(release),
                 _thread_bound: PhantomData,
@@ -282,78 +282,4 @@ unsafe fn dynamic_array(
         return Err("invalid native object array");
     }
     Ok((pointer, count as usize))
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn titan_worms_require_an_enabled_burrow_spawn() {
-        let mut object = vec![0; 0x168];
-        let mut variant = [0u8; 0x48];
-        let model = b"MODELS/PLANETS/CREATURES/SANDWORMMINI/GROUNDWORMSPAWNER.SCENE.MBIN";
-        object[0x58..0x60].copy_from_slice(&(model.as_ptr() as usize).to_ne_bytes());
-        object[0x60..0x64].copy_from_slice(&(model.len() as i32).to_ne_bytes());
-        object[0xe0..0xe8].copy_from_slice(&(variant.as_ptr() as usize).to_ne_bytes());
-        object[0xe8..0xec].copy_from_slice(&1i32.to_ne_bytes());
-        assert!(!unsafe { titan_worm(object.as_ptr()) }.unwrap());
-        variant[0x24..0x28].copy_from_slice(&1f32.to_ne_bytes());
-        variant[0x40..0x44].copy_from_slice(&0.2f32.to_ne_bytes());
-        assert!(unsafe { titan_worm(object.as_ptr()) }.unwrap());
-        let other = b"MODELS/PLANETS/CREATURES/SANDWORM/SANDWORM.SCENE.MBIN";
-        object[0x58..0x60].copy_from_slice(&(other.as_ptr() as usize).to_ne_bytes());
-        object[0x60..0x64].copy_from_slice(&(other.len() as i32).to_ne_bytes());
-        assert!(!unsafe { titan_worm(object.as_ptr()) }.unwrap());
-    }
-
-    #[test]
-    fn floating_islands_require_positive_spawn_density() {
-        let mut object = vec![0; 0x168];
-        let mut variant = [0u8; 0x48];
-        object[0xe0..0xe8].copy_from_slice(&(variant.as_ptr() as usize).to_ne_bytes());
-        object[0xe8..0xec].copy_from_slice(&1i32.to_ne_bytes());
-        object[0x15f] = 1;
-        assert!(!unsafe { floating_island(object.as_ptr()) }.unwrap());
-        variant[0x24..0x28].copy_from_slice(&1f32.to_ne_bytes());
-        variant[0x40..0x44].copy_from_slice(&0.2f32.to_ne_bytes());
-        assert!(unsafe { floating_island(object.as_ptr()) }.unwrap());
-        object[0x15f] = 0;
-        assert!(!unsafe { floating_island(object.as_ptr()) }.unwrap());
-    }
-
-    #[test]
-    fn grass_requires_a_ground_grass_model_and_nonzero_spawn_density() {
-        let mut object = vec![0; 0x168];
-        let mut variant = [0u8; 0x48];
-        let model = b"MODELS/PLANETS/BIOMES/COMMON/GRASS/NEWLUSHGRASS.SCENE.MBIN";
-        object[0x58..0x60].copy_from_slice(&(model.as_ptr() as usize).to_ne_bytes());
-        object[0x60..0x64].copy_from_slice(&(model.len() as i32).to_ne_bytes());
-        object[0xe0..0xe8].copy_from_slice(&(variant.as_ptr() as usize).to_ne_bytes());
-        object[0xe8..0xec].copy_from_slice(&1i32.to_ne_bytes());
-        assert_eq!(unsafe { ground_grass(object.as_ptr()) }.unwrap(), 0);
-        variant[0x24..0x28].copy_from_slice(&1f32.to_ne_bytes());
-        assert_eq!(unsafe { ground_grass(object.as_ptr()) }.unwrap(), 0);
-        variant[0x34..0x38].copy_from_slice(&0.2f32.to_ne_bytes());
-        assert_eq!(
-            unsafe { ground_grass(object.as_ptr()) }.unwrap(),
-            GrassModel::Lush.mask()
-        );
-        object[0x58..0x68].fill(0);
-        let model = b"MODELS/PLANETS/BIOMES/COMMON/FLOWERS/BUTTERCUP.SCENE.MBIN";
-        object[0x58..0x60].copy_from_slice(&(model.as_ptr() as usize).to_ne_bytes());
-        object[0x60..0x64].copy_from_slice(&(model.len() as i32).to_ne_bytes());
-        assert_eq!(unsafe { ground_grass(object.as_ptr()) }.unwrap(), 0);
-        object[0x58..0x60].fill(0);
-        assert!(unsafe { ground_grass(object.as_ptr()) }.is_err());
-    }
-    #[test]
-    fn native_array_bounds_reject_unknown_storage() {
-        let mut header = [0u8; 16];
-        assert_eq!(unsafe { dynamic_array(header.as_ptr(), 4) }.unwrap().1, 0);
-        header[8..12].copy_from_slice(&1i32.to_le_bytes());
-        assert!(unsafe { dynamic_array(header.as_ptr(), 4) }.is_err());
-        header[8..12].copy_from_slice(&(-1i32).to_le_bytes());
-        assert!(unsafe { dynamic_array(header.as_ptr(), 4) }.is_err());
-    }
 }

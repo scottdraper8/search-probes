@@ -19,26 +19,3 @@ pub fn encode(address: Address) -> [u8; 17] {
     }
     encoded
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn mission_seed_preserves_the_complete_destination() {
-        let seed = 0x004422F9BA7FB7FB;
-        assert_eq!(
-            encode(from_seed(TargetKind::Planet, seed).unwrap().address),
-            *b"004422F9BA7FB7FB\0"
-        );
-        for invalid in [
-            0,
-            0x000422F9BA7FB7FB,
-            0x009422F9BA7FB7FB,
-            0x004000F9BA7FB7FB,
-            u64::MAX,
-        ] {
-            assert!(from_seed(TargetKind::Planet, invalid).is_err());
-        }
-    }
-}

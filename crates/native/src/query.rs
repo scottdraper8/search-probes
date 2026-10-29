@@ -24,7 +24,7 @@ pub struct Bindings {
 
 impl Bindings {
     /// # Safety
-    /// `base` must be the mapped, hash-verified NMS 7.06 executable and remain loaded. Native calls
+    /// `base` must be the mapped, hash-verified supported executable and remain loaded. Native calls
     /// require a gameplay callback or an audited worker while that callback holds game state still.
     pub unsafe fn from_verified_image(base: usize) -> Result<Self, &'static str> {
         unsafe fn check(
@@ -43,27 +43,27 @@ impl Bindings {
             Ok(Self {
                 construct: std::mem::transmute::<usize, Lifecycle>(check(
                     base,
-                    0x14044fd50,
+                    0x140457d10,
                     &[0x48, 0x89, 0x5c, 0x24, 0x08, 0x48, 0x89, 0x6c],
                 )?),
                 destroy: std::mem::transmute::<usize, Lifecycle>(check(
                     base,
-                    0x140316f80,
+                    0x14031d7c0,
                     &[0x48, 0x89, 0x5c, 0x24, 0x08, 0x48, 0x89, 0x74],
                 )?),
                 classify: std::mem::transmute::<usize, Classify>(check(
                     base,
-                    0x14132d5e0,
+                    0x1413528a0,
                     &[0x48, 0x89, 0x5c, 0x24, 0x10, 0x57, 0x48, 0x83],
                 )?),
                 solar: std::mem::transmute::<usize, Solar>(check(
                     base,
-                    0x141649d10,
+                    0x14167bf70,
                     &[0x48, 0x89, 0x5c, 0x24, 0x08],
                 )?),
                 planet: std::mem::transmute::<usize, Planet>(check(
                     base,
-                    0x14168c640,
+                    0x1416bef90,
                     &[0x4c, 0x89, 0x4c, 0x24, 0x20],
                 )?),
                 _thread_bound: PhantomData,
@@ -194,7 +194,8 @@ impl<'a> Query<'a> {
         let call = self.prepare_planet(planet, index)?;
         let mut observed = 0;
         unsafe {
-            crate::capture_session::visit(
+            crate::capture_session::visit_planet(
+                Address::from_raw(call.address)?,
                 |live| {
                     observed += 1;
                     if observed != 1 {

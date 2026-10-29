@@ -28,7 +28,7 @@ pub unsafe fn enable(base: usize) -> Result<(), HookError> {
     let mut state = HOOK.lock().map_err(|_| HookError::StatePoisoned)?;
     if state.is_none() {
         let hook = unsafe {
-            ResidentHook::prepare(base + 0x1cea50, detour as *const () as usize, &PREFIX)
+            ResidentHook::prepare(base + 0x1d2310, detour as *const () as usize, &PREFIX)
         }?;
         ORIGINAL.store(hook.trampoline(), Ordering::Release);
         BASE.store(base, Ordering::Release);

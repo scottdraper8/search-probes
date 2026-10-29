@@ -269,7 +269,7 @@ pub unsafe fn enable(base: usize) -> Result<(), HookError> {
     if hooks.is_empty() {
         let definitions: [(usize, usize, &[u8], &AtomicUsize); 3] = [
             (
-                0x12de0a0,
+                0x1301cb0,
                 scan_detour as *const () as usize,
                 &[
                     0x44, 0x89, 0x44, 0x24, 0x18, 0x48, 0x89, 0x4c, 0x24, 0x08, 0x55, 0x56, 0x57,
@@ -278,7 +278,7 @@ pub unsafe fn enable(base: usize) -> Result<(), HookError> {
                 &ORIGINAL_SCAN,
             ),
             (
-                0x12e57c0,
+                0x1309430,
                 building_detour as *const () as usize,
                 &[
                     0x44, 0x88, 0x4c, 0x24, 0x20, 0x4c, 0x89, 0x44, 0x24, 0x18, 0x48, 0x89, 0x54,
@@ -287,7 +287,7 @@ pub unsafe fn enable(base: usize) -> Result<(), HookError> {
                 &ORIGINAL_BUILDING,
             ),
             (
-                0x12e8850,
+                0x130c700,
                 filter_detour as *const () as usize,
                 &[
                     0x48, 0x89, 0x5c, 0x24, 0x08, 0x48, 0x89, 0x6c, 0x24, 0x10, 0x48, 0x89, 0x74,
@@ -302,7 +302,7 @@ pub unsafe fn enable(base: usize) -> Result<(), HookError> {
             original.store(hook.trampoline(), Ordering::Release);
             prepared.push(hook);
         }
-        PLANET_ADDRESS.store(base + 0x16778a0, Ordering::Release);
+        PLANET_ADDRESS.store(base + 0x16aa160, Ordering::Release);
         *hooks = prepared;
     }
     for hook in hooks.iter_mut().rev() {

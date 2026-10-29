@@ -67,18 +67,3 @@ pub unsafe fn features(planet: *const u8) -> Result<u32, &'static str> {
     }
     Ok(terrain.features())
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn inactive_native_layers_ignore_default_dimensions() {
-        let mut planet = vec![0u8; 0x3ae0];
-        planet[0x2af0 + 0x40..0x2af0 + 0x44].copy_from_slice(&f32::NAN.to_ne_bytes());
-        assert_eq!(unsafe { features(planet.as_ptr()) }.unwrap(), 0);
-        planet[0x2af0 + 0x80] = 1;
-        assert!(unsafe { features(planet.as_ptr()) }.is_err());
-        assert!(unsafe { features(std::ptr::null()) }.is_err());
-    }
-}

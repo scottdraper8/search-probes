@@ -21,3 +21,7 @@ pub mod grass;
 pub mod controls;
 
 pub mod fauna;
+
+pub mod arena;
+
+pub mod agent_control;

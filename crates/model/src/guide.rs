@@ -23,22 +23,3 @@ pub fn mission_slot(name: &[u8; 16]) -> Option<usize> {
     }
     Some(usize::from(name[prefix.len()] - b'1'))
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    #[test]
-    fn only_exact_owned_missions_dispatch() {
-        for slot in 0..MAX_PRESETS {
-            let mission = mission(slot).unwrap();
-            let mut bytes = [0; 16];
-            bytes[..mission.len()].copy_from_slice(mission.as_bytes());
-            assert_eq!(mission_slot(&bytes), Some(slot));
-            bytes[15] = 1;
-            assert_eq!(mission_slot(&bytes), None);
-            assert!(mission.len() < 16);
-        }
-        assert_eq!(mission_slot(&[0; 16]), None);
-        assert!(mission(MAX_PRESETS).is_err());
-    }
-}

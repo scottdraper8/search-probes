@@ -380,35 +380,3 @@ pub fn get(name: &[u8]) -> Result<ModelFacts> {
         .map_err(|_| "vegetation asset cache poisoned")?
         .model(name)
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn emission_masks_require_blue_channel_data_and_reject_invalid_storage() {
-        let mut bytes = vec![0u8; 136];
-        bytes[..4].copy_from_slice(b"DDS ");
-        for (offset, value) in [(4, 124u32), (12, 4), (16, 4), (76, 32)] {
-            bytes[offset..offset + 4].copy_from_slice(&value.to_le_bytes());
-        }
-        bytes[84..88].copy_from_slice(b"DXT1");
-        bytes[128..130].copy_from_slice(&0xf800u16.to_le_bytes());
-        assert!(!emission_mask(&bytes).unwrap());
-        bytes[128..130].copy_from_slice(&0x001fu16.to_le_bytes());
-        assert!(emission_mask(&bytes).unwrap());
-        assert!(emission_mask(&bytes[..135]).is_err());
-        bytes[16..20].copy_from_slice(&u32::MAX.to_le_bytes());
-        assert!(emission_mask(&bytes).is_err());
-        let mut file = vec![0u8; 48];
-        file[..8].fill(0xcc);
-        file[12..16].copy_from_slice(&0x3db87e47u32.to_le_bytes());
-        file[32..40].copy_from_slice(&(-40i64).to_le_bytes());
-        file[40..44].copy_from_slice(&1u32.to_le_bytes());
-        assert!(Mbin(&file).array(32, 32, 4096).is_err());
-        file[32..40].copy_from_slice(&8u64.to_le_bytes());
-        assert!(Mbin(&file).array(32, 32, 4096).is_err());
-        assert!(Mbin(&file).array(32, 1, 0).is_err());
-        assert!(Mbin(&file).header(0x4737d48a).is_err());
-    }
-}

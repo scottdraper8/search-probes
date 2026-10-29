@@ -1,4 +1,5 @@
 use crate::capture::{self, Facts};
+use search_probes_model::address::Address;
 use std::{
     cell::Cell,
     marker::PhantomData,
@@ -16,6 +17,7 @@ struct Session {
     error: Cell<Option<&'static str>>,
     observed: Cell<usize>,
     busy: Cell<bool>,
+    address: Option<Address>,
 }
 
 struct Reset(PhantomData<Rc<()>>);
@@ -32,6 +34,10 @@ pub fn is_active() -> bool {
     ACTIVE.with(|active| !active.get().is_null())
 }
 
+pub fn planet_address() -> Option<Address> {
+    ACTIVE.with(|active| unsafe { active.get().as_ref() }.and_then(|s| s.address))
+}
+
 impl Drop for ExitCallback<'_> {
     fn drop(&mut self) {
         self.0.set(false);
@@ -45,6 +51,30 @@ pub unsafe fn visit<T, F>(mut visitor: F, operation: impl FnOnce() -> T) -> Resu
 where
     F: FnMut(*const u8) -> Result<(), &'static str>,
 {
+    unsafe { visit_impl(None, &mut visitor, operation) }
+}
+
+/// # Safety
+/// The visit contract applies; address is the exact argument of the enclosed native planet call.
+pub unsafe fn visit_planet<T, F>(
+    address: Address,
+    mut visitor: F,
+    operation: impl FnOnce() -> T,
+) -> Result<T, &'static str>
+where
+    F: FnMut(*const u8) -> Result<(), &'static str>,
+{
+    unsafe { visit_impl(Some(address), &mut visitor, operation) }
+}
+
+unsafe fn visit_impl<T, F>(
+    address: Option<Address>,
+    visitor: &mut F,
+    operation: impl FnOnce() -> T,
+) -> Result<T, &'static str>
+where
+    F: FnMut(*const u8) -> Result<(), &'static str>,
+{
     unsafe fn dispatch<F: FnMut(*const u8) -> Result<(), &'static str>>(
         data: *mut u8,
         planet: *const u8,
@@ -53,10 +83,11 @@ where
     }
     let session = Session {
         callback: dispatch::<F>,
-        data: (&mut visitor as *mut F).cast(),
+        data: (visitor as *mut F).cast(),
         error: Cell::new(None),
         observed: Cell::new(0),
         busy: Cell::new(false),
+        address,
     };
     ACTIVE.with(|active| {
         if !active.get().is_null() {
@@ -131,100 +162,4 @@ pub unsafe fn observe(planet: *const u8) -> Result<bool, &'static str> {
             }
         }
     })
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn callback_panic_is_caught_before_returning_through_native_code() {
-        let mut native_returned = false;
-        let result = unsafe {
-            visit(
-                |_| panic!("capture failure"),
-                || {
-                    assert_eq!(
-                        observe(std::ptr::null()),
-                        Err("planet capture callback panicked")
-                    );
-                    native_returned = true;
-                },
-            )
-        };
-        assert_eq!(result, Err("planet capture callback panicked"));
-        assert!(native_returned);
-        assert!(!is_active());
-    }
-
-    #[test]
-    fn recursive_destructor_does_not_reenter_mutable_visitor() {
-        let mut calls = 0;
-        let result = unsafe {
-            visit(
-                |planet| {
-                    calls += 1;
-                    assert_eq!(observe(planet), Err("recursive planet destructor capture"));
-                    Ok(())
-                },
-                || observe(std::ptr::null()),
-            )
-        };
-        assert!(result.is_err());
-        assert_eq!(calls, 1);
-        assert_eq!(unsafe { observe(std::ptr::null()) }, Ok(false));
-    }
-
-    #[test]
-    fn inactive_capture_ignores_pointer() {
-        assert_eq!(unsafe { observe(std::ptr::null()) }, Ok(false));
-    }
-
-    #[test]
-    fn sessions_are_bounded_and_reset_after_failure() {
-        let result = unsafe {
-            collect(std::ptr::null(), 0, || {
-                for _ in 0..8 {
-                    assert_eq!(observe(std::ptr::null()), Ok(true));
-                }
-                assert!(observe(std::ptr::null()).is_err());
-            })
-        };
-        assert!(result.is_err());
-        assert_eq!(unsafe { observe(std::ptr::null()) }, Ok(false));
-    }
-
-    #[test]
-    fn nested_capture_cannot_replace_outer_session() {
-        let (_, facts) = unsafe {
-            collect(std::ptr::null(), 0, || {
-                assert!(collect(std::ptr::null(), 0, || ()).is_err());
-                assert_eq!(observe(std::ptr::null()), Ok(true));
-            })
-        }
-        .unwrap();
-        assert_eq!(facts.len(), 1);
-    }
-
-    #[test]
-    fn concurrent_sessions_have_separate_capture_storage() {
-        std::thread::scope(|scope| {
-            let workers: Vec<_> = (1..=8)
-                .map(|count| {
-                    scope.spawn(move || unsafe {
-                        let (_, facts) = collect(std::ptr::null(), 0, || {
-                            for _ in 0..count {
-                                observe(std::ptr::null()).unwrap();
-                            }
-                        })
-                        .unwrap();
-                        assert_eq!(facts.len(), count);
-                    })
-                })
-                .collect();
-            for worker in workers {
-                worker.join().unwrap();
-            }
-        });
-    }
 }

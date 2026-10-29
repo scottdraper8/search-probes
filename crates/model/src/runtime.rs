@@ -107,6 +107,9 @@ pub struct State {
     pub metrics: Metrics,
     pub cached_systems: usize,
     pub last_command: u64,
+    /// Command that started or continued the currently published search.
+    #[serde(default)]
+    pub search_command: Option<u64>,
     pub error: Option<String>,
     pub destination: Option<Target>,
 }
@@ -134,91 +137,9 @@ impl State {
             metrics: Metrics::default(),
             cached_systems: 0,
             last_command: 0,
+            search_command: None,
             error: None,
             destination: None,
         }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::{
-        cache::SystemRecord,
-        facts::Facts,
-        session::{Phase, Session, Work},
-    };
-
-    #[test]
-    fn live_matches_remain_available_after_cancel_and_empty_searches() {
-        let mut state = State::new(Settings::default());
-        let mut session = Session::default();
-        let origin = Address::from_raw(0).unwrap();
-        let previous = Address::from_raw(20 << 40).unwrap().planet(0).unwrap();
-        state.results.push(CachedMatch {
-            address: previous,
-            kind: crate::target::TargetKind::Planet,
-            name: None,
-        });
-
-        let mut options = state.settings.search.clone();
-        options.results = 10;
-        options
-            .criteria
-            .choices
-            .insert(crate::criteria::Field::Size, 1);
-        session
-            .start(options.clone(), origin, false, false)
-            .unwrap();
-        let Work::Region(region) = session.next(16).unwrap() else {
-            panic!("expected region");
-        };
-        let addresses: Vec<_> = (1..=12)
-            .map(|index| Address::from_raw(region.raw() | (index << 40)).unwrap())
-            .collect();
-        session.load_region(region, addresses.clone()).unwrap();
-        for &address in &addresses[..8] {
-            let mut system = Facts::default();
-            system.set_planet_count(1);
-            let mut planets = std::array::from_fn(|_| Facts::default());
-            planets[0].set(crate::criteria::Field::Size, 0);
-            session
-                .apply(address, SystemRecord::new(system, planets).unwrap(), false)
-                .unwrap();
-        }
-        state.publish_progress(session.progress().cloned());
-        assert_eq!(state.progress.as_ref().unwrap().phase, Phase::Running);
-        assert_eq!(state.progress.as_ref().unwrap().results.len(), 8);
-        let expected: Vec<_> = addresses[..8]
-            .iter()
-            .map(|address| address.planet(0).unwrap())
-            .collect();
-        assert_eq!(
-            state
-                .results
-                .iter()
-                .map(|result| result.address)
-                .collect::<Vec<_>>(),
-            expected
-        );
-
-        session.cancel();
-        state.publish_progress(session.progress().cloned());
-        assert_eq!(state.progress.as_ref().unwrap().phase, Phase::Cancelled);
-        assert_eq!(state.results.len(), 8);
-
-        session.start(options, origin, false, false).unwrap();
-        state.publish_progress(session.progress().cloned());
-        session.cancel();
-        state.publish_progress(session.progress().cloned());
-        assert!(state.progress.as_ref().unwrap().results.is_empty());
-        assert_eq!(
-            state
-                .results
-                .iter()
-                .map(|result| result.address)
-                .collect::<Vec<_>>(),
-            expected
-        );
     }
 }

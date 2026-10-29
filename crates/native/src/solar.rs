@@ -31,23 +31,23 @@ impl SolarContext {
         unsafe {
             let initialize = std::mem::transmute::<usize, Initialize>(checked(
                 base,
-                0x141649ae0,
+                0x14167bd40,
                 &[0x48, 0x89, 0x5c, 0x24, 0x10],
             )?);
             let release = std::mem::transmute::<usize, ReleaseResource>(checked(
                 base,
-                0x1404b2df0,
+                0x1404bb850,
                 &[0x40, 0x53, 0x56, 0x57, 0x48, 0x83, 0xec, 0x20],
             )?);
             let deallocate = std::mem::transmute::<usize, Deallocate>(checked(
                 base,
-                0x142c1f570,
+                0x142c8c960,
                 &[0x48, 0x85, 0xd2, 0x0f, 0x84],
             )?);
             let mut result = Self {
                 storage: Box::new(Storage([0; 0x6e0])),
-                resource_cache: (base + 0x7489480) as *mut u8,
-                allocator: (base + 0x500a050) as *mut u8,
+                resource_cache: (base + 0x7560250) as *mut u8,
+                allocator: (base + 0x50d90e0) as *mut u8,
                 release,
                 deallocate,
                 _gameplay: PhantomData,

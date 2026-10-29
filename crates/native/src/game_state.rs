@@ -38,35 +38,14 @@ impl Epoch {
     }
 }
 
-#[cfg(feature = "investigation")]
-impl Epoch {
-    pub fn differences(&self, other: &Self) -> Vec<&'static str> {
-        let mut changed = Vec::new();
-        macro_rules! compare {
-            ($($field:ident),+) => {$(if self.$field != other.$field { changed.push(stringify!($field)); })+};
-        }
-        compare!(
-            transition,
-            application,
-            root,
-            language,
-            difficulty,
-            object_cache,
-            solar_resources,
-            configuration
-        );
-        changed
-    }
-}
-
 impl Snapshot {
     pub fn read(image: &Image, transition: u64) -> Result<Self, &'static str> {
         if !crate::lifecycle_hook::ready() {
             return Err("gameplay resources are loading");
         }
         let base = image.base();
-        let application = platform::pointer(base + 0x6e8d708)?;
-        let root = platform::pointer(application + 0x72afb0)?;
+        let application = platform::pointer(base + 0x6f60828)?;
+        let root = platform::pointer(application + 0x72b610)?;
         let raw = platform::read::<24>(application + 0xc1a0)?;
         let components: [i32; 6] = std::array::from_fn(|index| {
             i32::from_le_bytes(
@@ -98,20 +77,20 @@ impl Snapshot {
         if address.coordinates().system == 0 {
             return Err("no loaded system");
         }
-        let difficulty = platform::u32_at(application + 0x315a2c)?;
+        let difficulty = platform::u32_at(application + 0x315b04)?;
         if difficulty > 3 {
             return Err("unsupported combat difficulty");
         }
-        let planet = root + 0x520570;
+        let planet = root + 0x521780;
         let configuration = configuration_identity(platform::read::<CONFIGURATION_SIZE>(planet)?);
-        let solar_resources = platform::read::<16>(root + 0x521180 + 0x6c0)?;
+        let solar_resources = platform::read::<16>(root + 0x522390 + 0x6c0)?;
         if solar_resources
             .chunks_exact(8)
             .any(|bytes| u64::from_le_bytes(bytes.try_into().expect("resource pointer")) < 0x10000)
         {
             return Err("solar generator resources are not ready");
         }
-        let object_cache = platform::u32_at(base + 0x7489858)?;
+        let object_cache = platform::u32_at(base + 0x7560628)?;
         if object_cache == 0 || object_cache == u32::MAX {
             return Err("object resources are not ready");
         }
@@ -119,7 +98,7 @@ impl Snapshot {
             transition,
             application,
             root,
-            language: platform::u32_at(base + 0x6e14168)?,
+            language: platform::u32_at(base + 0x6ee72b8)?,
             difficulty,
             object_cache,
             solar_resources,

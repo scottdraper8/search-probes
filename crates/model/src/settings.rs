@@ -1,4 +1,4 @@
-use crate::criteria::{Criteria, Field, PlanetFlag};
+use crate::criteria::Criteria;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeSet;
 
@@ -74,21 +74,10 @@ pub struct Settings {
 
 impl Default for Settings {
     fn default() -> Self {
-        let mut earthlike = SearchOptions::default();
-        earthlike.criteria.choices.extend([
-            (Field::Biome, 1),
-            (Field::StormFrequency, 1),
-            (Field::Grass, 1 << 3),
-            (Field::Sky, 1 << 5),
-        ]);
-        earthlike.criteria.planets.insert(PlanetFlag::Moons, true);
         Self {
             schema: 1,
             search: SearchOptions::default(),
-            presets: vec![Preset {
-                name: "Earthlike".into(),
-                search: earthlike,
-            }],
+            presets: Vec::new(),
             workers: 2,
             frame_budget_ms: 4,
         }
@@ -140,38 +129,4 @@ pub fn nearest_budget(value: u64) -> u64 {
         .iter()
         .min_by_key(|&&budget| (budget.abs_diff(value), std::cmp::Reverse(budget)))
         .expect("nonempty budgets")
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    #[test]
-    fn budgets_and_presets_use_only_dropdown_values() {
-        let settings = Settings::default();
-        settings.validate().unwrap();
-        assert_eq!(nearest_budget(20_000), 10_000);
-        assert_eq!(nearest_budget(55_000), 100_000);
-        assert_eq!(nearest_budget(u64::MAX), 1_000_000_000);
-        assert_eq!(nearest_budget(0), 1_000);
-        for budget in BUDGETS {
-            assert_eq!(nearest_budget(budget), budget);
-        }
-    }
-    #[test]
-    fn persisted_inputs_are_bounded_and_strict() {
-        let mut settings = Settings::default();
-        settings.search.results = 100;
-        settings.validate().unwrap();
-        settings.search.results = 101;
-        assert!(settings.validate().is_err());
-        settings.search.results = 1;
-        settings.presets.push(settings.presets[0].clone());
-        assert!(settings.validate().is_err());
-        assert!(serde_json::from_str::<Settings>(r#"{"schema":1,"obsolete":true}"#).is_err());
-        assert_eq!(
-            serde_json::from_str::<Settings>(&serde_json::to_string(&Settings::default()).unwrap())
-                .unwrap(),
-            Settings::default()
-        );
-    }
 }

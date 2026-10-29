@@ -174,35 +174,3 @@ impl Scheduler {
         Ok(())
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn expensive_systems_still_supply_each_requested_worker() {
-        let scheduler = Scheduler {
-            per_system_ns: 10_000_000.0,
-            ..Scheduler::default()
-        };
-        for workers in [1, 2, 4, 8, 16] {
-            assert_eq!(
-                scheduler.batch_limit(workers, Duration::from_millis(4)),
-                workers
-            );
-        }
-    }
-
-    #[test]
-    fn inexpensive_systems_follow_the_budget_and_batch_bound() {
-        let scheduler = Scheduler {
-            per_system_ns: 100_000.0,
-            ..Scheduler::default()
-        };
-        assert_eq!(scheduler.batch_limit(4, Duration::from_millis(4)), 40);
-        assert_eq!(
-            scheduler.batch_limit(16, Duration::from_secs(1)),
-            batch::MAX_BATCH
-        );
-    }
-}

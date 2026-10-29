@@ -31,7 +31,7 @@ fn vector(address: usize) -> Result<(usize, usize), &'static str> {
 }
 
 fn active(manager: usize) -> Result<Option<(usize, usize)>, &'static str> {
-    let (pointer, count) = vector(manager + 0x1c0)?;
+    let (pointer, count) = vector(manager + 0x1d8)?;
     let mut result = None;
     for index in 0..count {
         let mission = platform::pointer(pointer + index * 8)?;
@@ -55,7 +55,7 @@ fn active(manager: usize) -> Result<Option<(usize, usize)>, &'static str> {
 }
 
 fn pending(manager: usize) -> Result<bool, &'static str> {
-    for offset in [0x180, 0x190] {
+    for offset in [0x198, 0x1a8] {
         let (pointer, count) = vector(manager + offset)?;
         for index in 0..count {
             let identity = platform::read::<16>(pointer + index * 0x28)?;
@@ -71,7 +71,7 @@ fn pending(manager: usize) -> Result<bool, &'static str> {
 }
 
 fn route(application: usize) -> Result<Option<Target>, &'static str> {
-    let manager = platform::pointer(application + 0x4de450)?;
+    let manager = platform::pointer(application + 0x4deab0)?;
     let count = platform::u32_at(manager + 0xd4)? as usize;
     if count > 1024 {
         return Err("unsupported active scan-event collection");
@@ -134,7 +134,7 @@ impl Navigation {
         if address.coordinates().galaxy != snapshot.address.coordinates().galaxy {
             return Err("navigation requires a destination in the current galaxy");
         }
-        let manager = snapshot.application + 0x847bb0;
+        let manager = snapshot.application + 0x86e3d0;
         if self.requested.is_some() || pending(manager)? {
             return Err("a Search Probes destination is still starting");
         }
@@ -144,9 +144,9 @@ impl Navigation {
             );
         }
         type Lookup = unsafe extern "system" fn(usize, *const u8, i32) -> usize;
-        let lookup = unsafe { std::mem::transmute::<usize, Lookup>(image.base() + 0x4e6bc0) };
+        let lookup = unsafe { std::mem::transmute::<usize, Lookup>(image.base() + 0x4ef8f0) };
         let name = fixed::<32>(kind.event().as_bytes())?;
-        let scan_manager = platform::pointer(snapshot.application + 0x4de450)?;
+        let scan_manager = platform::pointer(snapshot.application + 0x4deab0)?;
         let table = platform::pointer(scan_manager + 0x30)?;
         platform::read::<16>(table)?;
         let event = unsafe { lookup(scan_manager, name.as_ptr(), 3) };
@@ -174,7 +174,7 @@ impl Navigation {
             valid: bool,
         }
         type Start = unsafe extern "system" fn(usize, *const u8, *const Seed, bool, bool) -> bool;
-        let start = unsafe { std::mem::transmute::<usize, Start>(image.base() + 0x9b8e00) };
+        let start = unsafe { std::mem::transmute::<usize, Start>(image.base() + 0x9ccd10) };
         let accepted = unsafe {
             start(
                 manager,
@@ -201,7 +201,7 @@ impl Navigation {
         image: &Image,
         snapshot: &Snapshot,
     ) -> Result<(), &'static str> {
-        let manager = snapshot.application + 0x847bb0;
+        let manager = snapshot.application + 0x86e3d0;
         let published = match navigation_hook::published() {
             Ok(address) => address,
             Err(error) => {
@@ -216,9 +216,9 @@ impl Navigation {
             if let Some((index, mission)) = mission.filter(|_| routed == Some(expected)) {
                 type Select = unsafe extern "system" fn(usize, usize, bool);
                 let select =
-                    unsafe { std::mem::transmute::<usize, Select>(image.base() + 0x9c15f0) };
+                    unsafe { std::mem::transmute::<usize, Select>(image.base() + 0x9d5df0) };
                 unsafe { select(manager, mission, false) };
-                if platform::u32_at(manager + 0x250)? as usize != index {
+                if platform::u32_at(manager + 0x268)? as usize != index {
                     return Err("NMS did not select Search Probes");
                 }
                 self.requested = None;

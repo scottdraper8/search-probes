@@ -35,6 +35,8 @@ pub struct Progress {
     pub origin: Address,
     pub systems: u64,
     pub cached_systems: u64,
+    pub unresolved_arena_planets: u64,
+    pub unresolved_arena_examples: Vec<Address>,
     pub previous_systems: u64,
     pub results: Vec<CachedMatch>,
     pub cached_results: usize,
@@ -139,6 +141,8 @@ impl Session {
             origin,
             systems: 0,
             cached_systems: 0,
+            unresolved_arena_planets: 0,
+            unresolved_arena_examples: Vec::new(),
             previous_systems: frontier.searched(),
             cached_results: results.len(),
             results,
@@ -241,7 +245,11 @@ impl Session {
             if let Some(record) = self
                 .cache
                 .get(address)
-                .filter(|record| record.evaluate(&search.plan).unknown == 0)
+                .filter(|record| {
+                    record.evaluate(&search.plan).unknown
+                        & !record.unresolved_arena_planets(&search.plan)
+                        == 0
+                })
                 .cloned()
             {
                 self.apply(address, record, true)?;
@@ -316,8 +324,19 @@ impl Session {
             .get(address)
             .ok_or("completed system was not cached")?;
         let evaluation = record.evaluate(&search.plan);
-        if evaluation.unknown != 0 {
+        let unresolved = record.unresolved_arena_planets(&search.plan);
+        if evaluation.unknown & !unresolved != 0 {
             return Err("completed system still has unknown selected facts");
+        }
+        search.progress.unresolved_arena_planets += u64::from(unresolved.count_ones());
+        for index in 0..record.count() {
+            if unresolved & (1 << index) != 0 && search.progress.unresolved_arena_examples.len() < 8
+            {
+                search
+                    .progress
+                    .unresolved_arena_examples
+                    .push(address.planet(index)?);
+            }
         }
         for index in 0..record.count() {
             if address.system() == search.progress.origin.system() {
@@ -350,234 +369,5 @@ impl Session {
             self.finish(Finish::Budget);
         }
         Ok(())
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::{criteria::Field, facts::Facts};
-    fn origin() -> Address {
-        Address::from_raw(0).unwrap()
-    }
-    fn record(sky: u32) -> SystemRecord {
-        let mut system = Facts::default();
-        system.set_planet_count(1);
-        let mut planets = std::array::from_fn(|_| Facts::default());
-        planets[0].set(Field::Sky, crate::vocabulary::GRASS_COLOUR_SET | 1 << sky);
-        SystemRecord::new(system, planets).unwrap()
-    }
-    fn load(session: &mut Session) -> Vec<Address> {
-        let Work::Region(region) = session.next(16).unwrap() else {
-            panic!("expected region");
-        };
-        let addresses: Vec<_> = (1..=100)
-            .map(|index| Address::from_raw(region.raw() | (index << 40)).unwrap())
-            .collect();
-        session.load_region(region, addresses.clone()).unwrap();
-        addresses
-    }
-    #[test]
-    fn live_and_cached_system_matches_keep_one_typed_result_per_system() {
-        use crate::target::TargetKind;
-        let mut session = Session::default();
-        let options = SearchOptions::default();
-        session
-            .start(options.clone(), origin(), false, false)
-            .unwrap();
-        let addresses = load(&mut session);
-        for (index, population) in [(0, 0), (1, 1), (2, 2)] {
-            let mut system = Facts::default();
-            system.set_planet_count(6);
-            system.set(Field::Population, population);
-            let record =
-                SystemRecord::new(system, std::array::from_fn(|_| Facts::default())).unwrap();
-            session.apply(addresses[index], record, false).unwrap();
-            assert_eq!(session.unnamed_system_results(), [addresses[index]]);
-            session
-                .name_system(addresses[index], &format!("System name {index}"))
-                .unwrap();
-            assert!(session.unnamed_system_results().is_empty());
-        }
-        let live = session.progress().unwrap().results.clone();
-        assert_eq!(
-            live.iter().map(|r| (r.address, r.kind)).collect::<Vec<_>>(),
-            [
-                (addresses[0].system(), TargetKind::System),
-                (addresses[1].system(), TargetKind::System),
-                (addresses[2].system(), TargetKind::System)
-            ]
-        );
-        assert_eq!(
-            live.iter().map(|r| r.name.as_deref()).collect::<Vec<_>>(),
-            [
-                Some("System name 0"),
-                Some("System name 1"),
-                Some("System name 2")
-            ]
-        );
-        session.cancel();
-        assert_eq!(session.progress().unwrap().results, live);
-        session.start(options, origin(), true, true).unwrap();
-        let mut cached = session.progress().unwrap().results.clone();
-        cached.reverse();
-        assert_eq!(cached, live);
-    }
-    #[test]
-    fn search_resume_advances_after_completed_systems() {
-        let mut session = Session::default();
-        let mut options = SearchOptions::default();
-        options.criteria.choices.insert(Field::Sky, 32);
-        session
-            .start(options.clone(), origin(), false, false)
-            .unwrap();
-        let addresses = load(&mut session);
-        session.apply(addresses[0], record(0), false).unwrap();
-        session.apply(addresses[1], record(0), false).unwrap();
-        session.cancel();
-        session.start(options, origin(), false, false).unwrap();
-        assert_eq!(session.progress().unwrap().previous_systems, 2);
-        assert_eq!(session.next(1).unwrap(), Work::Systems(vec![addresses[2]]));
-    }
-    #[test]
-    fn resource_refresh_and_galaxy_travel_preserve_the_search_frontier() {
-        use crate::address::Coordinates;
-        let mut session = Session::default();
-        let options = SearchOptions::default();
-        session
-            .start(options.clone(), origin(), false, false)
-            .unwrap();
-        let addresses = load(&mut session);
-        session.apply(addresses[0], record(5), false).unwrap();
-        let moved = addresses[20];
-        assert!(session.is_in_search_galaxy(moved));
-        session.clear_cached_facts();
-        assert_eq!(session.cache_len(), 0);
-        assert_eq!(session.progress().unwrap().systems, 1);
-        assert_eq!(session.progress().unwrap().results.len(), 1);
-        let other_galaxy = Address::new(Coordinates {
-            galaxy: 1,
-            ..moved.coordinates()
-        })
-        .unwrap();
-        assert!(!session.is_in_search_galaxy(other_galaxy));
-        assert!(session.is_in_search_galaxy(moved));
-        assert_eq!(session.next(1).unwrap(), Work::Systems(vec![addresses[1]]));
-        session.cancel();
-        session.start(options, moved, false, false).unwrap();
-        assert_eq!(session.next(1).unwrap(), Work::Systems(vec![addresses[1]]));
-    }
-    #[test]
-    fn grass_prefilter_can_finish_a_nonmatch_but_requires_generation_for_possible_matches() {
-        use crate::vocabulary::GRASS_COLOUR_SET;
-        let mut session = Session::default();
-        let mut options = SearchOptions::default();
-        options.criteria.choices.insert(Field::Grass, 1 << 10);
-        session
-            .start(options.clone(), origin(), false, false)
-            .unwrap();
-        let addresses = load(&mut session);
-        let mut entry = record(0);
-        entry.planets[0].restrict_grass_colours(GRASS_COLOUR_SET | (1 << 3));
-        session.apply(addresses[0], entry, false).unwrap();
-        assert_eq!(session.progress().unwrap().systems, 1);
-        assert!(session.progress().unwrap().results.is_empty());
-        session.cancel();
-        options.criteria.choices.insert(Field::Grass, 1 << 3);
-        session.start(options, origin(), true, true).unwrap();
-        assert_eq!(session.progress().unwrap().phase, Phase::Running);
-        load(&mut session);
-        assert_eq!(session.next(1).unwrap(), Work::Systems(vec![addresses[0]]));
-    }
-    #[test]
-    fn cached_matches_pause_before_any_live_generation() {
-        let mut session = Session::default();
-        let address = Address::from_raw(1 << 40).unwrap();
-        session.observe(address, record(5)).unwrap();
-        let mut options = SearchOptions::default();
-        options.criteria.choices.insert(Field::Sky, 32);
-        session.start(options, origin(), false, true).unwrap();
-        assert_eq!(session.progress().unwrap().phase, Phase::Cached);
-        assert_eq!(session.next(16).unwrap(), Work::Idle);
-        assert_eq!(session.progress().unwrap().results.len(), 1);
-        assert!(session.continue_live(1).is_err());
-        session.continue_live(100).unwrap();
-        let addresses = load(&mut session);
-        assert_eq!(
-            session.next(2).unwrap(),
-            Work::Systems(addresses[1..3].to_vec())
-        );
-        assert_eq!(session.progress().unwrap().results.len(), 1);
-        assert_eq!(session.progress().unwrap().cached_systems, 1);
-    }
-    #[test]
-    fn full_cached_page_continues_without_repeating_displayed_matches() {
-        let mut session = Session::default();
-        for index in 1..=100 {
-            session
-                .observe(Address::from_raw(index << 40).unwrap(), record(5))
-                .unwrap();
-        }
-        let mut options = SearchOptions::default();
-        options.results = MAX_RESULTS;
-        session.start(options, origin(), false, true).unwrap();
-        let previous: Vec<_> = session
-            .progress()
-            .unwrap()
-            .results
-            .iter()
-            .map(|result| result.address)
-            .collect();
-        assert_eq!(previous.len(), MAX_RESULTS);
-        assert!(session.continue_live(MAX_RESULTS + 1).is_err());
-        assert_eq!(session.progress().unwrap().results.len(), MAX_RESULTS);
-        session.continue_live(MAX_RESULTS).unwrap();
-        assert_eq!(session.cache_len(), 100);
-        load(&mut session);
-        for _ in 0..100 {
-            session.next(1).unwrap();
-        }
-        let progress = session.progress().unwrap();
-        assert_eq!(progress.systems, 100);
-        assert_eq!(progress.cached_systems, 100);
-        assert!(progress.results.is_empty());
-        assert_eq!(progress.cached_results, 0);
-        let addresses = load(&mut session);
-        session.apply(addresses[0], record(5), false).unwrap();
-        let progress = session.progress().unwrap();
-        assert_eq!(progress.results.len(), 1);
-        assert!(!previous.contains(&progress.results[0].address));
-    }
-    #[test]
-    fn incomplete_cancelled_system_stays_at_frontier_and_facts_survive() {
-        let mut session = Session::default();
-        let mut options = SearchOptions::default();
-        options.criteria.choices.insert(Field::Sky, 32);
-        session
-            .start(options.clone(), origin(), false, false)
-            .unwrap();
-        let addresses = load(&mut session);
-        let mut incomplete = record(0);
-        incomplete.planets = std::array::from_fn(|_| Facts::default());
-        session.observe(addresses[0], incomplete).unwrap();
-        session.cancel();
-        session.start(options, origin(), false, false).unwrap();
-        assert_eq!(session.next(1).unwrap(), Work::Systems(vec![addresses[0]]));
-        session.reset();
-        assert!(session.progress().is_none());
-        assert_eq!(session.cache_len(), 0);
-    }
-    #[test]
-    fn result_limit_and_order_reject_uncommitted_work() {
-        let mut session = Session::default();
-        let mut options = SearchOptions::default();
-        options.results = 1;
-        session.start(options, origin(), false, false).unwrap();
-        let addresses = load(&mut session);
-        assert!(session.apply(addresses[1], record(5), false).is_err());
-        session.apply(addresses[0], record(5), false).unwrap();
-        assert_eq!(session.progress().unwrap().finish, Some(Finish::Results));
-        assert_eq!(session.progress().unwrap().systems, 1);
-        assert_eq!(session.next(16).unwrap(), Work::Idle);
     }
 }

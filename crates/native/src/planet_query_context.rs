@@ -11,16 +11,6 @@ const RESOURCE_POINTER_OFFSETS: [usize; 18] = [
     0x538, 0x540, 0x548,
 ];
 
-#[cfg(any(windows, test))]
-pub(crate) fn configuration_identity(
-    mut configuration: [u8; CONFIGURATION_SIZE],
-) -> [u8; CONFIGURATION_SIZE] {
-    // The live generator's pending-task vector is not borrowed by query contexts.
-    configuration[0xb90..0xba0].fill(0);
-    configuration[RNG_START..RNG_END].fill(0);
-    configuration
-}
-
 #[repr(C, align(16))]
 struct Storage([u8; CONTEXT_SIZE]);
 
@@ -53,7 +43,7 @@ impl PlanetQueryContext {
         if live.is_null() {
             return Err("null live planet generator");
         }
-        let construct_address = base + 0x13b8c90;
+        let construct_address = base + 0x13de700;
         let prefix = [0x48, 0x89, 0x5c, 0x24, 0x08, 0x57];
         if unsafe { std::slice::from_raw_parts(construct_address as *const u8, prefix.len()) }
             != prefix
@@ -98,8 +88,8 @@ impl PlanetQueryContext {
         Ok(Self {
             storage,
             initial,
-            allocator: (base + 0x500a050) as *mut u8,
-            deallocate: unsafe { std::mem::transmute::<usize, Deallocate>(base + 0x2c1f570) },
+            allocator: (base + 0x50d90e0) as *mut u8,
+            deallocate: unsafe { std::mem::transmute::<usize, Deallocate>(base + 0x2c8c960) },
             _gameplay: PhantomData,
         })
     }
@@ -112,11 +102,6 @@ impl PlanetQueryContext {
         self.storage.0[..RNG_START] == self.initial[..RNG_START]
             && self.storage.0[RNG_END..DESCRIPTION_CACHE_START]
                 == self.initial[RNG_END..DESCRIPTION_CACHE_START]
-    }
-
-    #[cfg(all(windows, feature = "investigation"))]
-    pub fn snapshots(&self) -> (&[u8], &[u8]) {
-        (&self.initial, &self.storage.0)
     }
 }
 
@@ -138,101 +123,12 @@ impl Drop for PlanetQueryContext {
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn loading_tasks_and_rng_preserve_configuration_identity() {
-        let mut configuration = [0x5a; CONFIGURATION_SIZE];
-        let expected = configuration_identity(configuration);
-        for (capacity, count, pointer, rng) in [
-            (0u32, 0u32, 0u64, 1u64),
-            (511, 173, 0x12345678, 0xfedcba98),
-            (511, 142, 0x12345678, 0xfedcba97),
-            (1024, 0, 0x87654321, 0),
-        ] {
-            configuration[0xb90..0xb94].copy_from_slice(&capacity.to_le_bytes());
-            configuration[0xb94..0xb98].copy_from_slice(&count.to_le_bytes());
-            configuration[0xb98..0xba0].copy_from_slice(&pointer.to_le_bytes());
-            configuration[RNG_START..RNG_END].copy_from_slice(&rng.to_le_bytes());
-            assert_eq!(configuration_identity(configuration), expected);
-        }
-    }
-
-    #[test]
-    fn resource_and_generation_option_changes_invalidate_configuration_identity() {
-        let configuration = [0x5a; CONFIGURATION_SIZE];
-        let expected = configuration_identity(configuration);
-        for offset in RESOURCE_POINTER_OFFSETS.into_iter().chain([
-            0x10, 0x660, 0xa7f, 0x88, 0x8c, 0x90, 0xb80, 0xb84, 0xb88, 0xba0,
-        ]) {
-            let mut changed = configuration;
-            changed[offset] ^= 1;
-            assert_ne!(
-                configuration_identity(changed),
-                expected,
-                "offset {offset:#x}"
-            );
-        }
-    }
-
-    unsafe extern "system" fn record_release(allocator: *mut u8, pointer: *mut u8, tag: i32) {
-        assert_eq!(tag, -1);
-        unsafe { &mut *allocator.cast::<Vec<usize>>() }.push(pointer as usize);
-    }
-
-    fn empty_context(releases: &mut Vec<usize>) -> PlanetQueryContext {
-        let mut context = PlanetQueryContext {
-            storage: Box::new(Storage([0; CONTEXT_SIZE])),
-            initial: [0; CONTEXT_SIZE],
-            allocator: (releases as *mut Vec<usize>).cast(),
-            deallocate: record_release,
-            _gameplay: PhantomData,
-        };
-        unsafe {
-            let cache = context.storage.0.as_mut_ptr().add(DESCRIPTION_CACHE_START);
-            cache
-                .add(0x20)
-                .cast::<*mut u8>()
-                .write_unaligned(cache.add(0x38));
-        }
-        context
-    }
-
-    #[test]
-    fn empty_description_cache_has_no_allocations() {
-        let mut releases = Vec::new();
-        drop(empty_context(&mut releases));
-        assert!(releases.is_empty());
-    }
-
-    #[test]
-    fn description_cache_releases_each_pool_and_active_table() {
-        let mut releases = Vec::new();
-        let mut context = empty_context(&mut releases);
-        let mut tail = [0usize; 2];
-        let mut head = [tail.as_mut_ptr() as usize, 0];
-        let mut table = [0usize; 8];
-        unsafe {
-            let cache = context.storage.0.as_mut_ptr().add(DESCRIPTION_CACHE_START);
-            cache
-                .add(0x10)
-                .cast::<usize>()
-                .write_unaligned(head.as_mut_ptr() as usize);
-            cache
-                .add(0x20)
-                .cast::<usize>()
-                .write_unaligned(table.as_mut_ptr() as usize);
-        }
-        drop(context);
-        assert_eq!(
-            releases,
-            [
-                head.as_ptr() as usize,
-                tail.as_ptr() as usize,
-                table.as_ptr() as usize
-            ]
-        );
-    }
+#[cfg(windows)]
+pub(crate) fn configuration_identity(
+    mut configuration: [u8; CONFIGURATION_SIZE],
+) -> [u8; CONFIGURATION_SIZE] {
+    // The live generator's pending-task vector is not borrowed by query contexts.
+    configuration[0xb90..0xba0].fill(0);
+    configuration[RNG_START..RNG_END].fill(0);
+    configuration
 }

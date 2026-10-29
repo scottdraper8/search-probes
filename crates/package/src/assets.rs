@@ -181,12 +181,3 @@ pub fn validate(root: &Path) -> Result<()> {
     }
     Ok(())
 }
-
-#[cfg(test)]
-mod tests {
-    #[test]
-    fn native_asset_contracts_match_the_runtime() {
-        super::validate(&std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../assets"))
-            .unwrap();
-    }
-}

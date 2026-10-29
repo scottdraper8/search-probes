@@ -109,37 +109,6 @@ pub fn install(hwnd: usize) -> Result<(), String> {
     WINDOW.store(hwnd, Ordering::Release);
     Ok(())
 }
-#[cfg(feature = "investigation")]
-pub fn uninstall() -> Result<(), String> {
-    WINDOW.store(0, Ordering::Release);
-    let procedures = INPUT
-        .lock()
-        .unwrap_or_else(|e| e.into_inner())
-        .procedures
-        .clone();
-    let mut failed = false;
-    for (hwnd, (previous, _)) in procedures {
-        let window = hwnd as HWND;
-        if unsafe { IsWindow(window) } != 0 {
-            if unsafe { GetWindowLongPtrW(window, GWLP_WNDPROC) } != procedure as *const () as isize
-                || unsafe { SetWindowLongPtrW(window, GWLP_WNDPROC, previous) } == 0
-            {
-                failed = true;
-                continue;
-            }
-        }
-        INPUT
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .procedures
-            .remove(&hwnd);
-    }
-    if failed {
-        Err("cannot restore the game window procedure".into())
-    } else {
-        Ok(())
-    }
-}
 
 fn modifiers() -> Modifiers {
     let down = |key| unsafe { GetKeyState(key) } as u16 & 0x8000 != 0;

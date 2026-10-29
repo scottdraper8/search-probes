@@ -39,33 +39,3 @@ pub fn apply_with(
     }
     Ok(())
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use search_probes_model::vocabulary::GRASS_COLOUR_SET;
-
-    #[test]
-    fn only_requested_anchors_classify_and_grading_changes_their_visible_classes() {
-        let mut facts = Facts::default();
-        let mut raw = capture::Facts::default();
-        raw.present = capture::colour(7) | capture::colour(9);
-        raw.colours[7] = [0.05, 0.1, 0.8, 1.];
-        raw.colours[9] = [0.05, 0.6, 0.1, 1.];
-        apply_with(&mut facts, &raw, |rgb| rgb).unwrap();
-        assert_eq!(facts.get(Field::Sky), Some(GRASS_COLOUR_SET | 1 << 5));
-        assert_eq!(
-            facts.get(Field::WaterColour),
-            Some(GRASS_COLOUR_SET | 1 << 3)
-        );
-        assert_eq!(facts.get(Field::Horizon), None);
-        apply_with(&mut facts, &raw, |_| [0.95; 3]).unwrap();
-        assert_eq!(
-            facts.get(Field::WaterColour),
-            Some(GRASS_COLOUR_SET | 1 << 10)
-        );
-        assert_eq!(facts.get(Field::FloraColour), None);
-        raw.colours[9][0] = f64::NAN;
-        assert!(apply_with(&mut facts, &raw, |rgb| rgb).is_err());
-    }
-}

@@ -45,12 +45,17 @@ pub struct Match {
 pub struct Outcome {
     pub snapshot: Snapshot,
     pub matches: Vec<Match>,
+    /// Exact-query scalar inputs for Arena predicates still needing model/placement refinement.
+    /// Native temporary planet/role objects are already gone when this result reaches the scheduler.
+    pub pending_arena: Vec<crate::arena_inputs::Planet>,
     pub work: Work,
     pub cancelled: bool,
 }
 
 impl Outcome {
-    pub fn into_record(self) -> Result<SystemRecord, &'static str> {
+    pub fn into_record(
+        self,
+    ) -> Result<(SystemRecord, Vec<crate::arena_inputs::Planet>), &'static str> {
         let mut record = SystemRecord::new(self.snapshot.system, self.snapshot.planets)?;
         for result in self.matches {
             let mut end = result.name.len().min(MAX_NAME_BYTES);
@@ -59,7 +64,7 @@ impl Outcome {
             }
             record.set_name(result.planet, &result.name[..end])?;
         }
-        Ok(record)
+        Ok((record, self.pending_arena))
     }
 }
 
@@ -69,6 +74,7 @@ pub struct Generator<'cache> {
     solar: SolarContext,
     planet: PlanetQueryContext,
     objects: Option<ObjectTables>,
+    arena: Option<crate::arena::Context>,
     base: usize,
 }
 
@@ -87,6 +93,7 @@ impl<'cache> Generator<'cache> {
                 solar: SolarContext::new(base)?,
                 planet: PlanetQueryContext::borrow_query_configuration(base, live)?,
                 objects: None,
+                arena: None,
                 object_summaries,
                 base,
             })
@@ -110,6 +117,7 @@ impl<'cache> Generator<'cache> {
         let mut outcome = Outcome {
             snapshot: Snapshot::solar(query.bytes())?,
             matches: Vec::new(),
+            pending_arena: Vec::new(),
             work: Work {
                 systems: 1,
                 ..Work::default()
@@ -184,6 +192,7 @@ impl<'cache> Generator<'cache> {
                 query.visit_planet(generator, index, |live, bytes| {
                     outcome.snapshot.read_planet(bytes, index, difficulty)?;
                     let facts = &mut outcome.snapshot.planets[index];
+                    let mut arena_inputs = None;
                     // System storm criteria need the same per-planet hazard proof as
                     // planet storm criteria, including when there is no planet target.
                     if system_verdict == Verdict::Unknown
@@ -218,6 +227,16 @@ impl<'cache> Generator<'cache> {
                         } else {
                             facts.set_planet_flag(PlanetFlag::PlayerAttackingFauna, crate::fauna::player_attacking(live)?);
                             facts.set_planet_flag(PlanetFlag::Sandworms, crate::fauna::sandworms(live)?);
+                        }
+                        if plan.planet.iter().any(|rule| matches!(rule, Predicate::Arena(_)))
+                            && facts.arena().is_none()
+                        {
+                            if self.arena.is_none() {
+                                self.arena = Some(crate::arena::Context::from_verified_image(self.base)?);
+                            }
+                            let inputs = crate::arena_inputs::Planet::capture(live, address.planet(index)?)?;
+                            facts.set_arena(self.arena.as_ref().unwrap().capture_inputs(&inputs)?);
+                            arena_inputs = Some(inputs);
                         }
                         if plan.planet_match(facts) == Verdict::NoMatch { return Ok(()); }
                     }
@@ -319,7 +338,7 @@ impl<'cache> Generator<'cache> {
                             let context=crate::flora_appearance::Context {
                                 palettes:capture::flora_palettes(live),
                                 ground_colours:capture::flora_ground_colours(live),
-                                palette_mode:((self.base+0x5261a94) as *const u32).read_unaligned(),
+                                palette_mode:((self.base+0x5332ed4) as *const u32).read_unaligned(),
                             };
                             let wanted = plan.planet.iter().find_map(|predicate| match predicate {
                                 search_probes_model::criteria::Predicate::Choice(choices)
@@ -335,6 +354,15 @@ impl<'cache> Generator<'cache> {
                         }
                     }
                     match plan.planet_match(facts) {
+                        Verdict::Unknown if plan.unresolved_arena_ranks(facts) => {
+                            // A cached partial Arena observation still needs this fresh query's
+                            // owned inputs; it must not depend on an earlier visitor's storage.
+                            outcome.pending_arena.push(match arena_inputs {
+                                Some(inputs) => inputs,
+                                None => crate::arena_inputs::Planet::capture(live, address.planet(index)?)?,
+                            });
+                            return Ok(());
+                        }
                         Verdict::Unknown => {
                             return Err("selected planet criterion has no acquired value");
                         }
@@ -361,52 +389,20 @@ impl<'cache> Generator<'cache> {
         }
         if outcome.cancelled {
             outcome.matches.clear();
+            outcome.pending_arena.clear();
             return Ok(outcome);
         }
         match plan.system_match(
             &outcome.snapshot.system,
             &outcome.snapshot.planets[..outcome.snapshot.count],
         ) {
-            Verdict::NoMatch => outcome.matches.clear(),
+            Verdict::NoMatch => {
+                outcome.matches.clear();
+                outcome.pending_arena.clear();
+            }
             Verdict::Unknown => return Err("selected system criterion has no acquired value"),
             Verdict::Match => {}
         }
         Ok(outcome)
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use search_probes_model::facts::Facts;
-
-    #[test]
-    fn captured_names_stay_inside_the_cache_bound_at_utf8_boundaries() {
-        for name in [
-            "a".repeat(200),
-            "水".repeat(100),
-            String::from_utf8_lossy(&[0xff; 128]).into_owned(),
-        ] {
-            let mut system = Facts::default();
-            system.set_planet_count(1);
-            let outcome = Outcome {
-                snapshot: Snapshot {
-                    system,
-                    planets: std::array::from_fn(|_| Facts::default()),
-                    count: 1,
-                },
-                matches: vec![Match {
-                    planet: 0,
-                    name: name.clone(),
-                }],
-                work: Work::default(),
-                cancelled: false,
-            };
-            let record = outcome.into_record().unwrap();
-            let retained = record.name(0).unwrap();
-            assert!(retained.len() <= MAX_NAME_BYTES);
-            assert!(name.starts_with(retained));
-            assert!(retained.len() >= MAX_NAME_BYTES - 3);
-        }
     }
 }

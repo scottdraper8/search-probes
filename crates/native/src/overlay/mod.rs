@@ -607,25 +607,6 @@ unsafe extern "system" fn destroy_surface<const KIND: usize>(
     unsafe { destroy(instance, surface, allocator) };
 }
 
-#[cfg(feature = "investigation")]
-pub fn stop() -> Result<(), String> {
-    RUNNING.store(false, Ordering::Release);
-    {
-        let mut registry = REGISTRY.lock().unwrap_or_else(|e| e.into_inner());
-        registry.chains.clear();
-        registry.queues.clear();
-        registry.devices.clear();
-        registry.physical.clear();
-        registry.surfaces.clear();
-    }
-    input::release();
-    let result = input::uninstall();
-    if let Some(imports) = IMPORTS.get() {
-        imports.lock().unwrap_or_else(|e| e.into_inner()).clear();
-    }
-    result
-}
-
 pub fn diagnostics() -> Option<serde_json::Value> {
     let registry = REGISTRY.try_lock().ok()?;
     Some(serde_json::json!({

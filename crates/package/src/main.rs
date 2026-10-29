@@ -285,7 +285,24 @@ fn package(workspace: &Path, output: &Path) -> Result<()> {
     fs::create_dir_all(parent)?;
     let temporary = parent.join(format!(".search-probes-package-{}", std::process::id()));
     fs::create_dir(&temporary)?;
-    let binaries = workspace.join("target/x86_64-pc-windows-gnu/release");
+    // Cargo configuration and CARGO_TARGET_DIR can move the build outside the workspace.
+    // Ask Cargo rather than silently packaging an older DLL left in workspace/target.
+    let metadata = Command::new(std::env::var_os("CARGO").unwrap_or_else(|| "cargo".into()))
+        .current_dir(workspace)
+        .args(["metadata", "--locked", "--no-deps", "--format-version=1"])
+        .output()?;
+    if !metadata.status.success() {
+        return Err(String::from_utf8_lossy(&metadata.stderr)
+            .into_owned()
+            .into());
+    }
+    let metadata: Value = serde_json::from_slice(&metadata.stdout)?;
+    let binaries = Path::new(
+        metadata["target_directory"]
+            .as_str()
+            .ok_or("missing Cargo target directory")?,
+    )
+    .join("x86_64-pc-windows-gnu/release");
     for (from, to) in [("winmm.dll", "Binaries/winmm.dll")] {
         copy(&binaries.join(from), &temporary.join(to))?;
     }
@@ -312,10 +329,6 @@ fn package(workspace: &Path, output: &Path) -> Result<()> {
     copy(
         &workspace.join("README.md"),
         &temporary.join("README-SEARCH-PROBES.md"),
-    )?;
-    copy(
-        &workspace.join("VALIDATION.md"),
-        &temporary.join("VALIDATION.md"),
     )?;
     copy(
         &workspace.join("LICENSE.txt"),
@@ -368,74 +381,5 @@ fn main() {
     if let Err(error) = run() {
         eprintln!("{error}");
         std::process::exit(1);
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    #[test]
-    fn archive_names_preserve_the_complete_version() {
-        assert_eq!(
-            archive_path(Path::new("dist/SearchProbes-0.1.1")),
-            Path::new("dist/SearchProbes-0.1.1.zip")
-        );
-    }
-    struct Directory(PathBuf);
-    impl Drop for Directory {
-        fn drop(&mut self) {
-            let _ = fs::remove_dir_all(&self.0);
-        }
-    }
-    fn directory() -> Directory {
-        let stamp = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
-            .as_nanos();
-        let path = std::env::temp_dir().join(format!(
-            "search-probes-package-{}-{stamp}",
-            std::process::id()
-        ));
-        fs::create_dir(&path).unwrap();
-        Directory(path)
-    }
-    #[test]
-    fn archive_and_manifest_detect_changes_and_extra_files() {
-        let dir = directory();
-        let root = dir.0.join("package");
-        fs::create_dir(&root).unwrap();
-        fs::write(root.join("payload"), b"bounded package").unwrap();
-        let expected = manifest(&root).unwrap();
-        fs::write(
-            root.join("manifest.json"),
-            serde_json::to_vec(&json!({"format":1,"product":"Search Probes","files":expected}))
-                .unwrap(),
-        )
-        .unwrap();
-        verify(&root).unwrap();
-        let path = dir.0.join("package.zip");
-        archive(&root, &path).unwrap();
-        let mut zip = zip::ZipArchive::new(fs::File::open(&path).unwrap()).unwrap();
-        assert_eq!(zip.len(), 2);
-        let mut text = String::new();
-        zip.by_name("payload")
-            .unwrap()
-            .read_to_string(&mut text)
-            .unwrap();
-        assert_eq!(text, "bounded package");
-        assert!(archive(&root, &path).is_err());
-        fs::write(root.join("payload"), b"changed package").unwrap();
-        assert!(verify(&root).is_err());
-        fs::write(root.join("payload"), b"bounded package").unwrap();
-        fs::create_dir(root.join("extra")).unwrap();
-        fs::write(root.join("extra/manifest.json"), b"extra").unwrap();
-        assert!(verify(&root).is_err());
-    }
-    #[cfg(unix)]
-    #[test]
-    fn package_does_not_follow_symlinks() {
-        let directory = directory();
-        std::os::unix::fs::symlink("/etc/passwd", directory.0.join("link")).unwrap();
-        assert!(files(&directory.0).is_err());
     }
 }

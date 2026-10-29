@@ -19,7 +19,7 @@ static FAILED: AtomicU8 = AtomicU8::new(0);
 static CALLBACK: OnceLock<fn()> = OnceLock::new();
 static HOOK: Mutex<Option<ResidentHook>> = Mutex::new(None);
 const PREFIX: [u8; 18] = [
-    0xf3, 0x0f, 0x11, 0x4c, 0x24, 0x10, 0x4c, 0x8b, 0xdc, 0x55, 0x56, 0x49, 0x8d, 0xab, 0xf8, 0xfe,
+    0xf3, 0x0f, 0x11, 0x4c, 0x24, 0x10, 0x4c, 0x8b, 0xdc, 0x55, 0x56, 0x49, 0x8d, 0xab, 0xc8, 0xfe,
     0xff, 0xff,
 ];
 
@@ -81,7 +81,7 @@ pub unsafe fn enable(base: usize, callback: fn()) -> Result<(), HookError> {
     let mut state = HOOK.lock().map_err(|_| HookError::StatePoisoned)?;
     if state.is_none() {
         let hook = unsafe {
-            ResidentHook::prepare(base + 0x13f54f0, detour as *const () as usize, &PREFIX)
+            ResidentHook::prepare(base + 0x141bcf0, detour as *const () as usize, &PREFIX)
         }?;
         if CALLBACK.set(callback).is_err() {
             return Err(HookError::StatePoisoned);

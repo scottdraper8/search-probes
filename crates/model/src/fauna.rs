@@ -121,6 +121,7 @@ pub enum FaunaField {
     Activity,
     Rarity,
     Habitat,
+    Hemisphere,
 }
 impl FaunaField {
     pub const ALL: &[Self] = &[
@@ -129,6 +130,7 @@ impl FaunaField {
         Self::Activity,
         Self::Rarity,
         Self::Habitat,
+        Self::Hemisphere,
     ];
     pub fn label(self) -> &'static str {
         match self {
@@ -137,6 +139,7 @@ impl FaunaField {
             Self::Activity => "Activity time",
             Self::Rarity => "Rarity",
             Self::Habitat => "Habitat",
+            Self::Hemisphere => "Hemisphere",
         }
     }
     pub fn options(self, domain: Domain) -> Vec<(usize, &'static str)> {
@@ -146,6 +149,7 @@ impl FaunaField {
                 .filter(|f| f.domains() & domain.bit() != 0)
                 .map(|f| (*f as usize, f.label()))
                 .collect(),
+            Self::Category if domain == Domain::Aquatic => vec![],
             Self::Category => ["Ordinary", "Robotic", "Skeletal", "Plant-like", "Anomalous"]
                 .into_iter()
                 .enumerate()
@@ -171,6 +175,7 @@ impl FaunaField {
                 .collect(),
             Self::Habitat if domain == Domain::Land => vec![(0, "Surface"), (1, "Cave")],
             Self::Habitat => vec![],
+            Self::Hemisphere => vec![(0, "Both"), (1, "North only"), (2, "South only")],
         }
     }
 }
@@ -184,9 +189,13 @@ impl HeightRange {
     pub fn active(self) -> bool {
         self.minimum_cm.is_some() || self.maximum_cm.is_some()
     }
-    fn matches(self, heights: [u32; 2]) -> bool {
+    fn matches(self, heights: [i32; 2]) -> bool {
         heights.into_iter().any(|h| {
-            self.minimum_cm.is_none_or(|min| h >= min) && self.maximum_cm.is_none_or(|max| h <= max)
+            self.minimum_cm
+                .is_none_or(|min| i64::from(h) >= i64::from(min))
+                && self
+                    .maximum_cm
+                    .is_none_or(|max| i64::from(h) <= i64::from(max))
         })
     }
 }
@@ -201,7 +210,7 @@ pub struct FaunaCriteria {
 pub struct Selection {
     pub domain: Domain,
     pub presence: Option<bool>,
-    pub masks: [u64; 5],
+    pub masks: [u64; FaunaField::ALL.len()],
     pub height: HeightRange,
     pub mode: ResourceMode,
 }
@@ -211,7 +220,7 @@ impl FaunaCriteria {
         domain: Domain,
         mode: ResourceMode,
     ) -> Result<Option<Selection>, &'static str> {
-        let mut masks = [0; 5];
+        let mut masks = [0; FaunaField::ALL.len()];
         for (&field, &mask) in &self.choices {
             let allowed = field
                 .options(domain)
@@ -249,7 +258,10 @@ pub struct Species {
     pub activity: u8,
     pub rarity: u8,
     pub cave: bool,
-    pub heights_cm: [u32; 2],
+    pub hemisphere: u8,
+    // Native discovery metadata adds signed jitter to the catalogue scale. Small schooling
+    // fish can therefore have negative values; preserve them rather than clamping or wrapping.
+    pub heights_cm: [i32; 2],
 }
 impl Selection {
     pub fn evaluate(self, species: &[Species]) -> Verdict {
@@ -266,6 +278,7 @@ impl Selection {
                 s.activity as usize,
                 s.rarity as usize,
                 usize::from(s.cave),
+                s.hemisphere as usize,
             ]
             .into_iter()
             .enumerate()

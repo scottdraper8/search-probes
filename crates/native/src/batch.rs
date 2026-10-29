@@ -18,6 +18,7 @@ pub struct Job<'a> {
 pub struct Completed {
     pub address: Address,
     pub record: SystemRecord,
+    pub pending_arena: Vec<crate::arena_inputs::Planet>,
     pub work: Work,
     pub cancelled: bool,
     pub from_cache: bool,
@@ -64,6 +65,7 @@ pub unsafe fn evaluate(
                 Ok(Completed {
                     address: job.address,
                     record: cached.clone(),
+                    pending_arena: Vec::new(),
                     work: Work::default(),
                     cancelled: false,
                     from_cache: true,
@@ -78,9 +80,11 @@ pub unsafe fn evaluate(
                     }
                     .and_then(|outcome| {
                         let (work, cancelled) = (outcome.work, outcome.cancelled);
+                        let (record, pending_arena) = outcome.into_record()?;
                         Ok(Completed {
                             address: job.address,
-                            record: outcome.into_record()?,
+                            record,
+                            pending_arena,
                             work,
                             cancelled,
                             from_cache: false,

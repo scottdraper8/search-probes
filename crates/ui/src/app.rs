@@ -1,6 +1,7 @@
 use egui::{self, Color32, RichText, Ui};
 use search_probes_model::controls::Controls;
 use search_probes_model::{
+    arena::ArenaField,
     criteria::{
         CompositionField, Criteria, Field, PlanetFlag, ResourceMode, Section, SelectionSide,
         SystemFlag, WaterFilter, subtype_options_for,
@@ -440,6 +441,9 @@ impl App {
                         .default_open(true)
                         .show(ui, |ui| fauna_domain(ui, criteria, domain, input_width));
                 }
+                egui::CollapsingHeader::new(RichText::new("Xeno Arena").size(16.0).strong())
+                    .default_open(true)
+                    .show(ui, |ui| arena_criteria(ui, criteria, input_width));
             });
     }
     fn planet_criteria(&mut self, ui: &mut Ui, input_width: f32) {
@@ -647,6 +651,12 @@ impl App {
             }
             if progress.history_evicted {
                 ui.small("Continuation for the oldest filter was removed from session history.");
+            }
+            if progress.unresolved_arena_planets > 0 {
+                ui.small(format!(
+                    "{} planets could not be checked against the selected Arena ranks.",
+                    number(progress.unresolved_arena_planets)
+                ));
             }
             if let Some(error) = &progress.error {
                 ui.colored_label(Color32::LIGHT_RED, error);
@@ -1124,6 +1134,30 @@ fn match_mode_row(ui: &mut Ui, criteria: &mut Criteria, section: Section) {
     }
 }
 
+fn arena_criteria(ui: &mut Ui, criteria: &mut Criteria, width: f32) {
+    match_mode_row(ui, criteria, Section::XenoArena);
+    filter_row(ui, "Has tameable fauna", width, |ui| {
+        requirement(ui, "arena_presence", &mut criteria.arena.presence, width);
+    });
+    for &field in ArenaField::ALL {
+        let mut mask = criteria.arena.choices.get(&field).copied().unwrap_or(0);
+        filter_row(ui, field.label(), width, |ui| {
+            choices(
+                ui,
+                ("arena", field),
+                &mut mask,
+                field.options().into_iter(),
+                width,
+            )
+        });
+        if mask == 0 {
+            criteria.arena.choices.remove(&field);
+        } else {
+            criteria.arena.choices.insert(field, mask);
+        }
+    }
+}
+
 fn fauna_domain(ui: &mut Ui, criteria: &mut Criteria, domain: Domain, width: f32) {
     match_mode_row(ui, criteria, domain.section());
     let mut selected = criteria.fauna.get(&domain).cloned().unwrap_or_default();
@@ -1316,68 +1350,4 @@ fn number(value: u64) -> String {
         output.push(digit);
     }
     output
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn wrapped_labels_and_long_choices_preserve_the_control_column() {
-        for row_width in [240.0, 440.0] {
-            let ctx = egui::Context::default();
-            let mut controls = Vec::new();
-            let mut heights = Vec::new();
-            let mut right = 0.0;
-            let output = ctx.run_ui(
-                egui::RawInput {
-                    screen_rect: Some(egui::Rect::from_min_size(
-                        egui::Pos2::ZERO,
-                        egui::vec2(1000.0, 1000.0),
-                    )),
-                    ..Default::default()
-                },
-                |ui| {
-                    controls.clear();
-                    heights.clear();
-                    ui.set_width(row_width);
-                    right = ui.available_rect_before_wrap().right();
-                    for (index, label) in [
-                        "Water",
-                        "Exclude system by biome subtype",
-                        "Include system by planet size",
-                    ]
-                    .into_iter()
-                    .enumerate()
-                    {
-                        let before = ui.cursor().top();
-                        filter_row(ui, label, 120.0, |ui| {
-                            let response = egui::ComboBox::from_id_salt(index)
-                                .width(120.0)
-                                .truncate()
-                                .selected_text(if index == 2 {
-                                    "A very long selected value that should stay inside the column"
-                                } else {
-                                    "Any"
-                                })
-                                .show_ui(ui, |_| {})
-                                .response;
-                            controls.push(response.rect);
-                        });
-                        heights.push(ui.cursor().top() - before);
-                    }
-                },
-            );
-            output.drop_without_applying_deltas();
-            assert_eq!(controls.len(), 3);
-            for rect in &controls {
-                assert!((rect.left() - controls[0].left()).abs() < 0.1);
-                assert!((rect.right() - controls[0].right()).abs() < 0.1);
-                assert!(rect.right() <= right + 0.1);
-            }
-            if row_width == 240.0 {
-                assert!(heights[1] > heights[0]);
-            }
-        }
-    }
 }

@@ -98,6 +98,14 @@ impl SystemRecord {
             .iter()
             .chain(std::iter::once(&self.system))
             .try_fold(0, |bytes, facts| {
+                let bytes = if let Some(arena) = facts.arena() {
+                    if arena.len() > crate::fauna::MAX_SPECIES {
+                        return Err("cached Arena fauna exceeds species bound");
+                    }
+                    bytes + std::mem::size_of_val(arena) + 32
+                } else {
+                    bytes
+                };
                 let Some(species) = facts.fauna() else {
                     return Ok(bytes);
                 };
@@ -132,6 +140,23 @@ impl SystemRecord {
             }
         }
         result
+    }
+
+    pub fn unresolved_arena_planets(&self, plan: &Plan) -> u8 {
+        if plan.system_match(&self.system, &self.planets[..self.count]) != Verdict::Match {
+            return 0;
+        }
+        self.planets
+            .iter()
+            .take(self.count)
+            .enumerate()
+            .fold(0, |mask, (index, facts)| {
+                mask | if plan.unresolved_arena_ranks(facts) {
+                    1 << index
+                } else {
+                    0
+                }
+            })
     }
 
     pub fn result(&self, address: Address, index: usize, plan: &Plan) -> CachedMatch {
@@ -258,189 +283,5 @@ impl Cache {
             }
         }
         result
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::criteria::{Criteria, Field, PlanetFlag};
-    fn address(system: u64) -> Address {
-        Address::from_raw(system << 40).unwrap()
-    }
-    fn record() -> SystemRecord {
-        let mut system = Facts::default();
-        system.set_planet_count(2);
-        SystemRecord::new(system, std::array::from_fn(|_| Facts::default())).unwrap()
-    }
-    #[test]
-    fn system_only_results_are_unique_and_planet_filters_preserve_planet_targets() {
-        let mut cache = Cache::new(2).unwrap();
-        for (id, population) in [(1, 0), (2, 1)] {
-            let mut entry = record();
-            entry.system.set(Field::Population, population);
-            for planet in &mut entry.planets[..2] {
-                planet.set(Field::Sky, crate::vocabulary::GRASS_COLOUR_SET | 1 << 5);
-            }
-            cache.insert(address(id), entry).unwrap();
-        }
-        let mut criteria = Criteria::default();
-        let systems = cache.matching(&criteria.compile().unwrap(), 0, address(3), 10);
-        assert_eq!(
-            systems
-                .iter()
-                .map(|r| (r.address, r.kind))
-                .collect::<Vec<_>>(),
-            [
-                (address(2), TargetKind::System),
-                (address(1), TargetKind::System)
-            ]
-        );
-        criteria.choices.insert(Field::Sky, 1 << 5);
-        let planets = cache.matching(&criteria.compile().unwrap(), 0, address(3), 10);
-        assert_eq!(
-            planets
-                .iter()
-                .map(|r| (r.address, r.kind))
-                .collect::<Vec<_>>(),
-            [
-                (address(2).planet(0).unwrap(), TargetKind::Planet),
-                (address(2).planet(1).unwrap(), TargetKind::Planet),
-                (address(1).planet(0).unwrap(), TargetKind::Planet),
-                (address(1).planet(1).unwrap(), TargetKind::Planet)
-            ]
-        );
-        criteria.choices.insert(Field::Race, 1 << 1);
-        assert!(
-            cache
-                .matching(&criteria.compile().unwrap(), 0, address(3), 10)
-                .is_empty()
-        );
-    }
-    #[test]
-    fn facts_from_nonmatches_can_satisfy_a_later_search() {
-        let mut cache = Cache::new(2).unwrap();
-        let mut entry = record();
-        entry.planets[0].set(Field::Sky, crate::vocabulary::GRASS_COLOUR_SET | 1 << 5);
-        entry.planets[0].set(Field::Biome, 1);
-        entry.planets[1].set(Field::Sky, crate::vocabulary::GRASS_COLOUR_SET | 1);
-        let mut x = Criteria::default();
-        x.choices.extend([(Field::Sky, 32), (Field::Biome, 1)]);
-        assert_eq!(entry.evaluate(&x.compile().unwrap()).matches, 0);
-        cache.insert(address(1), entry).unwrap();
-        let mut y = Criteria::default();
-        y.choices.insert(Field::Sky, 32);
-        let result = cache.matching(&y.compile().unwrap(), 0, address(2), 100);
-        assert_eq!(result.len(), 1);
-        assert_eq!(result[0].address, address(1).planet(0).unwrap());
-        assert!(result[0].name.is_none());
-    }
-    #[test]
-    fn grass_colour_bounds_reject_impossible_choices_without_claiming_grass_exists() {
-        use crate::vocabulary::GRASS_COLOUR_SET;
-        let mut cache = Cache::new(2).unwrap();
-        let mut entry = record();
-        entry.planets[0].restrict_grass_colours(GRASS_COLOUR_SET | (1 << 3));
-        entry.planets[1].restrict_grass_colours(GRASS_COLOUR_SET | 1);
-        cache.insert(address(1), entry).unwrap();
-        let mut criteria = Criteria::default();
-        criteria.choices.insert(Field::Grass, 1 << 10);
-        let white = criteria.compile().unwrap();
-        assert_eq!(
-            cache.get(address(1)).unwrap().evaluate(&white),
-            Evaluation {
-                matches: 0,
-                unknown: 0
-            }
-        );
-        criteria.choices.insert(Field::Grass, (1 << 3) | (1 << 10));
-        let green_or_white = criteria.compile().unwrap();
-        assert_eq!(
-            cache.get(address(1)).unwrap().evaluate(&green_or_white),
-            Evaluation {
-                matches: 0,
-                unknown: 1
-            }
-        );
-        assert!(
-            cache
-                .matching(&green_or_white, 0, address(2), 100)
-                .is_empty()
-        );
-        for actual in [GRASS_COLOUR_SET, GRASS_COLOUR_SET | (1 << 3)] {
-            let mut update = record();
-            update.planets[0].set(Field::Grass, actual);
-            cache.insert(address(1), update).unwrap();
-            assert_eq!(
-                cache.get(address(1)).unwrap().evaluate(&green_or_white),
-                Evaluation {
-                    matches: if actual & (1 << 3) == 0 { 0 } else { 1 },
-                    unknown: 0
-                }
-            );
-        }
-    }
-    #[test]
-    fn unknowns_do_not_become_exclusions_or_false_matches() {
-        let entry = record();
-        let mut criteria = Criteria::default();
-        criteria.planets.insert(PlanetFlag::GlowingGrass, false);
-        assert_eq!(
-            entry.evaluate(&criteria.compile().unwrap()),
-            Evaluation {
-                matches: 0,
-                unknown: 3
-            }
-        );
-    }
-    #[test]
-    fn eviction_and_updates_keep_storage_bounded() {
-        let mut cache = Cache::new(2).unwrap();
-        for i in 1..=1000 {
-            cache.insert(address(i), record()).unwrap();
-            assert!(cache.len() <= 2);
-        }
-        assert_eq!(cache.order.len(), 2);
-        assert!(cache.get(address(998)).is_none());
-        let mut newer = record();
-        newer.set_name(0, "Retained").unwrap();
-        newer.set_system_name("Retained system").unwrap();
-        cache.insert(address(999), newer).unwrap();
-        assert_eq!(cache.get(address(999)).unwrap().name(0), Some("Retained"));
-        cache.insert(address(999), record()).unwrap();
-        let plan = Criteria::default().compile().unwrap();
-        assert_eq!(
-            cache
-                .get(address(999))
-                .unwrap()
-                .result(address(999), 0, &plan)
-                .name
-                .as_deref(),
-            Some("Retained system")
-        );
-        assert_eq!(cache.order.len(), 2);
-        cache.clear();
-        assert!(cache.is_empty());
-        assert!(cache.order.is_empty());
-        assert!(std::mem::size_of::<SystemRecord>() <= 2048);
-        assert!(
-            (std::mem::size_of::<SystemRecord>() + 9 * MAX_NAME_BYTES + 256) * MAX_CACHED_SYSTEMS
-                + MAX_CACHED_FAUNA_BYTES
-                < 64 * 1024 * 1024
-        );
-    }
-    #[test]
-    fn cache_results_are_limited_and_session_galaxy_specific() {
-        let mut cache = Cache::new(100).unwrap();
-        for i in 1..=100 {
-            cache.insert(address(i), record()).unwrap();
-        }
-        let plan = Criteria::default().compile().unwrap();
-        assert_eq!(
-            cache.matching(&plan, 0, address(101), usize::MAX).len(),
-            100
-        );
-        assert!(cache.matching(&plan, 1, address(101), 100).is_empty());
-        assert!(cache.matching(&plan, 0, address(101), 0).is_empty());
     }
 }

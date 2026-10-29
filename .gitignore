@@ -1,2 +1,5 @@
 /target/
 /dist/
+
+# Generated investigation state
+investigation-state/

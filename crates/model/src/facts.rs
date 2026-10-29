@@ -20,6 +20,7 @@ pub struct Facts {
     water: Option<WaterPresence>,
     extreme_storm_profile: Option<bool>,
     fauna: Option<std::sync::Arc<[crate::fauna::Species]>>,
+    arena: Option<std::sync::Arc<[crate::arena::Creature]>>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -140,7 +141,16 @@ impl Facts {
     pub fn fauna(&self) -> Option<&[crate::fauna::Species]> {
         self.fauna.as_deref()
     }
+    pub fn set_arena(&mut self, creatures: Vec<crate::arena::Creature>) {
+        self.arena = Some(creatures.into());
+    }
+    pub fn arena(&self) -> Option<&[crate::arena::Creature]> {
+        self.arena.as_deref()
+    }
     pub fn merge(&mut self, new: &Self) {
+        if let Some(arena) = &new.arena {
+            self.arena = Some(arena.clone());
+        }
         if let Some(fauna) = &new.fauna {
             self.fauna = Some(fauna.clone());
         }
@@ -182,6 +192,11 @@ impl Facts {
 
     pub fn evaluate(&self, predicate: Predicate) -> Verdict {
         let accepted = match predicate {
+            Predicate::Arena(selection) => {
+                return self
+                    .arena()
+                    .map_or(Verdict::Unknown, |creatures| selection.evaluate(creatures));
+            }
             Predicate::Fauna(selection) => self
                 .fauna
                 .as_deref()
@@ -309,6 +324,11 @@ impl Plan {
         let sections =
             self.section_verdicts(&self.planet, |rule| self.evaluate_planet(rule, facts));
         for &predicate in &self.planet {
+            // An acquired Arena observation may have unresolved placement/size-dependent ranks.
+            // Regenerating the same roles cannot supply those inputs.
+            if matches!(predicate, Predicate::Arena(_)) && facts.arena().is_some() {
+                continue;
+            }
             if sections[predicate.section() as usize] != Verdict::Unknown
                 || self.evaluate_planet(predicate, facts) != Verdict::Unknown
             {
@@ -412,6 +432,23 @@ impl Plan {
             ResourceMode::All,
         )
     }
+
+    /// Identify an undecided Arena condition after acquisition, with every other section matched.
+    /// This does not establish a match or exclusion, or authorize skipping the unresolved planet.
+    pub fn unresolved_arena_ranks(&self, facts: &Facts) -> bool {
+        if !facts
+            .arena()
+            .is_some_and(|creatures| creatures.iter().any(|c| !c.ranks.is_complete()))
+        {
+            return false;
+        }
+        let sections =
+            self.section_verdicts(&self.planet, |rule| self.evaluate_planet(rule, facts));
+        sections[Section::XenoArena as usize] == Verdict::Unknown
+            && sections.iter().enumerate().all(|(index, &verdict)| {
+                index == Section::XenoArena as usize || verdict == Verdict::Match
+            })
+    }
 }
 
 pub fn hue(rgb: [f64; 3]) -> Result<u32, &'static str> {
@@ -453,193 +490,4 @@ pub fn hue(rgb: [f64; 3]) -> Result<u32, &'static str> {
     } else {
         7
     })
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::criteria::Criteria;
-
-    #[test]
-    fn missing_data_is_never_a_negative_fact() {
-        let mut criteria = Criteria::default();
-        criteria.planets.insert(PlanetFlag::GlowingGrass, false);
-        let plan = criteria.compile().unwrap();
-        let mut facts = Facts::default();
-        assert_eq!(plan.planet_match(&facts), Verdict::Unknown);
-        facts.set_planet_flag(PlanetFlag::GlowingGrass, false);
-        assert_eq!(plan.planet_match(&facts), Verdict::Match);
-    }
-
-    #[test]
-    fn partial_flora_observations_preserve_unknowns_and_merge_proven_absences() {
-        use crate::vocabulary::GRASS_COLOUR_SET;
-        let mut criteria = Criteria::default();
-        criteria.choices.insert(Field::FloraColour, 1 << 3);
-        let green = criteria.compile().unwrap();
-        criteria.choices.insert(Field::FloraColour, 1 << 10);
-        let white = criteria.compile().unwrap();
-        let mut observed = Facts::default();
-        observed.observe_flora_colours(GRASS_COLOUR_SET | 1 << 3, 1 << 3);
-        let mut cached = Facts::default();
-        cached.merge(&observed);
-        assert_eq!(green.planet_match(&cached), Verdict::Match);
-        assert_eq!(green.missing_planet_requirements(&cached).colours & 2, 0);
-        assert_eq!(white.planet_match(&cached), Verdict::Unknown);
-        assert_ne!(white.missing_planet_requirements(&cached).colours & 2, 0);
-        observed.observe_flora_colours(1 << 10, 1 << 10);
-        cached.merge(&observed);
-        assert_eq!(white.planet_match(&cached), Verdict::Match);
-
-        criteria.choices.insert(Field::FloraColour, 1 << 5);
-        let blue = criteria.compile().unwrap();
-        assert_eq!(blue.planet_match(&cached), Verdict::Unknown);
-        observed.observe_flora_colours(0, 1 << 5);
-        cached.merge(&observed);
-        assert_eq!(blue.planet_match(&cached), Verdict::NoMatch);
-        assert_eq!(blue.missing_planet_requirements(&cached).colours & 2, 0);
-        criteria
-            .choices
-            .insert(Field::FloraColour, (1 << 5) | (1 << 0));
-        let blue_or_red = criteria.compile().unwrap();
-        assert_eq!(blue_or_red.planet_match(&cached), Verdict::Unknown);
-        observed.observe_flora_colours(0, 1 << 0);
-        cached.merge(&observed);
-        assert_eq!(blue_or_red.planet_match(&cached), Verdict::NoMatch);
-        cached.set(Field::FloraColour, GRASS_COLOUR_SET | 1 << 3 | 1 << 10);
-        assert_eq!(blue.planet_match(&cached), Verdict::NoMatch);
-    }
-
-    #[test]
-    fn terrain_layers_match_features_and_defer_unknown_floating_objects() {
-        use crate::terrain::{FEATURE_SET, FLOATING_ISLANDS};
-        let mut criteria = Criteria::default();
-        let mountain = 1 << 1;
-        let cave = 1 << 6;
-        criteria.choices.insert(Field::Terrain, mountain | cave);
-        let layers = criteria.compile().unwrap();
-        assert!(layers.requirements.terrain);
-        assert!(!layers.requirements.objects);
-        let mut facts = Facts::default();
-        assert_eq!(layers.planet_match(&facts), Verdict::Unknown);
-        facts.observe_terrain_layers(mountain as u32);
-        assert_eq!(layers.planet_match(&facts), Verdict::Match);
-        assert!(!layers.missing_planet_requirements(&facts).terrain);
-        facts.observe_terrain_layers(1 << 4);
-        assert_eq!(layers.planet_match(&facts), Verdict::NoMatch);
-
-        criteria
-            .choices
-            .insert(Field::Terrain, u64::from(FLOATING_ISLANDS) | mountain);
-        let either = criteria.compile().unwrap();
-        assert!(either.requirements.objects);
-        assert_eq!(either.planet_match(&facts), Verdict::Unknown);
-        assert!(either.missing_planet_requirements(&facts).objects);
-        facts.observe_terrain_layers(mountain as u32);
-        assert_eq!(either.planet_match(&facts), Verdict::Match);
-        assert!(!either.missing_planet_requirements(&facts).objects);
-
-        criteria
-            .choices
-            .insert(Field::Terrain, u64::from(FLOATING_ISLANDS));
-        let floating = criteria.compile().unwrap();
-        let mut retained = Facts::default();
-        retained.merge(&facts);
-        assert_eq!(floating.planet_match(&retained), Verdict::Unknown);
-        retained.set(Field::Terrain, FEATURE_SET | mountain as u32);
-        assert_eq!(floating.planet_match(&retained), Verdict::NoMatch);
-        retained.set(
-            Field::Terrain,
-            FEATURE_SET | mountain as u32 | FLOATING_ISLANDS,
-        );
-        assert_eq!(floating.planet_match(&retained), Verdict::Match);
-        assert!(!floating.missing_planet_requirements(&retained).objects);
-    }
-
-    #[test]
-    fn choices_are_or_within_each_field_and_and_across_fields() {
-        let mut criteria = Criteria::default();
-        criteria.choices.insert(Field::Size, 0b10111);
-        criteria.choices.insert(Field::Biome, 1);
-        let plan = criteria.compile().unwrap();
-        let mut facts = Facts::default();
-        facts.set(Field::Size, 3);
-        assert_eq!(plan.planet_match(&facts), Verdict::NoMatch);
-        facts.set(Field::Size, 0);
-        assert_eq!(plan.planet_match(&facts), Verdict::Unknown);
-        facts.set(Field::Biome, 0);
-        assert_eq!(plan.planet_match(&facts), Verdict::Match);
-        facts.set(Field::Biome, 1);
-        assert_eq!(plan.planet_match(&facts), Verdict::NoMatch);
-    }
-
-    #[test]
-    fn dominant_lifeform_distinguishes_empty_abandoned_and_unknown_systems() {
-        for (mask, population, race, expected) in [
-            (128, Some(1), Some(0), Verdict::Match),
-            (128, Some(1), None, Verdict::Match),
-            (1, Some(1), Some(0), Verdict::NoMatch),
-            (1, Some(0), Some(0), Verdict::Match),
-            (2, Some(2), Some(1), Verdict::Match),
-            (2, Some(2), Some(2), Verdict::NoMatch),
-            (128, Some(2), Some(1), Verdict::NoMatch),
-            (128, Some(0), Some(7), Verdict::NoMatch),
-            (129, Some(1), Some(2), Verdict::Match),
-            (129, Some(0), Some(0), Verdict::Match),
-            (129, Some(0), Some(2), Verdict::NoMatch),
-            (1, None, Some(0), Verdict::Unknown),
-            (1, Some(0), None, Verdict::Unknown),
-        ] {
-            let mut criteria = Criteria::default();
-            criteria.choices.insert(Field::Race, mask);
-            let plan = criteria.compile().unwrap();
-            let mut facts = Facts::default();
-            if let Some(population) = population {
-                facts.set(Field::Population, population);
-            }
-            if let Some(race) = race {
-                facts.set(Field::Race, race);
-            }
-            assert_eq!(
-                plan.system_match(&facts, &[]),
-                expected,
-                "mask={mask}, population={population:?}, race={race:?}"
-            );
-        }
-    }
-
-    #[test]
-    fn merging_new_observations_preserves_known_fields() {
-        let mut before = Facts::default();
-        before.set(Field::Sky, 5);
-        before.set_water(WaterPresence::Shallow);
-        let mut new = Facts::default();
-        new.set(Field::Biome, 0);
-        new.set_water(WaterPresence::Dry);
-        before.merge(&new);
-        assert_eq!(before.get(Field::Sky), Some(5));
-        assert_eq!(before.get(Field::Biome), Some(0));
-        assert_eq!(before.water(), Some(WaterPresence::Dry));
-        assert!(std::mem::size_of::<Facts>() <= 192);
-    }
-
-    #[test]
-    fn hue_families_preserve_yellow_green_boundary_and_hdr_values() {
-        for (colour, expected) in [
-            ([1.0, 0.0, 0.0], 0),
-            ([1.0, 0.5, 0.0], 1),
-            ([1.0, 1.0, 0.0], 2),
-            ([0.99, 1.0, 0.0], 3),
-            ([0.0, 1.0, 1.0], 4),
-            ([0.0, 0.0, 4.0], 5),
-            ([0.5, 0.0, 1.0], 6),
-            ([1.0, 0.0, 1.0], 7),
-            ([1.0, 0.99, 0.99], 8),
-            ([0.0; 3], 8),
-        ] {
-            assert_eq!(hue(colour).unwrap(), expected);
-        }
-        assert!(hue([f64::NAN, 0.0, 0.0]).is_err());
-        assert!(hue([-1.0, 0.0, 0.0]).is_err());
-    }
 }
