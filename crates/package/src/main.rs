@@ -1,9 +1,10 @@
 mod assets;
+mod licensing;
 use search_probes_model::supported;
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 use std::{
-    collections::{BTreeMap, BTreeSet},
+    collections::BTreeMap,
     error::Error,
     fs,
     io::Read,
@@ -81,161 +82,6 @@ fn manifest(root: &Path) -> Result<BTreeMap<String, Value>> {
             ))
         })
         .collect()
-}
-
-fn licenses(workspace: &Path, output: &Path) -> Result<()> {
-    let supplemental = workspace.join("licenses");
-    let sources: Vec<Value> =
-        serde_json::from_slice(&fs::read(supplemental.join("sources.json"))?)?;
-    let metadata = Command::new(std::env::var_os("CARGO").unwrap_or_else(|| "cargo".into()))
-        .current_dir(workspace)
-        .args([
-            "metadata",
-            "--locked",
-            "--format-version=1",
-            "--filter-platform=x86_64-pc-windows-gnu",
-        ])
-        .output()?;
-    if !metadata.status.success() {
-        return Err(String::from_utf8_lossy(&metadata.stderr)
-            .into_owned()
-            .into());
-    }
-    let data: Value = serde_json::from_slice(&metadata.stdout)?;
-    let packages = data["packages"]
-        .as_array()
-        .ok_or("missing package metadata")?;
-    let nodes = data["resolve"]["nodes"]
-        .as_array()
-        .ok_or("missing dependency graph")?;
-    let mut pending: Vec<_> = packages
-        .iter()
-        .filter(|p| matches!(p["name"].as_str(), Some("search-probes-bootstrap")))
-        .map(|p| {
-            p["id"]
-                .as_str()
-                .ok_or("invalid package id")
-                .map(str::to_owned)
-        })
-        .collect::<std::result::Result<_, _>>()?;
-    let mut selected = BTreeSet::new();
-    while let Some(id) = pending.pop() {
-        if !selected.insert(id.clone()) {
-            continue;
-        }
-        let node = nodes
-            .iter()
-            .find(|n| n["id"] == id)
-            .ok_or("unresolved dependency")?;
-        for dependency in node["dependencies"]
-            .as_array()
-            .ok_or("missing dependencies")?
-        {
-            pending.push(dependency.as_str().ok_or("invalid dependency")?.to_owned());
-        }
-    }
-    let mut index = Vec::new();
-    for package in packages.iter().filter(|p| {
-        p["source"].is_string() && p["id"].as_str().is_some_and(|id| selected.contains(id))
-    }) {
-        let name = package["name"].as_str().ok_or("missing package name")?;
-        let version = package["version"]
-            .as_str()
-            .ok_or("missing package version")?;
-        let source = Path::new(
-            package["manifest_path"]
-                .as_str()
-                .ok_or("missing package source")?,
-        )
-        .parent()
-        .ok_or("missing source directory")?;
-        let identifier = format!("{name}-{version}");
-        let mut retained = Vec::new();
-        for path in files(source)? {
-            let filename = path
-                .file_name()
-                .ok_or("missing filename")?
-                .to_string_lossy()
-                .to_lowercase();
-            if !["license", "licence", "copying", "copyright", "notice"]
-                .iter()
-                .any(|part| filename.contains(part))
-                && !(name == "epaint_default_fonts" && filename.ends_with(".txt"))
-            {
-                continue;
-            }
-            let relative = path.strip_prefix(source)?;
-            copy(&path, &output.join(&identifier).join(relative))?;
-            retained.push(relative.to_string_lossy().replace('\\', "/"));
-        }
-        for record in sources
-            .iter()
-            .filter(|record| record["package"] == name && record["version"] == version)
-        {
-            let relative = Path::new(
-                record["path"]
-                    .as_str()
-                    .ok_or("missing supplemental license path")?,
-            );
-            if relative
-                .components()
-                .any(|part| !matches!(part, std::path::Component::Normal(_)))
-            {
-                return Err("invalid supplemental license path".into());
-            }
-            let source = supplemental.join(relative);
-            if hash(&source)? != record["sha256"].as_str().ok_or("missing license digest")? {
-                return Err("supplemental license hash differs".into());
-            }
-            copy(&source, &output.join(relative))?;
-            retained.push(
-                relative
-                    .strip_prefix(&identifier)?
-                    .to_string_lossy()
-                    .replace('\\', "/"),
-            );
-        }
-        if retained.is_empty() {
-            return Err(format!("no retained license files for {identifier}").into());
-        }
-        index.push(json!({"name": name, "version": version, "license": package["license"], "repository": package["repository"], "files": retained}));
-    }
-    fs::create_dir_all(output)?;
-    fs::write(
-        output.join("DEPENDENCIES.json"),
-        serde_json::to_vec_pretty(&index)?,
-    )?;
-    copy(
-        &supplemental.join("sources.json"),
-        &output.join("SOURCES.json"),
-    )?;
-    let sysroot = Command::new(std::env::var_os("RUSTC").unwrap_or_else(|| "rustc".into()))
-        .args(["--print", "sysroot"])
-        .output()?;
-    if !sysroot.status.success() {
-        return Err("cannot locate Rust library license notices".into());
-    }
-    let rust = PathBuf::from(String::from_utf8(sysroot.stdout)?.trim()).join("share/doc/rust");
-    copy(
-        &rust.join("COPYRIGHT-library.html"),
-        &output.join("rust/COPYRIGHT-library.html"),
-    )?;
-    for path in files(&rust.join("licenses"))? {
-        copy(
-            &path,
-            &output
-                .join("rust/licenses")
-                .join(path.strip_prefix(rust.join("licenses"))?),
-        )?;
-    }
-    let compiler = supplemental.join("toolchain");
-    for path in files(&compiler)? {
-        copy(
-            &path,
-            &output.join("toolchain").join(path.strip_prefix(&compiler)?),
-        )?;
-    }
-    Ok(())
 }
 
 fn archive(root: &Path, path: &Path) -> Result<()> {
@@ -334,7 +180,7 @@ fn package(workspace: &Path, output: &Path) -> Result<()> {
         &workspace.join("LICENSE.txt"),
         &temporary.join("LICENSE.txt"),
     )?;
-    licenses(workspace, &temporary.join("THIRD-PARTY"))?;
+    licensing::collect(workspace, &temporary.join("THIRD-PARTY"))?;
     let manifest = json!({"format":1,"product":"Search Probes","version":env!("CARGO_PKG_VERSION"),"game_version":supported::GAME_VERSION,"steam_build":supported::STEAM_BUILD,"nms_executable_sha256":supported::EXECUTABLE_SHA256,"files":manifest(&temporary)?});
     fs::write(
         temporary.join("manifest.json"),

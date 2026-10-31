@@ -72,4 +72,7 @@ bindings before changing it after an update.
 ## License
 
 [PolyForm Strict 1.0.0](LICENSE.txt), matching squinchmods. Preserve dependency/toolchain notices in
-`licenses/`. No Man's Sky and its assets belong to Hello Games.
+`licenses/`. The root `license-policy.json` defines permitted SPDX licenses, required crate notices
+and the exact toolchain notice inventory. `licenses/sources.json` records supplemental notice
+provenance. Packaging fails when either record is stale, incomplete or inconsistent with the locked
+Windows dependency graph. No Man's Sky and its assets belong to Hello Games.

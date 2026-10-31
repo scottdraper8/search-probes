@@ -790,8 +790,10 @@ version = "0.2.0"
 dependencies = [
  "quick-xml",
  "search-probes-model",
+ "serde",
  "serde_json",
  "sha2",
+ "spdx",
  "zip",
 ]
 
@@ -896,6 +898,15 @@ name = "smallvec"
 version = "1.16.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ba467056f1b547ed52077911161fc86985becbc60e8e1857c8a144dab0def891"
+
+[[package]]
+name = "spdx"
+version = "0.13.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "646c5a367da914e3babcb9cd8e91c37ccaac42325b8f86f036513ad103f2a716"
+dependencies = [
+ "smallvec",
+]
 
 [[package]]
 name = "spirv"
