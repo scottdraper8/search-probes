@@ -1,0 +1,68 @@
+{
+  "schema": 1,
+  "allowed_licenses": [
+    "Apache-2.0",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "MIT",
+    "OFL-1.1",
+    "Ubuntu-font-1.0",
+    "Unicode-3.0",
+    "Unlicense",
+    "Zlib"
+  ],
+  "extra_notice_files": {
+    "epaint_default_fonts@0.36.2": [
+      "fonts/Hack-Regular.txt",
+      "fonts/OFL.txt",
+      "fonts/UFL.txt",
+      "fonts/emoji-icon-font-mit-license.txt"
+    ]
+  },
+  "toolchain": [
+    {
+      "name": "mingw64-crt",
+      "version": "13.0.0-3.fc44.noarch",
+      "files": [
+        {
+          "path": "toolchain/mingw64-crt/COPYING",
+          "sha256": "99a69660981156c21336fdb5661f89341b013c94e4bf9e1c7467b4745718397f"
+        },
+        {
+          "path": "toolchain/mingw64-crt/DISCLAIMER",
+          "sha256": "039ed6b4f31bb7fb97e733170b58cc435335352e4745734fcfd113877fdaf340"
+        },
+        {
+          "path": "toolchain/mingw64-crt/DISCLAIMER.PD",
+          "sha256": "87f33608570312a0f2a9745edcb2527275df813b13982e8c3b3f893d88a4141a"
+        }
+      ]
+    },
+    {
+      "name": "mingw64-gcc",
+      "version": "16.1.1-1.fc44.x86_64",
+      "files": [
+        {
+          "path": "toolchain/mingw64-gcc/COPYING",
+          "sha256": "231f7edcc7352d7734a96eef0b8030f77982678c516876fcb81e25b32d68564c"
+        },
+        {
+          "path": "toolchain/mingw64-gcc/COPYING.LIB",
+          "sha256": "32434afcc8666ba060e111d715bfdb6c2d5dd8a35fa4d3ab8ad67d8f850d2f2b"
+        },
+        {
+          "path": "toolchain/mingw64-gcc/COPYING.RUNTIME",
+          "sha256": "9d6b43ce4d8de0c878bf16b54d8e7a10d9bd42b75178153e3af6a815bdc90f74"
+        },
+        {
+          "path": "toolchain/mingw64-gcc/COPYING3",
+          "sha256": "8ceb4b9ee5adedde47b31e975c1d90c73ad27b6b165a1dcd80c7c545eb65b903"
+        },
+        {
+          "path": "toolchain/mingw64-gcc/COPYING3.LIB",
+          "sha256": "a853c2ffec17057872340eee242ae4d96cbf2b520ae27d903e1b2fef1a5f9d1c"
+        }
+      ]
+    }
+  ]
+}
