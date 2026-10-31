@@ -75,7 +75,7 @@ pub fn install(base: usize, names: &[(&[u8], usize)]) -> Result<Vec<Import>, Str
             }
             let value = u64::from_le_bytes(platform::read::<8>(slot)?) as usize;
             let mut old = 0;
-            // The exact-build image owns this aligned IAT slot. Only the pointer is exchanged; executable bytes are untouched.
+            // Only the aligned IAT pointer is exchanged; executable bytes are untouched.
             unsafe {
                 if VirtualProtect(slot as *const _, 8, PAGE_READWRITE, &mut old) == 0 {
                     return Err("cannot protect Vulkan import".into());

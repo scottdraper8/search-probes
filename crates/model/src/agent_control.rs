@@ -114,10 +114,8 @@ impl AgentControl {
         if matches!(request.action, Action::Navigate { .. }) {
             return Err("Agent control accepts search commands, not navigation".into());
         }
-        if matches!(
-            request.action,
-            Action::Start { .. } | Action::Continue { .. }
-        ) && controls.snapshot().availability != Availability::Ready
+        if matches!(request.action, Action::Start { .. })
+            && controls.snapshot().availability != Availability::Ready
         {
             return Err("The loaded game is not ready to search".into());
         }
@@ -126,9 +124,9 @@ impl AgentControl {
                 .snapshot()
                 .progress
                 .as_ref()
-                .is_some_and(|p| matches!(p.phase, Phase::Running | Phase::Cached))
+                .is_some_and(|p| p.phase == Phase::Running)
         {
-            return Err("A search is already active; cancel or continue it first".into());
+            return Err("A search is already active; cancel it first".into());
         }
         controls
             .submit(request.generation, request.action)

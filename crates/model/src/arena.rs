@@ -1,5 +1,8 @@
 //! Independent, same-creature Arena matching. Only adoptable battle fauna enter this fact set.
-use crate::{criteria::ResourceMode, facts::Verdict};
+use crate::{
+    criteria::{ResourceMode, Section},
+    facts::Verdict,
+};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
@@ -59,7 +62,11 @@ pub struct Selection {
     pub mode: ResourceMode,
 }
 impl ArenaCriteria {
-    pub fn compile(&self, mode: ResourceMode) -> Result<Option<Selection>, &'static str> {
+    pub fn compile(
+        &self,
+        presence_mode: ResourceMode,
+        rank_mode: ResourceMode,
+    ) -> Result<Vec<Selection>, &'static str> {
         let mut masks = [0; ArenaField::ALL.len()];
         for (&field, &mask) in &self.choices {
             let allowed = field
@@ -71,13 +78,22 @@ impl ArenaCriteria {
             }
             masks[field as usize] = mask;
         }
-        Ok(
-            (self.presence.is_some() || masks.iter().any(|&m| m != 0)).then_some(Selection {
+        let mut selections = Vec::with_capacity(2);
+        if self.presence.is_some() {
+            selections.push(Selection {
                 presence: self.presence,
+                masks: [0; ArenaField::ALL.len()],
+                mode: presence_mode,
+            });
+        }
+        if masks.iter().any(|&mask| mask != 0) {
+            selections.push(Selection {
+                presence: None,
                 masks,
-                mode,
-            }),
-        )
+                mode: rank_mode,
+            });
+        }
+        Ok(selections)
     }
 }
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -198,6 +214,14 @@ fn combine(values: impl IntoIterator<Item = Verdict>, mode: ResourceMode) -> Ver
     result
 }
 impl Selection {
+    pub fn section(self) -> Section {
+        if self.masks.iter().any(|&mask| mask != 0) {
+            Section::XenoArena
+        } else {
+            Section::GeneralFauna
+        }
+    }
+
     fn creature(self, affinity: u8, ranks: Ranks) -> Verdict {
         let values = [
             affinity,

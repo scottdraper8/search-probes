@@ -2,7 +2,6 @@ use crate::{
     address::Address,
     criteria::Plan,
     facts::{Facts, Verdict},
-    settings::MAX_RESULTS,
     target::{Target, TargetKind},
 };
 use std::collections::{BTreeMap, VecDeque};
@@ -253,35 +252,5 @@ impl Cache {
             .remove(&oldest)
             .expect("cache order tracks records");
         self.fauna_bytes -= removed.fauna_bytes().expect("validated cached fauna");
-    }
-    pub fn matching(
-        &self,
-        plan: &Plan,
-        galaxy: u8,
-        excluded_system: Address,
-        limit: usize,
-    ) -> Vec<CachedMatch> {
-        let mut result = Vec::new();
-        let limit = limit.min(MAX_RESULTS);
-        if limit == 0 {
-            return result;
-        }
-        for address in self.order.iter().rev() {
-            if address.coordinates().galaxy != galaxy || *address == excluded_system.system() {
-                continue;
-            }
-            let record = &self.records[address];
-            let matches = record.evaluate(plan).matches;
-            for index in 0..record.count {
-                if matches & (1 << index) == 0 {
-                    continue;
-                }
-                result.push(record.result(*address, index, plan));
-                if result.len() == limit {
-                    return result;
-                }
-            }
-        }
-        result
     }
 }

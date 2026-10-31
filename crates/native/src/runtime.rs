@@ -186,8 +186,8 @@ pub(crate) struct SourceShutdown {
 }
 
 /// # Safety
-/// Called only at entry to the verified, irrevocable global resource shutdown. It cannot run
-/// inside a gameplay dispatch or a source call on this thread.
+/// Called only at entry to irrevocable global resource shutdown. It cannot run inside a gameplay
+/// dispatch or a source call on this thread.
 pub(crate) unsafe fn begin_source_shutdown() -> Result<SourceShutdown, &'static str> {
     if let Some(controls) = CONTROLS.get() {
         controls.cancel.store(true, Ordering::Release);
@@ -237,7 +237,7 @@ pub(crate) unsafe fn finish_source_shutdown(
     shutdown: SourceShutdown,
     base: usize,
 ) -> Result<(), &'static str> {
-    for offset in [0x6ef2df0, 0x59e6d30, 0x6ef2df8] {
+    for offset in [0x6ef1e50, 0x59e5d70, 0x6ef1e58] {
         if crate::platform::read::<8>(base + offset)? != [0; 8] {
             return Err("native source shutdown retained a manager, registry or simulation");
         }
@@ -413,7 +413,7 @@ impl Runtime {
             .ok_or("This Guide slot is empty. Save a preset in Search Probes first.")?;
         self.scheduler
             .session
-            .start(preset.search.clone(), snapshot.address, false, true)?;
+            .start(preset.search.clone(), snapshot.address)?;
         self.settings.search = preset.search.clone();
         self.controls.cancel.store(false, Ordering::Release);
         self.scheduler.reset_statistics();
@@ -438,17 +438,10 @@ impl Runtime {
             command.validate(state.generation)?;
         }
         match command.action {
-            Action::Start {
-                settings,
-                restart,
-                use_cache,
-            } => {
-                self.scheduler.session.start(
-                    settings.search.clone(),
-                    snapshot.address,
-                    restart,
-                    use_cache,
-                )?;
+            Action::Start { settings } => {
+                self.scheduler
+                    .session
+                    .start(settings.search.clone(), snapshot.address)?;
                 self.controls.cancel.store(false, Ordering::Release);
                 self.scheduler.reset_statistics();
                 self.controls.reset_search_clock();
@@ -462,14 +455,6 @@ impl Runtime {
                     state.publish_progress(self.scheduler.session.progress().cloned());
                 });
             }
-            Action::Continue { results } => {
-                self.scheduler.session.continue_live(results)?;
-                self.controls.cancel.store(false, Ordering::Release);
-                self.controls.update(|state| {
-                    state.search_command = Some(command.id);
-                    state.publish_progress(self.scheduler.session.progress().cloned());
-                });
-            }
             Action::Cancel {} => {
                 self.controls.cancel.store(true, Ordering::Release);
                 self.scheduler.session.cancel();
@@ -478,10 +463,6 @@ impl Runtime {
                 self.settings = settings;
                 self.controls
                     .update(|state| state.settings = self.settings.clone());
-            }
-            Action::ClearHistory {} => {
-                self.scheduler.reset();
-                self.controls.reset_search_clock();
             }
             Action::Navigate { target } => {
                 let displayed = self

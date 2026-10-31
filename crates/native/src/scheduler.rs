@@ -72,8 +72,8 @@ impl Scheduler {
         self.per_system_ns = 1_000_000.0;
     }
     /// # Safety
-    /// This runs inside the verified gameplay callback. That callback must wait for the batch and
-    /// preserve shared native configuration/resource lifetimes throughout it.
+    /// The gameplay callback must wait for the batch and preserve shared native configuration and
+    /// resource lifetimes throughout it.
     pub unsafe fn tick(
         &mut self,
         pool: &Workers,

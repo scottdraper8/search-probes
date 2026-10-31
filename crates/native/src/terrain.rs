@@ -35,7 +35,7 @@ unsafe fn shape(planet: *const u8, offset: usize) -> Result<Shape, &'static str>
 }
 
 /// # Safety
-/// `planet` is initialized GcPlanetData from the verified 7.06 query visitor, valid until return.
+/// `planet` is initialized GcPlanetData from the query visitor and remains valid until return.
 pub unsafe fn features(planet: *const u8) -> Result<u32, &'static str> {
     if planet.is_null() {
         return Err("null generated terrain");

@@ -44,7 +44,7 @@ impl Snapshot {
             return Err("gameplay resources are loading");
         }
         let base = image.base();
-        let application = platform::pointer(base + 0x6f60828)?;
+        let application = platform::pointer(base + 0x6f5f868)?;
         let root = platform::pointer(application + 0x72b610)?;
         let raw = platform::read::<24>(application + 0xc1a0)?;
         let components: [i32; 6] = std::array::from_fn(|index| {
@@ -90,7 +90,7 @@ impl Snapshot {
         {
             return Err("solar generator resources are not ready");
         }
-        let object_cache = platform::u32_at(base + 0x7560628)?;
+        let object_cache = platform::u32_at(base + 0x755f6b8)?;
         if object_cache == 0 || object_cache == u32::MAX {
             return Err("object resources are not ready");
         }
@@ -98,7 +98,7 @@ impl Snapshot {
             transition,
             application,
             root,
-            language: platform::u32_at(base + 0x6ee72b8)?,
+            language: platform::u32_at(base + 0x6ee6308)?,
             difficulty,
             object_cache,
             solar_resources,

@@ -80,8 +80,8 @@ pub struct Generator<'cache> {
 
 impl<'cache> Generator<'cache> {
     /// # Safety
-    /// Requires the exact verified image, enabled query hooks and a waiting gameplay callback that
-    /// holds the live configuration graph fixed until this worker-owned generator is dropped.
+    /// Query hooks must be enabled while a waiting gameplay callback holds the live configuration
+    /// graph fixed until this worker-owned generator is dropped.
     pub unsafe fn new(
         base: usize,
         live: *const u8,
@@ -338,7 +338,7 @@ impl<'cache> Generator<'cache> {
                             let context=crate::flora_appearance::Context {
                                 palettes:capture::flora_palettes(live),
                                 ground_colours:capture::flora_ground_colours(live),
-                                palette_mode:((self.base+0x5332ed4) as *const u32).read_unaligned(),
+                                palette_mode:((self.base+0x5331f14) as *const u32).read_unaligned(),
                             };
                             let wanted = plan.planet.iter().find_map(|predicate| match predicate {
                                 search_probes_model::criteria::Predicate::Choice(choices)

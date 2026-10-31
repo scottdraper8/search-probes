@@ -144,7 +144,7 @@ pub unsafe fn storm_profile(
         let table = pointer(read(generator, 0x508))?;
         let properties = pointer(read(table, index as usize * 8))?;
         let defaults = pointer(read(generator, 0x4f8))?;
-        // Exact 7.06 native hazard selector: override booleans and two six-state
+        // Native hazard selector: override booleans and two six-state
         // value arrays, with [extreme, normal] floats in each state.
         for (slot, (flag, offset, default_offset)) in profile.iter_mut().zip([
             (0xbe0, 0xad0, 0x110), // Temperature
@@ -164,7 +164,7 @@ pub unsafe fn storm_profile(
 }
 
 /// # Safety
-/// Every requested field must be readable from a live current-build planet. Requested sky/water
+/// Every requested field must be readable from a live planet. Requested sky and water
 /// tables require its initialized generator and live resource graph. Call before planet destruction,
 /// without concurrent mutation. An empty mask does not read pointers.
 pub unsafe fn capture(
@@ -279,7 +279,7 @@ pub unsafe fn capture(
 }
 
 /// # Safety
-/// Requires the complete generated colour data of a live current-build planet.
+/// Requires the complete generated colour data of a live planet.
 pub unsafe fn flora_palettes(planet: *const u8) -> [[[f32; 4]; 5]; 66] {
     std::array::from_fn(|palette| {
         std::array::from_fn(|alternative| unsafe {
@@ -289,7 +289,7 @@ pub unsafe fn flora_palettes(planet: *const u8) -> [[[f32; 4]; 5]; 66] {
 }
 
 /// # Safety
-/// Requires the complete generated colour data of a live current-build planet.
+/// Requires the complete generated colour data of a live planet.
 pub unsafe fn flora_ground_colours(planet: *const u8) -> [[f32; 4]; 24] {
     std::array::from_fn(|index| unsafe { read(planet, 0x1e60 + index * 16) })
 }

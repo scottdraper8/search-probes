@@ -6,7 +6,7 @@ use search_probes_model::{
         CompositionField, Criteria, Field, PlanetFlag, ResourceMode, Section, SelectionSide,
         SystemFlag, WaterFilter, subtype_options_for,
     },
-    fauna::{Domain, FaunaField},
+    fauna::{Domain, FaunaCriteria, FaunaField},
     runtime::{Action, Availability, SearchPause, State},
     session::Phase,
     settings::{BUDGET_LABELS, BUDGETS, MAX_PRESETS, MAX_RESULTS, Preset, Settings, validate_name},
@@ -27,8 +27,6 @@ pub struct App {
     loaded_generation: Option<u64>,
     preset_name: String,
     selected_preset: Option<usize>,
-    restart: bool,
-    use_cache: bool,
     error: Option<String>,
     published_settings: Option<Settings>,
     pending_search: Option<u64>,
@@ -58,15 +56,13 @@ impl App {
             loaded_generation: None,
             preset_name: String::new(),
             selected_preset: None,
-            restart: false,
-            use_cache: true,
             error: None,
             published_settings: None,
             pending_search: None,
         }
     }
     fn send(&mut self, action: Action) {
-        let pending = matches!(&action, Action::Start { .. } | Action::Continue { .. });
+        let pending = matches!(&action, Action::Start { .. });
         match self.controls.submit(self.state.generation, action) {
             Ok(id) => {
                 self.error = None;
@@ -179,7 +175,7 @@ impl App {
             || state
                 .progress
                 .as_ref()
-                .is_some_and(|progress| matches!(progress.phase, Phase::Running | Phase::Cached));
+                .is_some_and(|progress| progress.phase == Phase::Running);
         let valid = self.settings.validate();
         ui.horizontal_wrapped(|ui| {
             if ui
@@ -192,8 +188,6 @@ impl App {
             {
                 self.send(Action::Start {
                     settings: self.settings.clone(),
-                    restart: self.restart,
-                    use_cache: self.use_cache,
                 });
             }
             if ui
@@ -245,9 +239,6 @@ impl App {
                 );
                 ui.end_row();
             });
-        ui.add_space(4.0);
-        ui.checkbox(&mut self.use_cache, "Show cached matches first");
-        ui.checkbox(&mut self.restart, "Restart from current location");
     }
     fn search_performance(&mut self, ui: &mut Ui) {
         ui.heading(RichText::new("Performance").size(16.0).strong());
@@ -288,17 +279,20 @@ impl App {
                     });
                 ui.end_row();
             });
-        ui.small("More workers and longer batches may reduce game frame rate. Individual native calls can exceed the batch target.");
-        ui.horizontal_wrapped(|ui| {
-            if ui.button("Apply settings").clicked() {
-                self.send(Action::Configure {
-                    settings: self.settings.clone(),
-                });
-            }
-            if ui.button("Clear session cache and continuation").clicked() {
-                self.send(Action::ClearHistory {});
-            }
-        });
+        egui::Frame::new()
+            .fill(Color32::from_rgb(45, 35, 18))
+            .stroke(egui::Stroke::new(1.0, Color32::from_rgb(195, 145, 55)))
+            .corner_radius(4.0)
+            .inner_margin(egui::Margin::symmetric(10, 8))
+            .show(ui, |ui| {
+                ui.set_width(ui.available_width());
+                ui.label(
+                    RichText::new("Performance impact")
+                        .strong()
+                        .color(Color32::from_rgb(240, 190, 90)),
+                );
+                ui.label("More workers and longer batches may reduce game frame rate. Individual native calls can exceed the batch target.");
+            });
     }
     fn criteria(&mut self, ui: &mut Ui, input_width: f32) {
         if ui.available_width() >= CRITERIA_THREE_COLUMN_MIN_WIDTH {
@@ -341,6 +335,40 @@ impl App {
                 .show(ui, |ui| {
                     match_mode_row(ui, criteria, Section::Composition);
                     system_flag_rows(ui, criteria, &[SystemFlag::ExtremeStorms], input_width);
+                    for (field, side, label) in [
+                        (
+                            CompositionField::Biomes,
+                            SelectionSide::Exclude,
+                            "Exclude system by biome",
+                        ),
+                        (
+                            CompositionField::Subtypes,
+                            SelectionSide::Exclude,
+                            "Exclude system by biome subtype",
+                        ),
+                        (
+                            CompositionField::Sizes,
+                            SelectionSide::Exclude,
+                            "Exclude system by planet size",
+                        ),
+                        (
+                            CompositionField::Biomes,
+                            SelectionSide::Include,
+                            "Include system by biome",
+                        ),
+                        (
+                            CompositionField::Subtypes,
+                            SelectionSide::Include,
+                            "Include system by biome subtype",
+                        ),
+                        (
+                            CompositionField::Sizes,
+                            SelectionSide::Include,
+                            "Include system by planet size",
+                        ),
+                    ] {
+                        composition_row(ui, criteria, field, side, label, input_width);
+                    }
                     filter_row(ui, "Minimum planets", input_width, |ui| {
                         let mut minimum = criteria.minimum_planets.unwrap_or(0);
                         egui::ComboBox::from_id_salt("minimum")
@@ -359,49 +387,15 @@ impl App {
                             });
                         criteria.minimum_planets = (minimum > 0).then_some(minimum);
                     });
-                    for (field, side, label) in [
-                        (
-                            CompositionField::Biomes,
-                            SelectionSide::Exclude,
-                            "Exclude system by biome",
-                        ),
-                        (
-                            CompositionField::Subtypes,
-                            SelectionSide::Exclude,
-                            "Exclude system by biome subtype",
-                        ),
-                        (
-                            CompositionField::Biomes,
-                            SelectionSide::Include,
-                            "Include system by biome",
-                        ),
-                        (
-                            CompositionField::Subtypes,
-                            SelectionSide::Include,
-                            "Include system by biome subtype",
-                        ),
-                        (
-                            CompositionField::Sizes,
-                            SelectionSide::Exclude,
-                            "Exclude system by planet size",
-                        ),
-                        (
-                            CompositionField::Sizes,
-                            SelectionSide::Include,
-                            "Include system by planet size",
-                        ),
-                    ] {
-                        composition_row(ui, criteria, field, side, label, input_width);
-                    }
                 });
 
                 egui::CollapsingHeader::new(RichText::new("System Profile").size(16.0).strong())
                     .default_open(true)
                     .show(ui, |ui| {
                         match_mode_row(ui, criteria, Section::Profile);
-                        water_row(ui, "system_water", &mut criteria.system_water, input_width);
+                        choice_rows(ui, criteria, &[Field::Conflict], input_width);
                         system_flag_rows(ui, criteria, &[SystemFlag::Dissonance], input_width);
-                        choice_rows(ui, criteria, &[Field::Conflict, Field::Race], input_width);
+                        choice_rows(ui, criteria, &[Field::Race], input_width);
                         choice_rows(ui, criteria, &[Field::Wealth, Field::Economy], input_width);
                         system_flag_rows(ui, criteria, &[SystemFlag::Pirate], input_width);
                         choice_rows(
@@ -410,6 +404,7 @@ impl App {
                             &[Field::Population, Field::Anomaly, Field::Star],
                             input_width,
                         );
+                        water_row(ui, "system_water", &mut criteria.system_water, input_width);
                     });
             });
     }
@@ -418,29 +413,27 @@ impl App {
         egui::CollapsingHeader::new(RichText::new("Fauna Criteria").size(19.0).strong())
             .default_open(true)
             .show(ui, |ui| {
+                fauna_domain_section(ui, criteria, Domain::Airborne, input_width);
+                fauna_domain_section(ui, criteria, Domain::Aquatic, input_width);
                 egui::CollapsingHeader::new(RichText::new("General").size(16.0).strong())
                     .default_open(true)
                     .show(ui, |ui| {
                         match_mode_row(ui, criteria, Section::GeneralFauna);
-                        choice_rows(ui, criteria, &[Field::Fauna], input_width);
+                        planet_flag_rows(ui, criteria, &[PlanetFlag::Sandworms], input_width);
+                        tameable_fauna_row(ui, criteria, input_width);
                         planet_flag_rows(
                             ui,
                             criteria,
                             &[
-                                PlanetFlag::PlayerAttackingFauna,
-                                PlanetFlag::VileBrood,
                                 PlanetFlag::TitanWorms,
-                                PlanetFlag::Sandworms,
+                                PlanetFlag::VileBrood,
+                                PlanetFlag::PlayerAttackingFauna,
                             ],
                             input_width,
                         );
+                        choice_rows(ui, criteria, &[Field::Fauna], input_width);
                     });
-                for &domain in Domain::ALL {
-                    egui::CollapsingHeader::new(RichText::new(domain.label()).size(16.0).strong())
-                        .id_salt(("fauna_criteria_domain", domain))
-                        .default_open(true)
-                        .show(ui, |ui| fauna_domain(ui, criteria, domain, input_width));
-                }
+                fauna_domain_section(ui, criteria, Domain::Land, input_width);
                 egui::CollapsingHeader::new(RichText::new("Xeno Arena").size(16.0).strong())
                     .default_open(true)
                     .show(ui, |ui| arena_criteria(ui, criteria, input_width));
@@ -451,60 +444,48 @@ impl App {
         egui::CollapsingHeader::new(RichText::new("Planet Criteria").size(19.0).strong())
             .default_open(true)
             .show(ui, |ui| {
-                egui::CollapsingHeader::new(
-                    RichText::new("Biome & Environment").size(16.0).strong(),
-                )
-                .default_open(true)
-                .show(ui, |ui| {
-                    match_mode_row(ui, criteria, Section::Environment);
-                    choice_rows(ui, criteria, &[Field::Biome, Field::Subtype], input_width);
-                    choice_rows(ui, criteria, &[Field::Flora], input_width);
-                    planet_flag_rows(
-                        ui,
-                        criteria,
-                        &[PlanetFlag::GlowingGrass, PlanetFlag::GlowingFlora],
-                        input_width,
-                    );
-                });
-
-                egui::CollapsingHeader::new(RichText::new("Colours").size(16.0).strong())
+                egui::CollapsingHeader::new(RichText::new("Flora").size(16.0).strong())
                     .default_open(true)
                     .show(ui, |ui| {
-                        match_mode_row(ui, criteria, Section::Colours);
+                        match_mode_row(ui, criteria, Section::Flora);
+                        planet_flag_rows(
+                            ui,
+                            criteria,
+                            &[PlanetFlag::GlowingGrass, PlanetFlag::GlowingFlora],
+                            input_width,
+                        );
                         choice_rows(
                             ui,
                             criteria,
-                            &[
-                                Field::WorldColourFilter,
-                                Field::Cloud,
-                                Field::Sky,
-                                Field::FloraColour,
-                                Field::Grass,
-                                Field::SkyHeightFog,
-                                Field::Horizon,
-                                Field::NightSky,
-                                Field::SkyFog,
-                                Field::WaterColour,
-                            ],
+                            &[Field::Grass, Field::FloraColour, Field::Flora],
                             input_width,
                         );
                     });
 
-                egui::CollapsingHeader::new(RichText::new("Conditions").size(16.0).strong())
+                egui::CollapsingHeader::new(RichText::new("Planet Features").size(16.0).strong())
                     .default_open(true)
                     .show(ui, |ui| {
-                        match_mode_row(ui, criteria, Section::Conditions);
+                        match_mode_row(ui, criteria, Section::PlanetFeatures);
+                        planet_flag_rows(
+                            ui,
+                            criteria,
+                            &[PlanetFlag::Moons, PlanetFlag::Rings],
+                            input_width,
+                        );
                         sentinel_row(ui, criteria, input_width);
                         water_row(ui, "planet_water", &mut criteria.planet_water, input_width);
                     });
 
-                egui::CollapsingHeader::new(RichText::new("Features").size(16.0).strong())
+                egui::CollapsingHeader::new(RichText::new("Planet Type").size(16.0).strong())
                     .default_open(true)
                     .show(ui, |ui| {
-                        match_mode_row(ui, criteria, Section::Features);
-                        planet_flag_rows(ui, criteria, &[PlanetFlag::Moons], input_width);
-                        planet_flag_rows(ui, criteria, &[PlanetFlag::Rings], input_width);
-                        choice_rows(ui, criteria, &[Field::Terrain], input_width);
+                        match_mode_row(ui, criteria, Section::PlanetType);
+                        choice_rows(
+                            ui,
+                            criteria,
+                            &[Field::Biome, Field::Subtype, Field::Size, Field::Terrain],
+                            input_width,
+                        );
                     });
 
                 egui::CollapsingHeader::new(RichText::new("Resources").size(16.0).strong())
@@ -512,14 +493,6 @@ impl App {
                     .show(ui, |ui| {
                         match_mode_row(ui, criteria, Section::Resources);
                         choice_rows(ui, criteria, &[Field::ResourceRichness], input_width);
-                        resource_match_row(
-                            ui,
-                            "Unique resource match",
-                            "unique_resource_mode",
-                            &mut criteria.unique_resource_mode,
-                            input_width,
-                        );
-                        choice_rows(ui, criteria, &[Field::UniqueResources], input_width);
                         resource_match_row(
                             ui,
                             "Resource match",
@@ -538,29 +511,50 @@ impl App {
                             );
                             criteria.resources.selected = selected as u32;
                         });
-                    });
-
-                egui::CollapsingHeader::new(RichText::new("Type").size(16.0).strong())
-                    .default_open(true)
-                    .show(ui, |ui| {
-                        match_mode_row(ui, criteria, Section::Type);
-                        planet_flag_rows(
+                        resource_match_row(
                             ui,
-                            criteria,
-                            &[PlanetFlag::Dead, PlanetFlag::Weird, PlanetFlag::Infested],
+                            "Unique resource match",
+                            "unique_resource_mode",
+                            &mut criteria.unique_resource_mode,
                             input_width,
                         );
-                        choice_rows(ui, criteria, &[Field::Size], input_width);
-                        planet_flag_rows(ui, criteria, &[PlanetFlag::Relic], input_width);
+                        choice_rows(ui, criteria, &[Field::UniqueResources], input_width);
                     });
+
+                egui::CollapsingHeader::new(
+                    RichText::new("Sky & Atmospherics").size(16.0).strong(),
+                )
+                .default_open(true)
+                .show(ui, |ui| {
+                    match_mode_row(ui, criteria, Section::SkyAtmospherics);
+                    choice_rows(
+                        ui,
+                        criteria,
+                        &[
+                            Field::Cloud,
+                            Field::Sky,
+                            Field::SkyHeightFog,
+                            Field::Horizon,
+                            Field::NightSky,
+                            Field::SkyFog,
+                            Field::WaterColour,
+                            Field::WorldColourFilter,
+                        ],
+                        input_width,
+                    );
+                });
 
                 egui::CollapsingHeader::new(RichText::new("Weather").size(16.0).strong())
                     .default_open(true)
                     .show(ui, |ui| {
                         match_mode_row(ui, criteria, Section::Weather);
-                        choice_rows(ui, criteria, &[Field::StormFrequency], input_width);
                         planet_flag_rows(ui, criteria, &[PlanetFlag::ExtremeStorms], input_width);
-                        choice_rows(ui, criteria, &[Field::StormType], input_width);
+                        choice_rows(
+                            ui,
+                            criteria,
+                            &[Field::StormFrequency, Field::StormType],
+                            input_width,
+                        );
                     });
             });
     }
@@ -595,49 +589,18 @@ impl App {
                     number(progress.options.systems)
                 )),
             );
-            if progress.phase == Phase::Cached {
-                ui.label(format!(
-                    "{} matches found in systems already searched.",
-                    progress.cached_results
-                ));
-                let full = progress.results.len() >= MAX_RESULTS;
-                let label = if full {
-                    "Continue live search · replace displayed results"
-                } else {
-                    "Continue live search · up to 100 results"
-                };
-                if ui
-                    .add_enabled(
-                        self.pending_search.is_none() && state.availability == Availability::Ready,
-                        egui::Button::new(label),
-                    )
-                    .clicked()
-                {
-                    self.send(Action::Continue {
-                        results: MAX_RESULTS,
-                    });
-                }
-            } else {
-                ui.label(match progress.phase {
-                    Phase::Running => match state.search_pause {
-                        Some(SearchPause::Loading) => "Search paused while the game loads.",
-                        Some(SearchPause::OtherGalaxy) => {
-                            "Search paused: return to its starting galaxy to resume."
-                        }
-                        None => "Searching…",
-                    },
-                    Phase::Completed => "Search complete",
-                    Phase::Cancelled => "Search cancelled",
-                    Phase::Failed => "Search stopped after an error",
-                    Phase::Cached => "",
-                });
-            }
-            if progress.previous_systems > 0 {
-                ui.small(format!(
-                    "Continuing beyond {} previously checked systems.",
-                    number(progress.previous_systems)
-                ));
-            }
+            ui.label(match progress.phase {
+                Phase::Running => match state.search_pause {
+                    Some(SearchPause::Loading) => "Search paused while the game loads.",
+                    Some(SearchPause::OtherGalaxy) => {
+                        "Search paused: return to its starting galaxy to resume."
+                    }
+                    None => "Searching…",
+                },
+                Phase::Completed => "Search complete",
+                Phase::Cancelled => "Search cancelled",
+                Phase::Failed => "Search stopped after an error",
+            });
             if state.metrics.elapsed_ms > 0
                 && progress.phase == Phase::Running
                 && state.search_pause.is_none()
@@ -648,9 +611,6 @@ impl App {
                         / state.metrics.elapsed_ms as f64,
                     number(progress.cached_systems)
                 ));
-            }
-            if progress.history_evicted {
-                ui.small("Continuation for the oldest filter was removed from session history.");
             }
             if progress.unresolved_arena_planets > 0 {
                 ui.small(format!(
@@ -1136,10 +1096,13 @@ fn match_mode_row(ui: &mut Ui, criteria: &mut Criteria, section: Section) {
 
 fn arena_criteria(ui: &mut Ui, criteria: &mut Criteria, width: f32) {
     match_mode_row(ui, criteria, Section::XenoArena);
-    filter_row(ui, "Has tameable fauna", width, |ui| {
-        requirement(ui, "arena_presence", &mut criteria.arena.presence, width);
-    });
-    for &field in ArenaField::ALL {
+    for &field in &[
+        ArenaField::Affinity,
+        ArenaField::Agility,
+        ArenaField::Combat,
+        ArenaField::Health,
+        ArenaField::OverallRank,
+    ] {
         let mut mask = criteria.arena.choices.get(&field).copied().unwrap_or(0);
         filter_row(ui, field.label(), width, |ui| {
             choices(
@@ -1158,9 +1121,30 @@ fn arena_criteria(ui: &mut Ui, criteria: &mut Criteria, width: f32) {
     }
 }
 
+fn tameable_fauna_row(ui: &mut Ui, criteria: &mut Criteria, width: f32) {
+    filter_row(ui, "Has tameable fauna", width, |ui| {
+        requirement(ui, "arena_presence", &mut criteria.arena.presence, width);
+    });
+}
+
+fn fauna_domain_section(ui: &mut Ui, criteria: &mut Criteria, domain: Domain, width: f32) {
+    egui::CollapsingHeader::new(RichText::new(domain.label()).size(16.0).strong())
+        .id_salt(("fauna_criteria_domain", domain))
+        .default_open(true)
+        .show(ui, |ui| fauna_domain(ui, criteria, domain, width));
+}
+
 fn fauna_domain(ui: &mut Ui, criteria: &mut Criteria, domain: Domain, width: f32) {
     match_mode_row(ui, criteria, domain.section());
     let mut selected = criteria.fauna.get(&domain).cloned().unwrap_or_default();
+    for &field in &[
+        FaunaField::Activity,
+        FaunaField::Family,
+        FaunaField::Category,
+        FaunaField::Habitat,
+    ] {
+        fauna_field_row(ui, domain, field, &mut selected, width);
+    }
     filter_row(ui, domain.presence_label(), width, |ui| {
         requirement(
             ui,
@@ -1169,35 +1153,7 @@ fn fauna_domain(ui: &mut Ui, criteria: &mut Criteria, domain: Domain, width: f32
             width,
         );
     });
-    for &field in FaunaField::ALL {
-        let options = field.options(domain);
-        if options.is_empty() {
-            continue;
-        }
-        let mut mask = selected.choices.get(&field).copied().unwrap_or(0);
-        filter_row(ui, field.label(), width, |ui| {
-            choices(
-                ui,
-                ("fauna", domain, field),
-                &mut mask,
-                options.into_iter(),
-                width,
-            )
-        });
-        if mask == 0 {
-            selected.choices.remove(&field);
-        } else {
-            selected.choices.insert(field, mask);
-        }
-    }
-    height_bound_row(
-        ui,
-        (domain, "minimum"),
-        "Minimum height (m)",
-        &mut selected.height.minimum_cm,
-        width,
-        0,
-    );
+    fauna_field_row(ui, domain, FaunaField::Hemisphere, &mut selected, width);
     height_bound_row(
         ui,
         (domain, "maximum"),
@@ -1206,10 +1162,47 @@ fn fauna_domain(ui: &mut Ui, criteria: &mut Criteria, domain: Domain, width: f32
         width,
         100_000,
     );
+    height_bound_row(
+        ui,
+        (domain, "minimum"),
+        "Minimum height (m)",
+        &mut selected.height.minimum_cm,
+        width,
+        0,
+    );
+    fauna_field_row(ui, domain, FaunaField::Rarity, &mut selected, width);
     if selected.presence.is_none() && selected.choices.is_empty() && !selected.height.active() {
         criteria.fauna.remove(&domain);
     } else {
         criteria.fauna.insert(domain, selected);
+    }
+}
+
+fn fauna_field_row(
+    ui: &mut Ui,
+    domain: Domain,
+    field: FaunaField,
+    selected: &mut FaunaCriteria,
+    width: f32,
+) {
+    let options = field.options(domain);
+    if options.is_empty() {
+        return;
+    }
+    let mut mask = selected.choices.get(&field).copied().unwrap_or(0);
+    filter_row(ui, field.label(), width, |ui| {
+        choices(
+            ui,
+            ("fauna", domain, field),
+            &mut mask,
+            options.into_iter(),
+            width,
+        )
+    });
+    if mask == 0 {
+        selected.choices.remove(&field);
+    } else {
+        selected.choices.insert(field, mask);
     }
 }
 fn height_bound_row(

@@ -32,9 +32,9 @@ pub struct PlanetQueryContext {
 
 impl PlanetQueryContext {
     /// # Safety
-    /// Exact 7.06 image verification and a gameplay lease are required. The caller keeps the live
-    /// generator and its configuration graph unchanged until this context is dropped. An audited
-    /// scoped worker may construct and use its own context while the gameplay callback waits.
+    /// A gameplay lease is required. The caller keeps the live generator and its configuration graph
+    /// unchanged until this context is dropped. An audited scoped worker may construct and use its own
+    /// context while the gameplay callback waits.
     /// This context permits GenerateQueryInfo only; full generation/object resolution is excluded.
     pub unsafe fn borrow_query_configuration(
         base: usize,
@@ -43,7 +43,7 @@ impl PlanetQueryContext {
         if live.is_null() {
             return Err("null live planet generator");
         }
-        let construct_address = base + 0x13de700;
+        let construct_address = base + 0x13de610;
         let prefix = [0x48, 0x89, 0x5c, 0x24, 0x08, 0x57];
         if unsafe { std::slice::from_raw_parts(construct_address as *const u8, prefix.len()) }
             != prefix
@@ -88,8 +88,8 @@ impl PlanetQueryContext {
         Ok(Self {
             storage,
             initial,
-            allocator: (base + 0x50d90e0) as *mut u8,
-            deallocate: unsafe { std::mem::transmute::<usize, Deallocate>(base + 0x2c8c960) },
+            allocator: (base + 0x50d80e0) as *mut u8,
+            deallocate: unsafe { std::mem::transmute::<usize, Deallocate>(base + 0x2c8c720) },
             _gameplay: PhantomData,
         })
     }

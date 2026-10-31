@@ -1,9 +1,5 @@
 use crate::{
-    address::Address,
-    cache::CachedMatch,
-    session::Progress,
-    settings::{MAX_RESULTS, Settings},
-    target::Target,
+    address::Address, cache::CachedMatch, session::Progress, settings::Settings, target::Target,
 };
 use serde::{Deserialize, Serialize};
 
@@ -21,22 +17,10 @@ pub struct Command {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case", deny_unknown_fields)]
 pub enum Action {
-    Start {
-        settings: Settings,
-        restart: bool,
-        use_cache: bool,
-    },
-    Continue {
-        results: usize,
-    },
+    Start { settings: Settings },
     Cancel {},
-    Configure {
-        settings: Settings,
-    },
-    Navigate {
-        target: Target,
-    },
-    ClearHistory {},
+    Configure { settings: Settings },
+    Navigate { target: Target },
 }
 
 impl Command {
@@ -46,9 +30,6 @@ impl Command {
         }
         match &self.action {
             Action::Start { settings, .. } => settings.validate(),
-            Action::Continue { results } if !(1..=MAX_RESULTS).contains(results) => {
-                Err("invalid continuation result limit")
-            }
             Action::Configure { settings } => settings.validate(),
             Action::Navigate { target } => target.validate(),
             _ => Ok(()),
@@ -107,7 +88,7 @@ pub struct State {
     pub metrics: Metrics,
     pub cached_systems: usize,
     pub last_command: u64,
-    /// Command that started or continued the currently published search.
+    /// Command that started the currently published search.
     #[serde(default)]
     pub search_command: Option<u64>,
     pub error: Option<String>,

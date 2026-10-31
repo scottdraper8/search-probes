@@ -145,15 +145,6 @@ impl Snapshot {
             _ => return Err("inconsistent native sentinel classification"),
         };
         planet.set(Field::Sentinels, sentinel_level);
-        for (flag, value) in [
-            (PlanetFlag::Infested, subtype == 24),
-            (PlanetFlag::Relic, biome == 7 && subtype == 3),
-            (PlanetFlag::Rgb, (8..=10).contains(&biome)),
-            (PlanetFlag::Dead, biome == 6),
-            (PlanetFlag::Weird, biome == 7),
-        ] {
-            planet.set_planet_flag(flag, value);
-        }
         Ok(())
     }
 

@@ -121,7 +121,7 @@ impl Navigation {
     }
 
     /// # Safety
-    /// The verified game's mission/scan managers and mod-owned definitions are live on this callback.
+    /// Mission and scan managers plus mod-owned definitions remain live for this callback.
     pub unsafe fn start(
         &mut self,
         image: &Image,
@@ -144,7 +144,7 @@ impl Navigation {
             );
         }
         type Lookup = unsafe extern "system" fn(usize, *const u8, i32) -> usize;
-        let lookup = unsafe { std::mem::transmute::<usize, Lookup>(image.base() + 0x4ef8f0) };
+        let lookup = unsafe { std::mem::transmute::<usize, Lookup>(image.base() + 0x4ef940) };
         let name = fixed::<32>(kind.event().as_bytes())?;
         let scan_manager = platform::pointer(snapshot.application + 0x4deab0)?;
         let table = platform::pointer(scan_manager + 0x30)?;
@@ -174,7 +174,7 @@ impl Navigation {
             valid: bool,
         }
         type Start = unsafe extern "system" fn(usize, *const u8, *const Seed, bool, bool) -> bool;
-        let start = unsafe { std::mem::transmute::<usize, Start>(image.base() + 0x9ccd10) };
+        let start = unsafe { std::mem::transmute::<usize, Start>(image.base() + 0x9ccd40) };
         let accepted = unsafe {
             start(
                 manager,
@@ -195,7 +195,7 @@ impl Navigation {
     }
 
     /// # Safety
-    /// Mission selection runs only on the verified gameplay callback with current manager ownership.
+    /// Mission selection runs only on the gameplay callback with current manager ownership.
     pub unsafe fn update(
         &mut self,
         image: &Image,
@@ -216,7 +216,7 @@ impl Navigation {
             if let Some((index, mission)) = mission.filter(|_| routed == Some(expected)) {
                 type Select = unsafe extern "system" fn(usize, usize, bool);
                 let select =
-                    unsafe { std::mem::transmute::<usize, Select>(image.base() + 0x9d5df0) };
+                    unsafe { std::mem::transmute::<usize, Select>(image.base() + 0x9d5e20) };
                 unsafe { select(manager, mission, false) };
                 if platform::u32_at(manager + 0x268)? as usize != index {
                     return Err("NMS did not select Search Probes");

@@ -21,8 +21,8 @@ unsafe fn read<T: Copy>(pointer: *const u8, offset: usize) -> T {
 }
 
 /// # Safety
-/// `planet` must be initialized 7.06 GcPlanetData from the query visitor. Its generated creature
-/// role array must remain alive and immutable until this call returns.
+/// `planet` must be initialized GcPlanetData from the query visitor. Its generated creature role
+/// array must remain alive and immutable until this call returns.
 pub unsafe fn player_attacking(planet: *const u8) -> Result<bool, &'static str> {
     if planet.is_null() {
         return Err("null generated fauna");
@@ -113,7 +113,7 @@ pub unsafe fn capture(planet: *const u8) -> Result<Observation, &'static str> {
 }
 
 /// # Safety
-/// Requires live initialized 7.06 GcPlanetData in the query visitor.
+/// Requires live initialized GcPlanetData in the query visitor.
 pub unsafe fn sandworms(planet: *const u8) -> Result<bool, &'static str> {
     if planet.is_null() {
         return Err("null generated fauna");

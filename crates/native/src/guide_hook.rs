@@ -59,12 +59,12 @@ unsafe extern "system" fn detour(
 }
 
 /// # Safety
-/// The exact-build mission starter is unpatched. Only exact preset mission IDs are consumed.
+/// Only exact preset mission IDs are consumed.
 pub unsafe fn enable(base: usize) -> Result<(), HookError> {
     let mut state = HOOK.lock().map_err(|_| HookError::StatePoisoned)?;
     if state.is_none() {
         let hook = unsafe {
-            ResidentHook::prepare(base + 0x9ccd10, detour as *const () as usize, &PREFIX)
+            ResidentHook::prepare(base + 0x9ccd40, detour as *const () as usize, &PREFIX)
         }?;
         ORIGINAL.store(hook.trampoline(), Ordering::Release);
         *state = Some(hook);

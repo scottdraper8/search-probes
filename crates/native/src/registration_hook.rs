@@ -19,13 +19,13 @@ unsafe extern "system" fn entry(_resource: *mut u8) {
 
 unsafe extern "system" fn detour(resource: *mut u8, return_address: usize) {
     let base = BASE.load(Ordering::Acquire);
-    if return_address == base + 0x16ce682 && crate::capture_session::is_active() {
+    if return_address == base + 0x16ce4a2 && crate::capture_session::is_active() {
         // This call site transfers one acquired table reference solely for global filename registration.
         unsafe {
             let release = std::mem::transmute::<usize, unsafe extern "system" fn(*mut u8, *mut u8)>(
-                base + 0x4bb850,
+                base + 0x4bb8a0,
             );
-            release((base + 0x75604e0) as *mut u8, resource);
+            release((base + 0x755f570) as *mut u8, resource);
         }
     } else {
         unsafe {
@@ -38,12 +38,12 @@ unsafe extern "system" fn detour(resource: *mut u8, return_address: usize) {
 }
 
 /// # Safety
-/// Requires the exact verified 7.06 executable and initialized runtime, outside DllMain.
+/// Requires an initialized runtime outside DllMain.
 pub unsafe fn enable(base: usize) -> Result<(), HookError> {
     let mut state = HOOK.lock().map_err(|_| HookError::StatePoisoned)?;
     if state.is_none() {
         let hook = unsafe {
-            ResidentHook::prepare(base + 0x16d6b40, entry as *const () as usize, &PREFIX)
+            ResidentHook::prepare(base + 0x16d6960, entry as *const () as usize, &PREFIX)
         }?;
         BASE.store(base, Ordering::Release);
         ORIGINAL.store(hook.trampoline(), Ordering::Release);

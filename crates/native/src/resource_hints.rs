@@ -11,8 +11,8 @@ pub struct Hints {
 }
 
 /// # Safety
-/// Requires initialized 7.06 GcPlanetData from the query visitor. Its resource-hint array must
-/// remain alive and immutable until this call returns. Only owned classifications are retained.
+/// Requires initialized GcPlanetData from the query visitor. Its resource-hint array must remain
+/// alive and immutable until this call returns. Only owned classifications are retained.
 pub unsafe fn capture(planet: *const u8) -> Result<Hints, &'static str> {
     if planet.is_null() {
         return Err("null generated resource hints");

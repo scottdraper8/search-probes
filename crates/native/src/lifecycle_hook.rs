@@ -15,12 +15,12 @@ static HOOK: Mutex<Option<ResidentHook>> = Mutex::new(None);
 const PREFIX: [u8; 15] = [
     0x48, 0x89, 0x6c, 0x24, 0x10, 0x48, 0x89, 0x74, 0x24, 0x18, 0x57, 0x48, 0x83, 0xec, 0x20,
 ];
-const SIMULATION_VTABLE: usize = 0x4b130d0;
-const GALACTIC_MAP_VTABLE: usize = 0x4b13018;
-const SAVE_SELECTION_VTABLE: usize = 0x4b131f0;
-const TITLE_SCREEN_VTABLE: usize = 0x4b13278;
-const SHUTDOWN_VTABLE: usize = 0x4b12fc8;
-const GLOBAL_LOAD_VTABLE: usize = 0x4b12ea8;
+const SIMULATION_VTABLE: usize = 0x4b12098;
+const GALACTIC_MAP_VTABLE: usize = 0x4b11fe0;
+const SAVE_SELECTION_VTABLE: usize = 0x4b121b8;
+const TITLE_SCREEN_VTABLE: usize = 0x4b12240;
+const SHUTDOWN_VTABLE: usize = 0x4b11f90;
+const GLOBAL_LOAD_VTABLE: usize = 0x4b11e70;
 
 #[repr(u8)]
 enum ApplicationState {
@@ -87,23 +87,23 @@ unsafe extern "system" fn detour(this: *mut u8, key: *const u8, data: *mut u8, r
 }
 
 /// # Safety
-/// Requires the verified image outside DllMain. The module/trampoline remain pinned until exit.
+/// Call outside DllMain. The module and trampoline remain pinned until exit.
 pub unsafe fn enable(base: usize) -> Result<(), HookError> {
     let mut state = HOOK.lock().map_err(|_| HookError::StatePoisoned)?;
     if state.is_none() {
         BASE.store(base, Ordering::Release);
         let hook = unsafe {
-            ResidentHook::prepare(base + 0x2c4efb0, detour as *const () as usize, &PREFIX)
+            ResidentHook::prepare(base + 0x2c4ed70, detour as *const () as usize, &PREFIX)
         }?;
         ORIGINAL.store(hook.trampoline(), Ordering::Release);
-        APPLICATION.store(base + 0x6f607f0, Ordering::Release);
+        APPLICATION.store(base + 0x6f5f830, Ordering::Release);
         STATE.store(
-            application_state(base + 0x6f607f0, base) as u8,
+            application_state(base + 0x6f5f830, base) as u8,
             Ordering::Release,
         );
         *state = Some(hook);
     }
-    if APPLICATION.load(Ordering::Acquire) != base + 0x6f607f0 {
+    if APPLICATION.load(Ordering::Acquire) != base + 0x6f5f830 {
         return Err(HookError::PrefixChanged);
     }
     if let Some(hook) = state.as_mut() {

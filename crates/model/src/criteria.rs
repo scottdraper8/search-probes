@@ -47,13 +47,13 @@ fields! {
     Subtype => ("Biome subtype",BIOME_SUBTYPES,Query),
     Terrain => ("Terrain",TERRAIN_FEATURES,Terrain),
     Sentinels => ("Sentinels",SENTINEL_LEVELS,Query),
-    Flora => ("Flora",PLANET_LIFE_LEVELS,Metadata),
+    Flora => ("Quantity",PLANET_LIFE_LEVELS,Metadata),
     Fauna => ("Quantity",PLANET_LIFE_LEVELS,Metadata),
     ResourceRichness => ("Resource abundance",RESOURCE_LEVELS,Metadata),
     StormType => ("Storm type",STORM_TYPES,Weather),
     StormFrequency => ("Storm frequency",STORM_FREQUENCIES,Query),
     Grass => ("Grass colour",GRASS_COLOURS,Objects),
-    FloraColour => ("Flora colour",GRASS_COLOURS,Objects),
+    FloraColour => ("Non-grass flora colour",GRASS_COLOURS,Objects),
     Cloud => ("Cloud colour",GRASS_COLOURS,Colour),
     SkyFog => ("Sky fog colour",GRASS_COLOURS,Colour),
     SkyHeightFog => ("Height fog colour",GRASS_COLOURS,Colour),
@@ -167,13 +167,8 @@ flags! { PlanetFlag {
     ExtremeSentinels => ("Extreme sentinels",Query),
     CorruptSentinels => ("Corrupt sentinels",Query),
     ExtremeStorms => ("Extreme storms",Weather),
-    Infested => ("Infested",Query),
-    Relic => ("Relic",Query),
-    Rgb => ("Mega-exotic biome",Query),
-    Dead => ("Dead",Query),
-    Weird => ("Weird / Exotic",Query),
     GlowingGrass => ("Glowing grass",Objects),
-    GlowingFlora => ("Glowing flora",Objects),
+    GlowingFlora => ("Glowing non-grass flora",Objects),
     PlayerAttackingFauna => ("Player-attacking fauna",Fauna),
     VileBrood => ("Has vile brood",Hints),
     Sandworms => ("Has sandworms",Fauna),
@@ -235,34 +230,32 @@ pub enum WaterPresence {
 pub enum Section {
     Composition,
     Profile,
-    Environment,
-    Colours,
-    Conditions,
+    PlanetType,
+    Flora,
+    SkyAtmospherics,
+    PlanetFeatures,
     GeneralFauna,
     AquaticFauna,
     LandFauna,
     AirborneFauna,
     XenoArena,
-    Features,
     Resources,
-    Type,
     Weather,
 }
 impl Section {
     pub const ALL: &[Self] = &[
         Self::Composition,
         Self::Profile,
-        Self::Environment,
-        Self::Colours,
-        Self::Conditions,
+        Self::PlanetType,
+        Self::Flora,
+        Self::SkyAtmospherics,
+        Self::PlanetFeatures,
         Self::GeneralFauna,
         Self::AquaticFauna,
         Self::LandFauna,
         Self::AirborneFauna,
         Self::XenoArena,
-        Self::Features,
         Self::Resources,
-        Self::Type,
         Self::Weather,
     ];
 }
@@ -276,27 +269,25 @@ impl Field {
             | Self::Population
             | Self::Race
             | Self::Anomaly => Section::Profile,
-            Self::Biome | Self::Subtype | Self::Flora => Section::Environment,
-            Self::Size => Section::Type,
-            Self::Sentinels => Section::Conditions,
+            Self::Biome | Self::Subtype | Self::Size | Self::Terrain => Section::PlanetType,
+            Self::Flora | Self::Grass | Self::FloraColour => Section::Flora,
+            Self::Sentinels => Section::PlanetFeatures,
             Self::Fauna => Section::GeneralFauna,
-            Self::Terrain => Section::Features,
             Self::ResourceRichness | Self::UniqueResources => Section::Resources,
             Self::StormType | Self::StormFrequency => Section::Weather,
-            _ => Section::Colours,
+            _ => Section::SkyAtmospherics,
         }
     }
 }
 impl PlanetFlag {
     pub fn section(self) -> Section {
         match self {
-            Self::Rings | Self::Moons => Section::Features,
+            Self::Rings | Self::Moons => Section::PlanetFeatures,
             Self::Sentinels | Self::ExtremeSentinels | Self::CorruptSentinels | Self::Dissonant => {
-                Section::Conditions
+                Section::PlanetFeatures
             }
             Self::ExtremeStorms => Section::Weather,
-            Self::GlowingGrass | Self::GlowingFlora | Self::Rgb => Section::Environment,
-            Self::Dead | Self::Weird | Self::Infested | Self::Relic => Section::Type,
+            Self::GlowingGrass | Self::GlowingFlora => Section::Flora,
             _ => Section::GeneralFauna,
         }
     }
@@ -507,7 +498,7 @@ impl Predicate {
     pub fn section(self) -> Section {
         match self {
             Self::Fauna(selection) => selection.domain.section(),
-            Self::Arena(_) => Section::XenoArena,
+            Self::Arena(selection) => selection.section(),
             Self::Choice(choices) => choices.field.section(),
             Self::Planet(flag, _) => flag.section(),
             Self::System(SystemFlag::ExtremeStorms, _) | Self::MinimumPlanets(_) => {
@@ -515,7 +506,7 @@ impl Predicate {
             }
             Self::System(_, _) | Self::Contains(PlanetSelection::Water(_), _) => Section::Profile,
             Self::Resources(_) => Section::Resources,
-            Self::Water(_) => Section::Conditions,
+            Self::Water(_) => Section::PlanetFeatures,
             Self::Contains(_, _) => Section::Composition,
         }
     }
@@ -565,15 +556,6 @@ impl Criteria {
         if selected & (1 << 16) != 0 {
             accepted |= mega;
         }
-        if let Some(&required) = self.planets.get(&PlanetFlag::Rgb) {
-            if selected == 0 {
-                accepted = (1 << 16) - 1;
-            }
-            accepted &= if required { mega } else { !mega };
-            if accepted == 0 {
-                return None;
-            }
-        }
         if accepted & mega == mega {
             Some((accepted & !mega) | (1 << 16))
         } else {
@@ -585,7 +567,6 @@ impl Criteria {
         if self.biome_choices() != Some(mask) {
             self.choices.remove(&Field::Subtype);
         }
-        self.planets.remove(&PlanetFlag::Rgb);
         if mask == 0 {
             self.choices.remove(&Field::Biome);
         } else {
@@ -795,7 +776,10 @@ impl Criteria {
                 .push(Predicate::Contains(PlanetSelection::Water(rule), expected));
         }
         self.compile_composition(&mut plan)?;
-        if let Some(selection) = self.arena.compile(self.match_mode(Section::XenoArena))? {
+        for selection in self.arena.compile(
+            self.match_mode(Section::GeneralFauna),
+            self.match_mode(Section::XenoArena),
+        )? {
             plan.planet.push(Predicate::Arena(selection));
         }
         for (&domain, criteria) in &self.fauna {

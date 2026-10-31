@@ -75,13 +75,13 @@ unsafe extern "system" fn detour(communicator: *mut u8, timestep: f32) {
 }
 
 /// # Safety
-/// The verified gameplay entry must be unpatched. The callback may call native search only within
-/// this hook; all borrowed worker contexts must have joined and dropped before it returns.
+/// The callback may call native search only within this hook; all borrowed worker contexts must
+/// have joined and dropped before it returns.
 pub unsafe fn enable(base: usize, callback: fn()) -> Result<(), HookError> {
     let mut state = HOOK.lock().map_err(|_| HookError::StatePoisoned)?;
     if state.is_none() {
         let hook = unsafe {
-            ResidentHook::prepare(base + 0x141bcf0, detour as *const () as usize, &PREFIX)
+            ResidentHook::prepare(base + 0x141bc00, detour as *const () as usize, &PREFIX)
         }?;
         if CALLBACK.set(callback).is_err() {
             return Err(HookError::StatePoisoned);

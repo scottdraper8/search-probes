@@ -2,14 +2,13 @@ use crate::{
     address::Address,
     cache::{Cache, CachedMatch, MAX_CACHED_SYSTEMS, SystemRecord},
     criteria::Plan,
-    frontier::{Frontier, History},
-    settings::{MAX_RESULTS, SearchOptions},
+    frontier::Frontier,
+    settings::SearchOptions,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Phase {
-    Cached,
     Running,
     Completed,
     Cancelled,
@@ -37,18 +36,14 @@ pub struct Progress {
     pub cached_systems: u64,
     pub unresolved_arena_planets: u64,
     pub unresolved_arena_examples: Vec<Address>,
-    pub previous_systems: u64,
     pub results: Vec<CachedMatch>,
-    pub cached_results: usize,
-    pub history_evicted: bool,
     pub error: Option<String>,
 }
 
 struct Search {
     progress: Progress,
     plan: Plan,
-    frontier: Option<Frontier>,
-    previous_page: Vec<Address>,
+    frontier: Frontier,
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -60,7 +55,6 @@ pub enum Work {
 
 pub struct Session {
     cache: Cache,
-    history: History,
     search: Option<Search>,
 }
 
@@ -68,7 +62,6 @@ impl Default for Session {
     fn default() -> Self {
         Self {
             cache: Cache::new(MAX_CACHED_SYSTEMS).expect("bounded default cache"),
-            history: History::default(),
             search: None,
         }
     }
@@ -77,7 +70,6 @@ impl Default for Session {
 impl Session {
     pub fn reset(&mut self) {
         self.cache.clear();
-        self.history.clear();
         self.search = None;
     }
     pub fn cached_records(&self) -> impl Iterator<Item = (&Address, &SystemRecord)> {
@@ -103,39 +95,18 @@ impl Session {
     pub fn plan(&self) -> Option<&Plan> {
         self.search.as_ref().map(|search| &search.plan)
     }
-    pub fn start(
-        &mut self,
-        options: SearchOptions,
-        origin: Address,
-        restart: bool,
-        use_cache: bool,
-    ) -> Result<(), &'static str> {
+    pub fn start(&mut self, options: SearchOptions, origin: Address) -> Result<(), &'static str> {
         options.validate()?;
         if self
             .search
             .as_ref()
-            .is_some_and(|search| matches!(search.progress.phase, Phase::Running | Phase::Cached))
+            .is_some_and(|search| search.progress.phase == Phase::Running)
         {
             return Err("cancel the current search before starting another");
         }
         let plan = options.criteria.compile()?;
-        let frontier = self.history.take(&plan, origin, restart);
-        let results = if use_cache {
-            self.cache.matching(
-                &plan,
-                origin.coordinates().galaxy,
-                origin.system(),
-                options.results,
-            )
-        } else {
-            Vec::new()
-        };
         let progress = Progress {
-            phase: if results.is_empty() {
-                Phase::Running
-            } else {
-                Phase::Cached
-            },
+            phase: Phase::Running,
             finish: None,
             options,
             origin,
@@ -143,52 +114,20 @@ impl Session {
             cached_systems: 0,
             unresolved_arena_planets: 0,
             unresolved_arena_examples: Vec::new(),
-            previous_systems: frontier.searched(),
-            cached_results: results.len(),
-            results,
-            history_evicted: false,
+            results: Vec::new(),
             error: None,
         };
         self.search = Some(Search {
             progress,
             plan,
-            frontier: Some(frontier),
-            previous_page: Vec::new(),
+            frontier: Frontier::new(origin),
         });
-        Ok(())
-    }
-    pub fn continue_live(&mut self, result_limit: usize) -> Result<(), &'static str> {
-        let search = self.search.as_mut().ok_or("no search is pending")?;
-        if search.progress.phase != Phase::Cached {
-            return Err("search is not waiting for live continuation");
-        }
-        if result_limit == MAX_RESULTS && search.progress.results.len() == MAX_RESULTS {
-            search.previous_page = search
-                .progress
-                .results
-                .drain(..)
-                .map(|result| result.address)
-                .collect();
-            search.progress.cached_results = 0;
-        } else if result_limit <= search.progress.results.len() || result_limit > MAX_RESULTS {
-            return Err("live continuation needs room for more results, up to 100");
-        }
-        search.progress.options.results = result_limit;
-        search.progress.phase = Phase::Running;
         Ok(())
     }
     fn finish(&mut self, reason: Finish) {
         let Some(search) = self.search.as_mut() else {
             return;
         };
-        let Some(frontier) = search.frontier.take() else {
-            return;
-        };
-        search.progress.history_evicted = self.history.remember(
-            search.plan.clone(),
-            search.progress.origin.coordinates().galaxy,
-            frontier,
-        );
         search.progress.finish = Some(reason);
         search.progress.phase = match reason {
             Finish::Cancelled => Phase::Cancelled,
@@ -226,10 +165,7 @@ impl Session {
                 self.finish(Finish::Budget);
                 return Ok(Work::Idle);
             }
-            let frontier = search
-                .frontier
-                .as_mut()
-                .ok_or("running search has no frontier")?;
+            let frontier = &mut search.frontier;
             let available = limit
                 .min(256)
                 .min((progress.options.systems - progress.systems) as usize);
@@ -267,8 +203,8 @@ impl Session {
         self.search
             .as_mut()
             .filter(|search| search.progress.phase == Phase::Running)
-            .and_then(|search| search.frontier.as_mut())
-            .ok_or("no live frontier")?
+            .map(|search| &mut search.frontier)
+            .ok_or("no live search")?
             .load_region(region, systems)
     }
     pub fn observe(&mut self, address: Address, record: SystemRecord) -> Result<(), &'static str> {
@@ -311,10 +247,7 @@ impl Session {
             .as_mut()
             .filter(|search| search.progress.phase == Phase::Running)
             .ok_or("search is not running")?;
-        let frontier = search
-            .frontier
-            .as_mut()
-            .ok_or("running search has no frontier")?;
+        let frontier = &mut search.frontier;
         if frontier.pending(1) != [address] {
             return Err("completed system is out of frontier order");
         }
@@ -349,12 +282,11 @@ impl Session {
             if search.progress.results.len() == search.progress.options.results {
                 break;
             }
-            if search.previous_page.contains(&result.address)
-                || search
-                    .progress
-                    .results
-                    .iter()
-                    .any(|previous| previous.address == result.address)
+            if search
+                .progress
+                .results
+                .iter()
+                .any(|previous| previous.address == result.address)
             {
                 continue;
             }

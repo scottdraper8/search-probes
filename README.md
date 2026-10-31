@@ -34,14 +34,13 @@ Never replace installed files while NMS is running.
 
 ```sh
 tooling/squinch --tranche <task> nms-investigate search status --json
-tooling/squinch --tranche <task> nms-investigate search start --criteria <tranche>/criteria.json --systems 1000 --results 100 --restart --json
+tooling/squinch --tranche <task> nms-investigate search start --criteria <tranche>/criteria.json --systems 1000 --results 100 --json
 tooling/squinch --tranche <task> nms-investigate search cancel --json
-tooling/squinch --tranche <task> nms-investigate search continue --results 100 --json
 ```
 
 NMS needs a loaded save. Omit `--criteria` to use current settings; `--settings` accepts full settings.
 `configure` saves settings without searching. Commands return JSON results, progress and metrics;
-`--no-wait` returns a queue acknowledgement. `--use-cache` can return `cached`, awaiting continuation.
+`--no-wait` returns a queue acknowledgement.
 These commands use the F7 queue without focusing the window or navigating. Inspect status after a
 timeout before retrying. Preserve explicit unknowns. Do not benchmark a degraded host or run huge
 unattended soak searches.

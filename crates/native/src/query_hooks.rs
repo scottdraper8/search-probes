@@ -1,7 +1,7 @@
 use crate::{planet_hook, registration_hook, resident_hook::HookError};
 
 /// # Safety
-/// Requires a verified executable and initialized runtime, outside DllMain and active queries.
+/// Requires an initialized runtime outside DllMain and active queries.
 pub unsafe fn enable(base: usize) -> Result<(), HookError> {
     unsafe { registration_hook::enable(base) }?;
     if let Err(error) = unsafe { planet_hook::enable(base) } {

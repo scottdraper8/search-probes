@@ -26,7 +26,7 @@ pub struct Completed {
 
 /// # Safety
 /// The caller holds loaded gameplay state and resources fixed until every worker has joined.
-/// Live is the verified planet generator and query hooks remain active throughout the batch.
+/// The planet generator and query hooks remain active throughout the batch.
 pub unsafe fn evaluate(
     pool: &Workers,
     object_summaries: &crate::object_cache::ObjectTableCache,

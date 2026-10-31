@@ -1,7 +1,5 @@
-use crate::{address::Address, criteria::Plan, regions::Regions};
-use std::collections::{BTreeSet, VecDeque};
-
-pub const MAX_FRONTIERS: usize = 128;
+use crate::{address::Address, regions::Regions};
+use std::collections::BTreeSet;
 pub const MAX_REGION_SYSTEMS: usize = 4095;
 
 #[derive(Debug, Clone)]
@@ -10,7 +8,6 @@ pub struct Frontier {
     pending_region: Option<Address>,
     systems: Vec<Address>,
     cursor: usize,
-    searched: u64,
 }
 
 impl Frontier {
@@ -20,11 +17,7 @@ impl Frontier {
             pending_region: None,
             systems: Vec::new(),
             cursor: 0,
-            searched: 0,
         }
-    }
-    pub fn searched(&self) -> u64 {
-        self.searched
     }
     pub fn next_region(&mut self) -> Option<Address> {
         if self.cursor < self.systems.len() {
@@ -64,55 +57,7 @@ impl Frontier {
         if completed > self.systems.len() - self.cursor {
             return Err("completed batch exceeds pending systems");
         }
-        self.searched = self
-            .searched
-            .checked_add(completed as u64)
-            .ok_or("search count overflow")?;
         self.cursor += completed;
         Ok(())
-    }
-}
-
-struct Remembered {
-    plan: Plan,
-    galaxy: u8,
-    frontier: Frontier,
-}
-
-#[derive(Default)]
-pub struct History {
-    recent: VecDeque<Remembered>,
-}
-
-impl History {
-    pub fn take(&mut self, plan: &Plan, origin: Address, restart: bool) -> Frontier {
-        let existing = self
-            .recent
-            .iter()
-            .position(|entry| entry.plan == *plan && entry.galaxy == origin.coordinates().galaxy)
-            .and_then(|index| self.recent.remove(index));
-        if !restart {
-            if let Some(entry) = existing {
-                return entry.frontier;
-            }
-        }
-        Frontier::new(origin)
-    }
-    pub fn remember(&mut self, plan: Plan, galaxy: u8, frontier: Frontier) -> bool {
-        self.recent
-            .retain(|entry| entry.plan != plan || entry.galaxy != galaxy);
-        let evicted = self.recent.len() == MAX_FRONTIERS;
-        if evicted {
-            self.recent.pop_front();
-        }
-        self.recent.push_back(Remembered {
-            plan,
-            galaxy,
-            frontier,
-        });
-        evicted
-    }
-    pub fn clear(&mut self) {
-        self.recent.clear();
     }
 }

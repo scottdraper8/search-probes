@@ -1,4 +1,3 @@
-//! Retire source handles before the original global cleanup destroys their native registry.
 use crate::resident_hook::{HookError, ResidentHook};
 use std::{
     panic::{AssertUnwindSafe, catch_unwind},
@@ -20,7 +19,6 @@ unsafe extern "system" fn detour() {
     let shutdown = catch_unwind(AssertUnwindSafe(|| unsafe {
         crate::runtime::begin_source_shutdown()
     }));
-    // Always preserve native cleanup, including when mod-side retirement refuses or panics.
     let original =
         unsafe { std::mem::transmute::<usize, Shutdown>(ORIGINAL.load(Ordering::Acquire)) };
     unsafe {
@@ -40,13 +38,13 @@ unsafe extern "system" fn detour() {
 }
 
 /// # Safety
-/// Exact verified image outside DllMain, before gameplay dispatch. The shutdown entry has its
-/// original straight-line prefix and no dispatched search work may enter it recursively.
+/// Call outside DllMain before gameplay dispatch. No dispatched search work may enter the shutdown
+/// entry recursively.
 pub unsafe fn enable(base: usize) -> Result<(), HookError> {
     let mut state = HOOK.lock().map_err(|_| HookError::StatePoisoned)?;
     if state.is_none() {
         let hook = unsafe {
-            ResidentHook::prepare(base + 0x1874340, detour as *const () as usize, &PREFIX)
+            ResidentHook::prepare(base + 0x1874100, detour as *const () as usize, &PREFIX)
         }?;
         ORIGINAL.store(hook.trampoline(), Ordering::Release);
         BASE.store(base, Ordering::Release);

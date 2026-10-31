@@ -79,7 +79,7 @@ unsafe fn read<T: Copy>(p: *const u8, offset: usize) -> T {
 
 impl Planet {
     /// # Safety
-    /// `planet` and its role array are initialized, immutable 7.06 query data for this visitor.
+    /// `planet` and its role array remain initialized and immutable for this visitor.
     /// `address` is the exact planet argument supplied to the query, never the temporary planet's
     /// loaded-world address. The returned object contains no native addresses or borrowed data.
     pub unsafe fn capture(planet: *const u8, address: Address) -> Result<Self> {
@@ -108,7 +108,6 @@ impl Planet {
             if !all && unsafe { read::<f32>(row, 0x5c4) } == 0. {
                 continue;
             }
-            // No slice is constructed for the native zero-count/null-array representation.
             let row = unsafe { &*row.cast::<[u8; 0x5d8]>() };
             roles.push(Role::copy(index, row));
         }

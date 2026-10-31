@@ -1,12 +1,12 @@
-//! Wild Arena facts from generated roles and the loaded 7.06 catalogue. No actor spawning, archive
-//! scans, live entity registry traversal, or native data pointer retention is required.
+//! Wild Arena facts are derived without actor spawning, archive scans, live entity registry
+//! traversal, or native data pointer retention.
 use search_probes_model::address::Address;
 use search_probes_model::arena::{Creature, RankEvidence, Ranks};
 use std::collections::BTreeMap;
 
 type Result<T> = std::result::Result<T, &'static str>;
-pub(crate) const RANK_WEIGHTS_RVA: usize = 0x531e024;
-pub(crate) const AFFINITIES_RVA: usize = 0x531e5dc;
+pub(crate) const RANK_WEIGHTS_RVA: usize = 0x531d064;
+pub(crate) const AFFINITIES_RVA: usize = 0x531d61c;
 type Roll = unsafe extern "system" fn(*mut u32, *const u64, i32, i32) -> u8;
 unsafe fn read<T: Copy>(p: *const u8, o: usize) -> T {
     unsafe { p.add(o).cast::<T>().read_unaligned() }
@@ -200,18 +200,18 @@ impl Context {
         })
     }
     /// # Safety
-    /// Exact hash-verified image; the waiting gameplay callback keeps its catalogue and globals
-    /// fixed. The audited rank function reads globals and writes only caller-owned stack output.
+    /// The waiting gameplay callback keeps the catalogue and globals fixed. The rank function reads
+    /// globals and writes only caller-owned stack output.
     pub unsafe fn from_verified_image(base: usize) -> Result<Self> {
         unsafe {
             let image = base as *const u8;
-            let code = image.add(0x13cc070);
+            let code = image.add(0x13cbf80);
             if std::slice::from_raw_parts(code, 8)
                 != [0x48, 0x89, 0x5c, 0x24, 0x08, 0x48, 0x89, 0x74]
             {
                 return Err("Arena rank function prefix mismatch");
             }
-            let app = read::<*const u8>(image, 0x6f60828);
+            let app = read::<*const u8>(image, 0x6f5f868);
             pointer(app, 0x5c5550)?;
             let count = read::<i32>(app, 0x5c5548);
             if !(1..=32).contains(&count) {
@@ -238,16 +238,16 @@ impl Context {
                 }
             }
             let size = SizeGlobals {
-                maximum: read(image, 0x535037c),
-                multiplier: read(image, 0x5350108),
+                maximum: read(image, 0x534f3bc),
+                multiplier: read(image, 0x534f148),
                 thresholds: [
-                    read(image, 0x53500e8),
-                    read(image, 0x53500c4),
-                    read(image, 0x535007c),
+                    read(image, 0x534f128),
+                    read(image, 0x534f104),
+                    read(image, 0x534f0bc),
                 ],
-                quarter: read(image, 0x4bebe00),
-                uniform: read(image, 0x4beb558),
-                infant_multiplier: read(image, 0x53502c8),
+                quarter: read(image, 0x4beade8),
+                uniform: read(image, 0x4bea540),
+                infant_multiplier: read(image, 0x534f308),
             }
             .validate()?;
             let affinities = read::<[u8; 16]>(image, AFFINITIES_RVA);

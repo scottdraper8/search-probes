@@ -42,8 +42,8 @@ pub struct ResidentHook {
 
 impl ResidentHook {
     /// # Safety
-    /// Target must be verified executable storage; destination belongs to a loaded module. Prefix covers complete
-    /// straight-line instructions with no other entry points. This hook lives until process exit.
+    /// Target and destination must belong to loaded modules. Prefix covers complete straight-line
+    /// instructions with no other entry points. This hook lives until process exit.
     pub unsafe fn prepare(
         target: usize,
         destination: usize,
