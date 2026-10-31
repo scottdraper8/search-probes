@@ -2,27 +2,30 @@ use crate::criteria::Criteria;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeSet;
 
-pub const BUDGETS: [u64; 7] = [
-    1_000,
-    10_000,
-    100_000,
-    1_000_000,
-    10_000_000,
-    100_000_000,
-    1_000_000_000,
-];
-pub const BUDGET_LABELS: [&str; 7] = [
+pub const BUDGETS: [u64; 6] = [1_000, 10_000, 100_000, 1_000_000, 10_000_000, 100_000_000];
+pub const BUDGET_LABELS: [&str; 6] = [
     "1,000",
     "10,000",
     "100,000",
     "1,000,000",
     "10,000,000",
     "100,000,000",
-    "1,000,000,000",
 ];
 pub const MAX_RESULTS: usize = 100;
 pub const MAX_PRESETS: usize = 9;
 pub const MAX_SETTINGS_BYTES: usize = 1_048_576;
+pub const MAX_WORKERS: usize = 16;
+
+pub fn available_workers() -> usize {
+    std::thread::available_parallelism()
+        .map(usize::from)
+        .unwrap_or(2)
+        .clamp(1, MAX_WORKERS)
+}
+
+pub fn recommended_workers(available: usize) -> usize {
+    (available.clamp(1, MAX_WORKERS) / 2).max(1)
+}
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -68,7 +71,7 @@ pub struct Settings {
     pub schema: u32,
     pub search: SearchOptions,
     pub presets: Vec<Preset>,
-    pub workers: usize,
+    pub workers: Option<usize>,
     pub frame_budget_ms: u8,
 }
 
@@ -78,7 +81,7 @@ impl Default for Settings {
             schema: 1,
             search: SearchOptions::default(),
             presets: Vec::new(),
-            workers: 2,
+            workers: None,
             frame_budget_ms: 4,
         }
     }
@@ -101,8 +104,11 @@ impl Settings {
             }
             preset.search.validate()?;
         }
-        if !(1..=16).contains(&self.workers) {
-            return Err("worker count must be between 1 and 16");
+        if self
+            .workers
+            .is_some_and(|count| !(1..=MAX_WORKERS).contains(&count))
+        {
+            return Err("worker count must be automatic or between 1 and 16");
         }
         if !(1..=16).contains(&self.frame_budget_ms) {
             return Err("frame budget must be between 1 and 16 milliseconds");

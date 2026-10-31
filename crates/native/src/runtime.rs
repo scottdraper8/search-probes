@@ -13,7 +13,7 @@ use search_probes_model::{
     controls::Controls,
     runtime::{Action, Availability, Command, Metrics, SearchPause, State},
     session::Phase,
-    settings::Settings,
+    settings::{Settings, available_workers},
     storage,
 };
 use std::{
@@ -106,7 +106,7 @@ fn attach(image: Image, controls: Arc<Controls>, settings: Settings) -> Result<(
     let runtime = Runtime {
         image,
         controls: controls.clone(),
-        pool: Workers::new(16)
+        pool: Workers::new(available_workers())
             .map_err(|error| format!("Cannot start search workers: {error:?}"))?,
         scheduler: Scheduler::default(),
         settings,

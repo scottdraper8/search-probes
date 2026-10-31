@@ -9,7 +9,10 @@ use search_probes_model::{
     fauna::{Domain, FaunaCriteria, FaunaField},
     runtime::{Action, Availability, SearchPause, State},
     session::Phase,
-    settings::{BUDGET_LABELS, BUDGETS, MAX_PRESETS, MAX_RESULTS, Preset, Settings, validate_name},
+    settings::{
+        BUDGET_LABELS, BUDGETS, MAX_PRESETS, MAX_RESULTS, Preset, Settings, available_workers,
+        recommended_workers, validate_name,
+    },
     vocabulary::RESOURCE_LABELS,
 };
 use std::sync::Arc;
@@ -239,60 +242,77 @@ impl App {
                 );
                 ui.end_row();
             });
+        callout(
+            ui,
+            CalloutTone::Success,
+            "Search completion",
+            "The search stops running after whichever comes first - processing all systems, or finding the number of requested results.",
+        );
     }
     fn search_performance(&mut self, ui: &mut Ui) {
         ui.heading(RichText::new("Performance").size(16.0).strong());
         let input_width = filter_control_width(ui);
+        let intensity_levels = [
+            (2, "Lowest game impact"),
+            (4, "Low game impact"),
+            (8, "Balanced"),
+            (16, "Fastest search"),
+        ];
+        let available_workers = available_workers();
+        let recommended_workers = recommended_workers(available_workers);
         egui::Grid::new("performance_settings")
             .num_columns(2)
             .spacing([12.0, 8.0])
             .show(ui, |ui| {
+                ui.label("Search intensity");
+                egui::ComboBox::from_id_salt("effort")
+                    .width(input_width)
+                    .selected_text(
+                        intensity_levels
+                            .iter()
+                            .find_map(|&(value, label)| {
+                                (value == self.settings.frame_budget_ms).then_some(label)
+                            })
+                            .unwrap_or("Unknown"),
+                    )
+                    .truncate()
+                    .show_ui(ui, |ui| {
+                        for (value, label) in intensity_levels {
+                            ui.selectable_value(&mut self.settings.frame_budget_ms, value, label);
+                        }
+                    });
+                ui.end_row();
                 ui.label("Workers");
                 egui::ComboBox::from_id_salt("workers")
                     .width(input_width)
-                    .selected_text(self.settings.workers.to_string())
+                    .selected_text(match self.settings.workers {
+                        None => format!("Auto ({recommended_workers})"),
+                        Some(count) if count <= available_workers => count.to_string(),
+                        Some(count) => format!("{count} (limited to {available_workers})"),
+                    })
                     .truncate()
                     .show_ui(ui, |ui| {
-                        for count in [1, 2, 4, 8, 16] {
+                        ui.selectable_value(
+                            &mut self.settings.workers,
+                            None,
+                            format!("Auto (Recommended · {recommended_workers})"),
+                        );
+                        for count in 1..=available_workers {
                             ui.selectable_value(
                                 &mut self.settings.workers,
-                                count,
+                                Some(count),
                                 count.to_string(),
                             );
                         }
                     });
                 ui.end_row();
-                ui.label("Game time per batch");
-                egui::ComboBox::from_id_salt("effort")
-                    .width(input_width)
-                    .selected_text(format!("{} ms", self.settings.frame_budget_ms))
-                    .truncate()
-                    .show_ui(ui, |ui| {
-                        for (value, label) in [
-                            (2, "2 ms · Lowest impact"),
-                            (4, "4 ms · Background"),
-                            (8, "8 ms · Balanced"),
-                            (16, "16 ms · Search priority"),
-                        ] {
-                            ui.selectable_value(&mut self.settings.frame_budget_ms, value, label);
-                        }
-                    });
-                ui.end_row();
             });
-        egui::Frame::new()
-            .fill(Color32::from_rgb(45, 35, 18))
-            .stroke(egui::Stroke::new(1.0, Color32::from_rgb(195, 145, 55)))
-            .corner_radius(4.0)
-            .inner_margin(egui::Margin::symmetric(10, 8))
-            .show(ui, |ui| {
-                ui.set_width(ui.available_width());
-                ui.label(
-                    RichText::new("Performance impact")
-                        .strong()
-                        .color(Color32::from_rgb(240, 190, 90)),
-                );
-                ui.label("More workers and longer batches may reduce game frame rate. Individual native calls can exceed the batch target.");
-            });
+        callout(
+            ui,
+            CalloutTone::Warning,
+            "Performance impact",
+            "Higher search intensity and more workers can find results faster, but may make the game less smooth.",
+        );
     }
     fn criteria(&mut self, ui: &mut Ui, input_width: f32) {
         if ui.available_width() >= CRITERIA_THREE_COLUMN_MIN_WIDTH {
@@ -397,6 +417,7 @@ impl App {
                         system_flag_rows(ui, criteria, &[SystemFlag::Dissonance], input_width);
                         choice_rows(ui, criteria, &[Field::Race], input_width);
                         choice_rows(ui, criteria, &[Field::Wealth, Field::Economy], input_width);
+                        water_row(ui, "system_water", &mut criteria.system_water, input_width);
                         system_flag_rows(ui, criteria, &[SystemFlag::Pirate], input_width);
                         choice_rows(
                             ui,
@@ -404,7 +425,6 @@ impl App {
                             &[Field::Population, Field::Anomaly, Field::Star],
                             input_width,
                         );
-                        water_row(ui, "system_water", &mut criteria.system_water, input_width);
                     });
             });
     }
@@ -413,14 +433,13 @@ impl App {
         egui::CollapsingHeader::new(RichText::new("Fauna Criteria").size(19.0).strong())
             .default_open(true)
             .show(ui, |ui| {
-                fauna_domain_section(ui, criteria, Domain::Airborne, input_width);
-                fauna_domain_section(ui, criteria, Domain::Aquatic, input_width);
                 egui::CollapsingHeader::new(RichText::new("General").size(16.0).strong())
                     .default_open(true)
                     .show(ui, |ui| {
                         match_mode_row(ui, criteria, Section::GeneralFauna);
-                        planet_flag_rows(ui, criteria, &[PlanetFlag::Sandworms], input_width);
+                        choice_rows(ui, criteria, &[Field::Fauna], input_width);
                         tameable_fauna_row(ui, criteria, input_width);
+                        planet_flag_rows(ui, criteria, &[PlanetFlag::Sandworms], input_width);
                         planet_flag_rows(
                             ui,
                             criteria,
@@ -431,8 +450,9 @@ impl App {
                             ],
                             input_width,
                         );
-                        choice_rows(ui, criteria, &[Field::Fauna], input_width);
                     });
+                fauna_domain_section(ui, criteria, Domain::Airborne, input_width);
+                fauna_domain_section(ui, criteria, Domain::Aquatic, input_width);
                 fauna_domain_section(ui, criteria, Domain::Land, input_width);
                 egui::CollapsingHeader::new(RichText::new("Xeno Arena").size(16.0).strong())
                     .default_open(true)
@@ -448,6 +468,7 @@ impl App {
                     .default_open(true)
                     .show(ui, |ui| {
                         match_mode_row(ui, criteria, Section::Flora);
+                        choice_rows(ui, criteria, &[Field::Flora], input_width);
                         planet_flag_rows(
                             ui,
                             criteria,
@@ -457,7 +478,7 @@ impl App {
                         choice_rows(
                             ui,
                             criteria,
-                            &[Field::Grass, Field::FloraColour, Field::Flora],
+                            &[Field::Grass, Field::FloraColour],
                             input_width,
                         );
                     });
@@ -472,8 +493,8 @@ impl App {
                             &[PlanetFlag::Moons, PlanetFlag::Rings],
                             input_width,
                         );
-                        sentinel_row(ui, criteria, input_width);
                         water_row(ui, "planet_water", &mut criteria.planet_water, input_width);
+                        sentinel_row(ui, criteria, input_width);
                     });
 
                 egui::CollapsingHeader::new(RichText::new("Planet Type").size(16.0).strong())
@@ -795,6 +816,45 @@ const FILTER_CONTROL_WIDTH: f32 = 185.0;
 const FILTER_CONTROL_MIN_WIDTH: f32 = 64.0;
 const FILTER_LABEL_MIN_WIDTH: f32 = 72.0;
 const FILTER_ROW_MIN_GAP: f32 = 12.0;
+const CALLOUT_MAX_WIDTH: f32 = 720.0;
+
+enum CalloutTone {
+    Success,
+    Warning,
+}
+
+fn callout(ui: &mut Ui, tone: CalloutTone, title: &str, message: &str) {
+    let (fill, border, title_color) = match tone {
+        CalloutTone::Success => (
+            Color32::from_rgb(16, 42, 28),
+            Color32::from_rgb(55, 155, 92),
+            Color32::from_rgb(105, 220, 140),
+        ),
+        CalloutTone::Warning => (
+            Color32::from_rgb(45, 35, 18),
+            Color32::from_rgb(195, 145, 55),
+            Color32::from_rgb(240, 190, 90),
+        ),
+    };
+    let width = ui.available_width().min(CALLOUT_MAX_WIDTH);
+    ui.allocate_ui_with_layout(
+        egui::vec2(width, 0.0),
+        egui::Layout::top_down(egui::Align::Min),
+        |ui| {
+            ui.set_width(width);
+            egui::Frame::new()
+                .fill(fill)
+                .stroke(egui::Stroke::new(1.0, border))
+                .corner_radius(4.0)
+                .inner_margin(egui::Margin::symmetric(10, 8))
+                .show(ui, |ui| {
+                    ui.set_width(ui.available_width());
+                    ui.label(RichText::new(title).strong().color(title_color));
+                    ui.label(message);
+                });
+        },
+    );
+}
 
 fn filter_control_width(ui: &Ui) -> f32 {
     let nested_indents = 2.0 * ui.spacing().indent;
@@ -1239,7 +1299,7 @@ fn height_bound_row(
 }
 
 fn water_row(ui: &mut Ui, id: &str, water: &mut WaterFilter, input_width: f32) {
-    filter_row(ui, "Water", input_width, |ui| {
+    filter_row(ui, "Has water", input_width, |ui| {
         egui::ComboBox::from_id_salt(id)
             .width(input_width)
             .selected_text(water.label())

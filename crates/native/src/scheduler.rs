@@ -4,7 +4,10 @@ use crate::{
     search::Work,
     workers::Workers,
 };
-use search_probes_model::session::{Phase, Session, Work as Pending};
+use search_probes_model::{
+    session::{Phase, Session, Work as Pending},
+    settings::recommended_workers,
+};
 use std::{
     sync::atomic::{AtomicBool, Ordering},
     time::{Duration, Instant},
@@ -80,7 +83,7 @@ impl Scheduler {
         base: usize,
         live: *const u8,
         difficulty: usize,
-        workers: usize,
+        workers: Option<usize>,
         budget: Duration,
         cancel: &AtomicBool,
     ) -> Result<(), &'static str> {
@@ -88,6 +91,9 @@ impl Scheduler {
             self.session.cancel();
             return Ok(());
         }
+        let workers = workers
+            .unwrap_or_else(|| recommended_workers(pool.count()))
+            .min(pool.count());
         let started = Instant::now();
         let limit = self.batch_limit(workers, budget);
         let pending = self.session.next(limit)?;
