@@ -8,7 +8,6 @@ on:
 
 permissions:
   contents: read
-  checks: write
 
 jobs:
   security-gate:
@@ -79,6 +78,18 @@ jobs:
 
       - name: Audit dependencies
         if: steps.changes.outputs.relevant == 'true'
-        uses: rustsec/audit-check@69366f33c96575abad1ee0dba8212993eecbe998 # v2.0.0
-        with:
-          token: ${{ secrets.GITHUB_TOKEN }}
+        shell: bash
+        env:
+          CARGO_AUDIT_VERSION: 0.22.2
+          CARGO_AUDIT_SHA256: ab28a1bdb54db4d5d8ad5981cf1f959410370b3d28250dbd35f6a44248620e39
+        run: |
+          archive="cargo-audit-x86_64-unknown-linux-gnu-v${CARGO_AUDIT_VERSION}.tgz"
+          directory="cargo-audit-x86_64-unknown-linux-gnu-v${CARGO_AUDIT_VERSION}"
+          path="$RUNNER_TEMP/$archive"
+
+          curl --fail --location --proto '=https' --tlsv1.2 --retry 3 \
+            --output "$path" \
+            "https://github.com/rustsec/rustsec/releases/download/cargo-audit/v${CARGO_AUDIT_VERSION}/$archive"
+          printf '%s  %s\n' "$CARGO_AUDIT_SHA256" "$path" | sha256sum --check
+          tar -xzf "$path" -C "$RUNNER_TEMP"
+          "$RUNNER_TEMP/$directory/cargo-audit" audit --file Cargo.lock
