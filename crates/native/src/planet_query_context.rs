@@ -5,6 +5,10 @@ const RNG_START: usize = 0xba4;
 const RNG_END: usize = 0xbac;
 pub(crate) const CONFIGURATION_SIZE: usize = 0xbb0;
 const DESCRIPTION_CACHE_START: usize = CONFIGURATION_SIZE;
+const CONSTRUCTOR_RVA: usize = 0x13e2900;
+const ALLOCATOR_RVA: usize = 0x50e30e0;
+const DEALLOCATOR_RVA: usize = 0x2c910e0;
+const DEALLOCATOR_PREFIX: [u8; 9] = [0x48, 0x85, 0xd2, 0x0f, 0x84, 0xb5, 0x01, 0x00, 0x00];
 type Deallocate = unsafe extern "system" fn(*mut u8, *mut u8, i32);
 const RESOURCE_POINTER_OFFSETS: [usize; 18] = [
     0, 8, 0x50, 0x58, 0x60, 0x68, 0x70, 0x78, 0x80, 0x4f8, 0x510, 0x518, 0x520, 0x528, 0x530,
@@ -43,12 +47,24 @@ impl PlanetQueryContext {
         if live.is_null() {
             return Err("null live planet generator");
         }
-        let construct_address = base + 0x13de610;
-        let prefix = [0x48, 0x89, 0x5c, 0x24, 0x08, 0x57];
+        let construct_address = base + CONSTRUCTOR_RVA;
+        let prefix = [
+            0x48, 0x89, 0x5c, 0x24, 0x08, 0x57, 0x48, 0x83, 0xec, 0x20, 0x33, 0xc0, 0x0f, 0x57,
+            0xc0, 0x0f, 0x11, 0x41, 0x10, 0x48, 0x8b, 0xd9, 0x33, 0xff, 0x0f, 0x11, 0x41, 0x20,
+            0x0f, 0x11, 0x41, 0x30, 0x48, 0x89, 0x41, 0x40, 0x89, 0x41, 0x48, 0x66, 0x89, 0x41,
+            0x4c, 0x88, 0x41, 0x4e, 0x48, 0x8d, 0x81,
+        ];
         if unsafe { std::slice::from_raw_parts(construct_address as *const u8, prefix.len()) }
             != prefix
         {
             return Err("planet context constructor prefix mismatch");
+        }
+        let deallocate_address = base + DEALLOCATOR_RVA;
+        if unsafe {
+            std::slice::from_raw_parts(deallocate_address as *const u8, DEALLOCATOR_PREFIX.len())
+        } != DEALLOCATOR_PREFIX
+        {
+            return Err("planet context deallocator prefix mismatch");
         }
         let mut storage = Box::new(Storage([0; CONTEXT_SIZE]));
         unsafe {
@@ -88,8 +104,8 @@ impl PlanetQueryContext {
         Ok(Self {
             storage,
             initial,
-            allocator: (base + 0x50d80e0) as *mut u8,
-            deallocate: unsafe { std::mem::transmute::<usize, Deallocate>(base + 0x2c8c720) },
+            allocator: (base + ALLOCATOR_RVA) as *mut u8,
+            deallocate: unsafe { std::mem::transmute::<usize, Deallocate>(deallocate_address) },
             _gameplay: PhantomData,
         })
     }

@@ -338,7 +338,10 @@ impl<'cache> Generator<'cache> {
                             let context=crate::flora_appearance::Context {
                                 palettes:capture::flora_palettes(live),
                                 ground_colours:capture::flora_ground_colours(live),
-                                palette_mode:((self.base+0x5331f14) as *const u32).read_unaligned(),
+                                // The 7.11 palette-mode RVA is zero-filled and has no code
+                                // references in the verified 7.13 executable. Keep the current
+                                // default mode instead of reading that unrelated storage.
+                                palette_mode: 0,
                             };
                             let wanted = plan.planet.iter().find_map(|predicate| match predicate {
                                 search_probes_model::criteria::Predicate::Choice(choices)

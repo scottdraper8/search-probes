@@ -4,14 +4,17 @@ A No Man's Sky mod that searches generated systems, planets and fauna without vi
 It provides an F7 overlay, coordinate copying and in-game destination guidance. The runtime and
 UI are Rust; parent-repository tooling is not part of the distributed mod.
 
+The native runtime currently targets public NMS 7.13 (Steam build `26385139`) and rejects other
+executable identities. The exact executable fingerprint is maintained in `crates/model/src/supported.rs`.
+
 ## Agent instructions
 
 - Do not commit or push without explicit permission. Preserve unrelated work.
 - Keep development tooling in `games/no-mans-sky/tooling/`, outside this submodule.
 - Do not recreate removed tests, one-off probes, investigation archives or progress logs.
 - Game facts and oracles: [NMS wiki](../../../../.agent-docs/games/no-mans-sky/wiki/README.md).
-  The [single open-issue file](../../../../.agent-docs/games/no-mans-sky/search-probes-unresolved.md)
-  records the paused Arena investigation.
+  The [Arena rank coverage note](../../../../.agent-docs/games/no-mans-sky/search-probes-unresolved.md)
+  describes why some remote underwater rank checks remain unresolved.
 
 Run commands from squinchmods root unless stated otherwise. Create/select a task tranche with
 `tooling/squinch tranche create <task>`; keep task inputs and generated output there.

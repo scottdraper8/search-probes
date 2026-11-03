@@ -14,27 +14,14 @@ use std::{
     },
 };
 
-type Scan = unsafe extern "system" fn(
-    usize,
-    usize,
-    i32,
-    usize,
-    usize,
-    bool,
-    f32,
-    usize,
-    usize,
-    bool,
-    bool,
-    bool,
-    usize,
-    bool,
-) -> usize;
 type FindBuilding =
     unsafe extern "system" fn(usize, usize, usize, bool, bool, usize, bool, bool, usize) -> usize;
 type PlanetFilter = unsafe extern "system" fn(usize, usize, bool, u8) -> bool;
 type PlanetAddress = unsafe extern "system" fn(usize) -> u64;
-static ORIGINAL_SCAN: AtomicUsize = AtomicUsize::new(0);
+const PLANET_ADDRESS_OFFSET: usize = 0x16ae410;
+const PLANET_ADDRESS_PREFIX: [u8; 12] = [
+    0x48, 0x83, 0xec, 0x38, 0x4c, 0x8b, 0xd1, 0x48, 0x8d, 0x4c, 0x24, 0x20,
+];
 static ORIGINAL_BUILDING: AtomicUsize = AtomicUsize::new(0);
 static ORIGINAL_FILTER: AtomicUsize = AtomicUsize::new(0);
 static PLANET_ADDRESS: AtomicUsize = AtomicUsize::new(0);
@@ -111,69 +98,8 @@ fn select(event: usize, context: usize) -> Result<Selection, &'static str> {
     Ok(Selection { event, target })
 }
 
-unsafe extern "system" fn scan_detour(
-    manager: usize,
-    result: usize,
-    table: i32,
-    event: usize,
-    callback: usize,
-    update_callback: bool,
-    delay: f32,
-    context: usize,
-    output_address: usize,
-    allow_fallback: bool,
-    dry_run: bool,
-    pending: bool,
-    position: usize,
-    force: bool,
-) -> usize {
-    let selection = if table == 3 && owned(event).is_some() {
-        match select(event, context) {
-            Ok(selection) => Some(selection),
-            Err(error) => {
-                fail(error);
-                let mut failed = [0; 12];
-                failed[8..].copy_from_slice(&3u32.to_le_bytes());
-                if let Err(error) = unsafe { platform::write(result, &failed) } {
-                    fail(error);
-                }
-                return result;
-            }
-        }
-    } else {
-        None
-    };
-    let _guard = SelectionGuard(SELECTION.replace(selection));
-    let original =
-        unsafe { std::mem::transmute::<usize, Scan>(ORIGINAL_SCAN.load(Ordering::Acquire)) };
-    let returned = unsafe {
-        original(
-            manager,
-            result,
-            table,
-            event,
-            callback,
-            update_callback,
-            delay,
-            context,
-            output_address,
-            allow_fallback,
-            dry_run,
-            pending,
-            position,
-            force,
-        )
-    };
-    if let Some(selection) = selection {
-        if !dry_run && matches!(platform::u32_at(result + 8), Ok(0 | 1)) {
-            *PUBLISHED.lock().unwrap_or_else(|error| error.into_inner()) = Some(selection.target);
-        }
-    }
-    returned
-}
-
 unsafe fn planet_address(planet: usize) -> Result<Address, &'static str> {
-    platform::read::<4>(planet + 0x50)?;
+    platform::read::<2>(planet + 0x50)?;
     let original = unsafe {
         std::mem::transmute::<usize, PlanetAddress>(PLANET_ADDRESS.load(Ordering::Acquire))
     };
@@ -219,19 +145,22 @@ unsafe extern "system" fn building_detour(
             position,
         )
     };
-    if let Some(selection) = SELECTION
-        .get()
-        .filter(|selection| selection.event == event && selection.target.kind == TargetKind::Planet)
-    {
+    if let Some(selection) = SELECTION.get().filter(|selection| selection.event == event) {
         if building != 0 {
             let actual = platform::pointer(building + 0x70)
                 .and_then(|planet| unsafe { planet_address(planet) });
-            if actual != Ok(selection.target.address) {
+            let matches_target = match (selection.target.kind, actual) {
+                (TargetKind::Planet, Ok(actual)) => actual == selection.target.address,
+                (TargetKind::System, Ok(actual)) => actual.system() == selection.target.address,
+                (_, Err(_)) => false,
+            };
+            if !matches_target {
                 fail(
                     "NMS could not place a marker on the selected planet. Abandon Search Probes in the Log before retrying.",
                 );
                 return 0;
             }
+            *PUBLISHED.lock().unwrap_or_else(|error| error.into_inner()) = Some(selection.target);
         }
     }
     building
@@ -245,7 +174,8 @@ unsafe extern "system" fn filter_detour(
 ) -> bool {
     if let Some(selection) = SELECTION.get().filter(|selection| {
         selection.target.kind == TargetKind::Planet
-            && (parameters == selection.event || parameters == selection.event + 0xc0)
+            // FindBuilding passes its event-data pointer through unchanged as argument two.
+            && parameters == selection.event
     }) {
         return match unsafe { planet_address(planet) } {
             Ok(address) => address == selection.target.address,
@@ -267,18 +197,16 @@ unsafe extern "system" fn filter_detour(
 pub unsafe fn enable(base: usize) -> Result<(), HookError> {
     let mut hooks = HOOKS.lock().map_err(|_| HookError::StatePoisoned)?;
     if hooks.is_empty() {
-        let definitions: [(usize, usize, &[u8], &AtomicUsize); 3] = [
+        let planet_address = base + PLANET_ADDRESS_OFFSET;
+        if unsafe {
+            std::slice::from_raw_parts(planet_address as *const u8, PLANET_ADDRESS_PREFIX.len())
+        } != PLANET_ADDRESS_PREFIX
+        {
+            return Err(HookError::PrefixChanged);
+        }
+        let definitions: [(usize, usize, &[u8], &AtomicUsize); 2] = [
             (
-                0x1301bc0,
-                scan_detour as *const () as usize,
-                &[
-                    0x44, 0x89, 0x44, 0x24, 0x18, 0x48, 0x89, 0x4c, 0x24, 0x08, 0x55, 0x56, 0x57,
-                    0x41, 0x54, 0x41, 0x55,
-                ],
-                &ORIGINAL_SCAN,
-            ),
-            (
-                0x1309340,
+                0x130d3b0,
                 building_detour as *const () as usize,
                 &[
                     0x44, 0x88, 0x4c, 0x24, 0x20, 0x4c, 0x89, 0x44, 0x24, 0x18, 0x48, 0x89, 0x54,
@@ -287,7 +215,7 @@ pub unsafe fn enable(base: usize) -> Result<(), HookError> {
                 &ORIGINAL_BUILDING,
             ),
             (
-                0x130c610,
+                0x1310680,
                 filter_detour as *const () as usize,
                 &[
                     0x48, 0x89, 0x5c, 0x24, 0x08, 0x48, 0x89, 0x6c, 0x24, 0x10, 0x48, 0x89, 0x74,
@@ -302,7 +230,7 @@ pub unsafe fn enable(base: usize) -> Result<(), HookError> {
             original.store(hook.trampoline(), Ordering::Release);
             prepared.push(hook);
         }
-        PLANET_ADDRESS.store(base + 0x16a9f80, Ordering::Release);
+        PLANET_ADDRESS.store(planet_address, Ordering::Release);
         *hooks = prepared;
     }
     for hook in hooks.iter_mut().rev() {

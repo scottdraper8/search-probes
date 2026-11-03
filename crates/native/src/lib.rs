@@ -62,7 +62,6 @@ pub mod search;
 pub mod snapshot;
 mod solar;
 #[cfg(windows)]
-mod source_shutdown_hook;
 #[cfg(windows)]
 mod system_name;
 pub mod terrain;

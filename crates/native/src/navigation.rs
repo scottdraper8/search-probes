@@ -143,30 +143,6 @@ impl Navigation {
                 "abandon the Search Probes mission in the Log before choosing another destination",
             );
         }
-        type Lookup = unsafe extern "system" fn(usize, *const u8, i32) -> usize;
-        let lookup = unsafe { std::mem::transmute::<usize, Lookup>(image.base() + 0x4ef940) };
-        let name = fixed::<32>(kind.event().as_bytes())?;
-        let scan_manager = platform::pointer(snapshot.application + 0x4deab0)?;
-        let table = platform::pointer(scan_manager + 0x30)?;
-        platform::read::<16>(table)?;
-        let event = unsafe { lookup(scan_manager, name.as_ptr(), 3) };
-        if event == 0 {
-            return Err(
-                "Search Probes navigation assets are not loaded. Enable mods in NMS and restart the game.",
-            );
-        }
-        if platform::read::<32>(event + 0x228)? != name || platform::u32_at(event + 0x48c)? != 4 {
-            return Err("Search Probes navigation assets are missing or incompatible");
-        }
-        if platform::u32_at(event + 0x430)? != 1 {
-            return Err("navigation definition must contain one destination");
-        }
-        let entry = platform::pointer(event + 0x428)?;
-        let text = platform::pointer(entry)?;
-        let previous = platform::read::<17>(text)?;
-        if previous[16] != 0 || !previous[..16].iter().all(u8::is_ascii_hexdigit) {
-            return Err("navigation definition has an invalid destination buffer");
-        }
         navigation_hook::reset();
         #[repr(C)]
         struct Seed {
@@ -174,7 +150,7 @@ impl Navigation {
             valid: bool,
         }
         type Start = unsafe extern "system" fn(usize, *const u8, *const Seed, bool, bool) -> bool;
-        let start = unsafe { std::mem::transmute::<usize, Start>(image.base() + 0x9ccd40) };
+        let start = unsafe { std::mem::transmute::<usize, Start>(image.base() + 0x9ced00) };
         let accepted = unsafe {
             start(
                 manager,
@@ -215,8 +191,18 @@ impl Navigation {
         if let Some((expected, started)) = self.requested {
             if let Some((index, mission)) = mission.filter(|_| routed == Some(expected)) {
                 type Select = unsafe extern "system" fn(usize, usize, bool);
-                let select =
-                    unsafe { std::mem::transmute::<usize, Select>(image.base() + 0x9d5e20) };
+                let select_address = image.base() + 0x9d7de0;
+                const SELECT_PREFIX: [u8; 26] = [
+                    0x48, 0x8b, 0xc4, 0x44, 0x88, 0x40, 0x18, 0x53, 0x56, 0x57, 0x41, 0x54, 0x48,
+                    0x81, 0xec, 0x58, 0x01, 0x00, 0x00, 0x45, 0x33, 0xe4, 0x41, 0x0f, 0xb6, 0xf8,
+                ];
+                if unsafe {
+                    std::slice::from_raw_parts(select_address as *const u8, SELECT_PREFIX.len())
+                } != SELECT_PREFIX
+                {
+                    return Err("NMS mission selection function does not match this build");
+                }
+                let select = unsafe { std::mem::transmute::<usize, Select>(select_address) };
                 unsafe { select(manager, mission, false) };
                 if platform::u32_at(manager + 0x268)? as usize != index {
                     return Err("NMS did not select Search Probes");
