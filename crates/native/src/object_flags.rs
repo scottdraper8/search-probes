@@ -40,20 +40,20 @@ impl ObjectTables {
     /// # Safety
     /// Game resources must remain initialized and valid through use.
     pub unsafe fn from_verified_image(base: usize) -> Result<Self, &'static str> {
-        let acquire = base + 0x16f9e10;
-        let release = base + 0x4bb8a0;
+        let acquire = base + 0x16fe330;
+        let release = base + 0x4bcb40;
         unsafe {
             if std::slice::from_raw_parts(acquire as *const u8, 5) != [0x44, 0x88, 0x44, 0x24, 0x18]
                 || std::slice::from_raw_parts(release as *const u8, 4) != [0x40, 0x53, 0x56, 0x57]
             {
                 return Err("object resource function prefix mismatch");
             }
-            let epoch = ((base + 0x755f6b8) as *const i32).read_unaligned();
+            let epoch = ((base + 0x756b058) as *const i32).read_unaligned();
             if epoch == 0 || epoch == -1 {
                 return Err("object resource cache is not initialized");
             }
             Ok(Self {
-                cache: (base + 0x755f570) as *mut u8,
+                cache: (base + 0x756af10) as *mut u8,
                 acquire: std::mem::transmute::<usize, Acquire>(acquire),
                 release: std::mem::transmute::<usize, Release>(release),
                 _thread_bound: PhantomData,

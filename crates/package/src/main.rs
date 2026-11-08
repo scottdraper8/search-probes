@@ -119,7 +119,7 @@ fn verify(root: &Path) -> Result<()> {
 }
 
 fn package(workspace: &Path, output: &Path) -> Result<()> {
-    assets::validate(&workspace.join("assets"))?;
+    assets::validate(&workspace.join("assets"), false)?;
     let zip = archive_path(output);
     if output.exists() || zip.exists() {
         return Err("output already exists; choose a new package path".into());
@@ -154,13 +154,19 @@ fn package(workspace: &Path, output: &Path) -> Result<()> {
     }
     let assets = workspace.join("assets");
     for file in files(&assets)? {
-        copy(
-            &file,
-            &temporary
-                .join("GAMEDATA/MODS/SearchProbes")
-                .join(file.strip_prefix(&assets)?),
-        )?;
+        let relative = file.strip_prefix(&assets)?;
+        let destination = temporary.join("GAMEDATA/MODS/SearchProbes").join(relative);
+        if relative == Path::new(assets::MISSION_TABLE) {
+            fs::create_dir_all(destination.parent().ok_or("missing destination parent")?)?;
+            fs::write(
+                destination,
+                assets::expand_fauna_missions(&fs::read(&file)?)?,
+            )?;
+        } else {
+            copy(&file, &destination)?;
+        }
     }
+    assets::validate(&temporary.join("GAMEDATA/MODS/SearchProbes"), true)?;
     let installation = json!({
         "schema": 1,
         "product": "Search Probes",

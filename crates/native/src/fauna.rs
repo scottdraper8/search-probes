@@ -2,6 +2,50 @@ const ROLE_TABLE: usize = 0x3180;
 const ROLE_STRIDE: usize = 0x5d8;
 const MAX_ROLES: i32 = search_probes_model::fauna::MAX_SPECIES as i32;
 const PLAYER_PREDATOR: u32 = 2;
+const NAME_RVA: usize = 0xf6a430;
+const NAME_PREFIX: [u8; 18] = [
+    0x48, 0x89, 0x5c, 0x24, 0x08, 0x55, 0x48, 0x8d, 0x6c, 0x24, 0xd0, 0x48, 0x81, 0xec, 0x30, 0x01,
+    0x00, 0x00,
+];
+type GenerateName = unsafe extern "system" fn(*mut u8, u64) -> *mut u8;
+
+pub struct Context {
+    generate_name: GenerateName,
+}
+
+impl Context {
+    /// # Safety
+    /// `base` is the verified NMS 7.13 image and remains loaded while the context is used.
+    pub unsafe fn from_verified_image(base: usize) -> Result<Self, &'static str> {
+        let address = base + NAME_RVA;
+        if unsafe { std::slice::from_raw_parts(address as *const u8, NAME_PREFIX.len()) }
+            != NAME_PREFIX
+        {
+            return Err("creature name generator does not match this build");
+        }
+        Ok(Self {
+            generate_name: unsafe { std::mem::transmute::<usize, GenerateName>(address) },
+        })
+    }
+
+    unsafe fn name(&self, seed: u64) -> Result<Box<str>, &'static str> {
+        let mut buffer = [0u8; 127];
+        let returned = unsafe { (self.generate_name)(buffer.as_mut_ptr(), seed) };
+        if returned != buffer.as_mut_ptr() {
+            return Err("creature name generator returned unexpected storage");
+        }
+        let length = buffer
+            .iter()
+            .position(|byte| *byte == 0)
+            .ok_or("unterminated generated creature name")?;
+        if length == 0 {
+            return Err("empty generated creature name");
+        }
+        Ok(std::str::from_utf8(&buffer[..length])
+            .map_err(|_| "invalid generated creature name")?
+            .into())
+    }
+}
 
 fn height_cm(metres: f32) -> Result<i32, &'static str> {
     let centimetres = (metres * 100.).round();
@@ -58,7 +102,7 @@ pub struct Observation {
 
 /// # Safety
 /// Same observation window as `player_attacking`. No native pointer is retained.
-pub unsafe fn capture(planet: *const u8) -> Result<Observation, &'static str> {
+pub unsafe fn capture(planet: *const u8, context: &Context) -> Result<Observation, &'static str> {
     use search_probes_model::fauna::{Domain, Family, Species};
     let player_attacking = unsafe { player_attacking(planet)? };
     let sandworms = unsafe { sandworms(planet)? };
@@ -69,6 +113,15 @@ pub unsafe fn capture(planet: *const u8) -> Result<Observation, &'static str> {
         let role = unsafe { pointer.add(index * ROLE_STRIDE) };
         if unsafe { read::<f32>(role, 0x5c4) } == 0. {
             continue;
+        }
+        let role_index = u8::try_from(index).map_err(|_| "unsupported fauna role index")?;
+        if role_index >= 30 {
+            return Err("generated fauna exceeds the discovery role table");
+        }
+        let seed = unsafe { read::<u64>(role, 0x5b0) };
+        let seed_valid = unsafe { read::<u8>(role, 0x5b8) };
+        if seed_valid != 1 || seed == 0 {
+            return Err("generated fauna has no stable discovery seed");
         }
         let id = unsafe { std::slice::from_raw_parts(role.add(0x5a0), 16) };
         let id = &id[..id.iter().position(|b| *b == 0).unwrap_or(16)];
@@ -96,6 +149,8 @@ pub unsafe fn capture(planet: *const u8) -> Result<Observation, &'static str> {
             *height = height_cm(metres)?;
         }
         species.push(Species {
+            role: role_index,
+            name: unsafe { context.name(seed)? },
             family,
             domain,
             activity: activity as u8,

@@ -278,19 +278,20 @@ impl Session {
             if evaluation.matches & (1 << index) == 0 {
                 continue;
             }
-            let result = record.result(address, index, &search.plan);
-            if search.progress.results.len() == search.progress.options.results {
-                break;
+            for result in record.results(address, index, &search.plan) {
+                if search.progress.results.len() == search.progress.options.results {
+                    break;
+                }
+                if search
+                    .progress
+                    .results
+                    .iter()
+                    .any(|previous| previous.target() == result.target())
+                {
+                    continue;
+                }
+                search.progress.results.push(result);
             }
-            if search
-                .progress
-                .results
-                .iter()
-                .any(|previous| previous.address == result.address)
-            {
-                continue;
-            }
-            search.progress.results.push(result);
         }
         frontier.commit(1)?;
         search.progress.systems += 1;

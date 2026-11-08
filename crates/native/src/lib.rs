@@ -13,6 +13,8 @@ mod control_worker;
 #[cfg(windows)]
 mod destination;
 #[cfg(windows)]
+mod discovery_hook;
+#[cfg(windows)]
 mod dispatch_gate;
 pub mod fauna;
 pub mod fauna_model_scalars;
@@ -62,7 +64,6 @@ pub mod search;
 pub mod snapshot;
 mod solar;
 #[cfg(windows)]
-mod source_shutdown_hook;
 #[cfg(windows)]
 mod system_name;
 pub mod terrain;

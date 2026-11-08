@@ -5,8 +5,23 @@ use search_probes_model::arena::{Creature, RankEvidence, Ranks};
 use std::collections::BTreeMap;
 
 type Result<T> = std::result::Result<T, &'static str>;
-pub(crate) const RANK_WEIGHTS_RVA: usize = 0x531d064;
-pub(crate) const AFFINITIES_RVA: usize = 0x531d61c;
+const RANK_FUNCTION_RVA: usize = 0x13d0270;
+const RANK_WEIGHTS_RVA: usize = 0x53286e4;
+const RANK_FORK_IDS_RVA: usize = 0x4afdf40;
+const RANK_ROOT_FORK_ID_RVA: usize = 0x4ba8960;
+const RANK_FUNCTION_PREFIX: [u8; 36] = [
+    0x48, 0x89, 0x5c, 0x24, 0x08, 0x48, 0x89, 0x74, 0x24, 0x10, 0x48, 0x89, 0x7c, 0x24, 0x20, 0x44,
+    0x89, 0x44, 0x24, 0x18, 0x55, 0x41, 0x54, 0x41, 0x55, 0x41, 0x56, 0x41, 0x57, 0x48, 0x81, 0xec,
+    0xe0, 0x02, 0x00, 0x00,
+];
+const RANK_FORK_IDS: [[u8; 16]; 3] = [
+    *b"COMBAT\0\0\0\0\0\0\0\0\0\0",
+    *b"SPEED\0\0\0\0\0\0\0\0\0\0\0",
+    *b"HEALTH\0\0\0\0\0\0\0\0\0\0",
+];
+const RANK_ROOT_FORK_ID: [u8; 17] = *b"CORE_STAT_CLASSES";
+const RANK_WEIGHTS: [u32; 12] = [30, 30, 25, 15, 30, 30, 25, 15, 30, 30, 25, 15];
+const PET_BIOME_AFFINITIES: [u8; 16] = [1, 4, 3, 6, 2, 5, 5, 7, 7, 7, 7, 1, 4, 3, 7, 1];
 type Roll = unsafe extern "system" fn(*mut u32, *const u64, i32, i32) -> u8;
 unsafe fn read<T: Copy>(p: *const u8, o: usize) -> T {
     unsafe { p.add(o).cast::<T>().read_unaligned() }
@@ -62,6 +77,19 @@ struct SizeGlobals {
     infant_multiplier: f32,
 }
 impl SizeGlobals {
+    /// Constants read from the current 7.13 creature globals and generator. The executable
+    /// identity gate in `supported.rs` makes this data specific to that release.
+    fn current_7_13() -> Self {
+        Self {
+            maximum: 8.0,
+            multiplier: 1.0,
+            thresholds: [1.2, 2.5, 4.5],
+            quarter: 0.25,
+            uniform: 1.0 / 4_294_967_296.0,
+            // Infant scale and catalogue dependency do not participate in adult rank classes.
+            infant_multiplier: 1.0,
+        }
+    }
     fn validate(self) -> Result<Self> {
         if ![
             self.maximum,
@@ -205,13 +233,17 @@ impl Context {
     pub unsafe fn from_verified_image(base: usize) -> Result<Self> {
         unsafe {
             let image = base as *const u8;
-            let code = image.add(0x13cbf80);
-            if std::slice::from_raw_parts(code, 8)
-                != [0x48, 0x89, 0x5c, 0x24, 0x08, 0x48, 0x89, 0x74]
+            let code = image.add(RANK_FUNCTION_RVA);
+            if std::slice::from_raw_parts(code, RANK_FUNCTION_PREFIX.len()) != RANK_FUNCTION_PREFIX
             {
                 return Err("Arena rank function prefix mismatch");
             }
-            let app = read::<*const u8>(image, 0x6f5f868);
+            if read::<[[u8; 16]; 3]>(image, RANK_FORK_IDS_RVA) != RANK_FORK_IDS
+                || read::<[u8; 17]>(image, RANK_ROOT_FORK_ID_RVA) != RANK_ROOT_FORK_ID
+            {
+                return Err("Arena rank fork IDs do not match 7.13");
+            }
+            let app = read::<*const u8>(image, 0x6f6b208);
             pointer(app, 0x5c5550)?;
             let count = read::<i32>(app, 0x5c5548);
             if !(1..=32).contains(&count) {
@@ -237,32 +269,11 @@ impl Context {
                     }
                 }
             }
-            let size = SizeGlobals {
-                maximum: read(image, 0x534f3bc),
-                multiplier: read(image, 0x534f148),
-                thresholds: [
-                    read(image, 0x534f128),
-                    read(image, 0x534f104),
-                    read(image, 0x534f0bc),
-                ],
-                quarter: read(image, 0x4beade8),
-                uniform: read(image, 0x4bea540),
-                infant_multiplier: read(image, 0x534f308),
-            }
-            .validate()?;
-            let affinities = read::<[u8; 16]>(image, AFFINITIES_RVA);
-            if affinities.iter().any(|v| !(1..=8).contains(v)) {
-                return Err("invalid Arena affinity globals");
-            }
+            let size = SizeGlobals::current_7_13().validate()?;
+            let affinities = PET_BIOME_AFFINITIES;
             let weights = read::<[u32; 12]>(image, RANK_WEIGHTS_RVA);
-            if weights.as_chunks::<4>().0.iter().any(|w| {
-                w.iter()
-                    .try_fold(0i32, |sum, &v| {
-                        i32::try_from(v).ok().and_then(|v| sum.checked_add(v))
-                    })
-                    .is_none_or(|sum| sum == 0)
-            }) {
-                return Err("invalid Arena rank weights");
+            if weights != RANK_WEIGHTS {
+                return Err("Arena rank weights do not match 7.13");
             }
             Ok(Self {
                 catalogue: entries,
@@ -272,7 +283,14 @@ impl Context {
             })
         }
     }
-    fn role(&self, role: &[u8], planet: u64, biome: u32, subtype: u32) -> Result<Option<Creature>> {
+    fn role(
+        &self,
+        role_index: usize,
+        role: &[u8],
+        planet: u64,
+        biome: u32,
+        subtype: u32,
+    ) -> Result<Option<Creature>> {
         let id: [u8; 16] = role[0x5a0..0x5b0].try_into().unwrap();
         let entry = *self
             .catalogue
@@ -297,7 +315,15 @@ impl Context {
             }
             RankEvidence::bounded(possible_ranks)?
         };
-        Ok(Some(Creature { affinity, ranks }))
+        let role = u8::try_from(role_index)
+            .ok()
+            .filter(|role| *role < 30)
+            .ok_or("Arena creature role exceeds discovery-table bounds")?;
+        Ok(Some(Creature {
+            role,
+            affinity,
+            ranks,
+        }))
     }
     /// # Safety
     /// Same initialized immutable query-planet lifetime as `fauna::capture`; no pointers escape.
@@ -316,6 +342,7 @@ impl Context {
         let mut creatures = Vec::with_capacity(inputs.roles.len());
         for role in &inputs.roles {
             if let Some(creature) = self.role(
+                role.index(),
                 &role.calculation_bytes(),
                 inputs.address.raw(),
                 inputs.biome,
@@ -325,5 +352,43 @@ impl Context {
             }
         }
         Ok(creatures)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    unsafe extern "system" fn known_roll(
+        output: *mut u32,
+        _seed: *const u64,
+        first: i32,
+        last: i32,
+    ) -> u8 {
+        if first != 0 || last != 3 {
+            return 0;
+        }
+        unsafe { output.copy_from_nonoverlapping([3, 0, 1].as_ptr(), 3) };
+        1
+    }
+
+    #[test]
+    fn rank_outputs_keep_the_game_health_speed_combat_projection() {
+        let context = Context {
+            catalogue: BTreeMap::new(),
+            size: SizeGlobals::current_7_13(),
+            affinities: PET_BIOME_AFFINITIES,
+            roll: known_roll,
+        };
+        let role = [0; 0x5d8];
+
+        assert_eq!(
+            context.ranks(&role, 0, 0).unwrap(),
+            Ranks {
+                health: 3,
+                agility: 0,
+                combat: 1,
+            }
+        );
     }
 }

@@ -6,12 +6,12 @@ type Generate = unsafe extern "system" fn(*const u8, u64, *mut u8, *mut u8);
 /// The application must be initialized on the gameplay thread. The native generator reads shared
 /// naming tables; all output and RNG storage belongs to this call.
 pub unsafe fn generate(base: usize, address: Address) -> Result<String, &'static str> {
-    let function = base + 0xe9f490;
+    let function = base + 0xea2980;
     let prefix = [0x48, 0x89, 0x5c, 0x24, 0x18, 0x4c, 0x89, 0x4c, 0x24, 0x20];
     if unsafe { std::slice::from_raw_parts(function as *const u8, prefix.len()) } != prefix {
         return Err("system name generator prefix mismatch");
     }
-    let application = unsafe { ((base + 0x6f5f868) as *const *const u8).read() };
+    let application = unsafe { ((base + 0x6f6b208) as *const *const u8).read() };
     if application.is_null() {
         return Err("system name generator has no application");
     }

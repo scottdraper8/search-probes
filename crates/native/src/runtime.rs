@@ -1,5 +1,5 @@
 use crate::{
-    control_worker,
+    control_worker, discovery_hook,
     game_state::{Epoch, Snapshot},
     gameplay_hook, guide_hook,
     identity::Image,
@@ -23,6 +23,8 @@ use std::{
 
 static RUNTIME: OnceLock<crate::dispatch_gate::Gate<Runtime>> = OnceLock::new();
 static CONTROLS: OnceLock<Arc<Controls>> = OnceLock::new();
+static APPLICATION_TRANSITION: std::sync::Mutex<Option<LifecycleTransition>> =
+    std::sync::Mutex::new(None);
 
 pub fn report_startup_failure(error: &str) {
     let message: String = error.chars().take(4096).collect();
@@ -124,12 +126,12 @@ fn attach(image: Image, controls: Arc<Controls>, settings: Settings) -> Result<(
             .map_err(|error| format!("Cannot launch Guide presets: {error:?}"))?;
         unsafe { navigation_hook::enable(base) }
             .map_err(|error| format!("Cannot preserve destination planets: {error:?}"))?;
+        unsafe { discovery_hook::enable(base) }
+            .map_err(|error| format!("Cannot observe creature discoveries: {error:?}"))?;
         RUNTIME
             .set(crate::dispatch_gate::Gate::new(runtime))
             .map_err(|_| "Search Probes is already attached")?;
         controls.update(|state| state.availability = Availability::MainMenu);
-        unsafe { crate::source_shutdown_hook::enable(base) }
-            .map_err(|error| format!("Cannot observe source-manager shutdown: {error:?}"))?;
         unsafe { gameplay_hook::enable(base, frame) }
             .map_err(|error| format!("Cannot schedule gameplay searches: {error:?}"))?;
         Ok(())
@@ -139,7 +141,7 @@ fn attach(image: Image, controls: Arc<Controls>, settings: Settings) -> Result<(
         for rollback in unsafe {
             [
                 gameplay_hook::disable(),
-                crate::source_shutdown_hook::disable(),
+                discovery_hook::disable(),
                 guide_hook::disable(),
                 navigation_hook::disable(),
                 query_hooks::disable(),
@@ -179,71 +181,66 @@ fn frame() {
     }
 }
 
-/// Dispatch is closed across native teardown, without holding Runtime's mutex through native
-/// callbacks. The original shutdown owns destruction of all retired source references.
-pub(crate) struct SourceShutdown {
+/// Dispatch closure retained across application-state transitions until gameplay resumes.
+pub(crate) struct LifecycleTransition {
     dispatch: Option<crate::dispatch_gate::Closed<'static, Runtime>>,
 }
 
-/// # Safety
-/// Called only at entry to irrevocable global resource shutdown. It cannot run inside a gameplay
-/// dispatch or a source call on this thread.
-pub(crate) unsafe fn begin_source_shutdown() -> Result<SourceShutdown, &'static str> {
-    if let Some(controls) = CONTROLS.get() {
-        controls.cancel.store(true, Ordering::Release);
+/// Close new admissions before the application changes state and drain the active callback.
+/// Nested state changes share this token; it remains closed while the game is outside gameplay.
+pub(crate) fn begin_application_transition() -> Result<(), &'static str> {
+    let mut transition = APPLICATION_TRANSITION
+        .lock()
+        .map_err(|_| "application transition state poisoned")?;
+    if transition.is_none() {
+        let dispatch = RUNTIME.get().map(|runtime| runtime.close()).transpose()?;
+        *transition = Some(LifecycleTransition { dispatch });
     }
-    let dispatch = RUNTIME.get().map(|runtime| runtime.close()).transpose()?;
-    // Closing dispatch joined the previous frame and all of its borrowed search workers.
-    let shutdown = SourceShutdown { dispatch };
-    // Retain the token even if CPU cleanup panics: the detour must still run original teardown.
-    if std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        if let Some(runtime) = RUNTIME.get() {
-            let mut runtime = runtime
-                .lock()
-                .expect("dispatch drained before runtime cleanup");
-            runtime.reset();
-            runtime.epoch = None;
-            runtime.controls.update(|state| {
-                state.generation = state.generation.wrapping_add(1);
-                state.progress = None;
-                state.results.clear();
-                state.cached_systems = 0;
-                state.player = None;
-                state.destination = None;
-                state.metrics = Metrics::default();
-                state.search_pause = Some(SearchPause::Loading);
-                if !matches!(
-                    state.availability,
-                    Availability::Failed | Availability::Unsupported | Availability::Stopped
-                ) {
-                    state.availability = Availability::Loading;
-                }
-            });
-        }
-    }))
-    .is_err()
-    {
-        report_startup_failure(
-            "Search cleanup failed during source-manager shutdown. Restart the game.",
-        );
-    }
-    Ok(shutdown)
+    Ok(())
 }
 
-/// # Safety
-/// The matching original global shutdown has returned. Its source manager, source registry and
-/// scene simulation must all be gone before a new source generation can be admitted.
-pub(crate) unsafe fn finish_source_shutdown(
-    shutdown: SourceShutdown,
-    base: usize,
-) -> Result<(), &'static str> {
-    for offset in [0x6ef1e50, 0x59e5d70, 0x6ef1e58] {
-        if crate::platform::read::<8>(base + offset)? != [0; 8] {
-            return Err("native source shutdown retained a manager, registry or simulation");
+/// Reopen only after the application FSM has entered a verified gameplay state.
+pub(crate) fn finish_application_transition() -> Result<(), &'static str> {
+    let transition = APPLICATION_TRANSITION
+        .lock()
+        .map_err(|_| "application transition state poisoned")?
+        .take();
+    if let Some(transition) = transition {
+        if let Some(dispatch) = transition.dispatch {
+            dispatch.complete()?;
         }
     }
-    if let Some(dispatch) = shutdown.dispatch {
-        dispatch.complete()?;
+    Ok(())
+}
+
+/// Drop old session data after the native FSM has left gameplay. Runtime state contains copied
+/// model data and no borrowed NMS pointers; dispatch is already closed at this point.
+pub(crate) fn retire_application_sources(menu: bool) -> Result<(), &'static str> {
+    if let Some(runtime) = RUNTIME.get() {
+        let mut runtime = runtime.lock()?;
+        runtime.reset();
+        runtime.epoch = None;
+        runtime.controls.cancel.store(true, Ordering::Release);
+        runtime.controls.update(|state| {
+            state.generation = state.generation.wrapping_add(1);
+            state.progress = None;
+            state.results.clear();
+            state.cached_systems = 0;
+            state.player = None;
+            state.destination = None;
+            state.metrics = Metrics::default();
+            state.search_pause = Some(SearchPause::Loading);
+            if !matches!(
+                state.availability,
+                Availability::Failed | Availability::Unsupported | Availability::Stopped
+            ) {
+                state.availability = if menu {
+                    Availability::MainMenu
+                } else {
+                    Availability::Loading
+                };
+            }
+        });
     }
     Ok(())
 }
@@ -253,6 +250,7 @@ impl Runtime {
         self.scheduler.reset();
         self.navigation = Navigation::default();
         navigation_hook::reset();
+        discovery_hook::reset();
         self.navigation_polled = None;
         self.controls.reset_search_clock();
     }

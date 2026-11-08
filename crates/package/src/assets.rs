@@ -2,6 +2,52 @@ use crate::{Result, files};
 use quick_xml::{Reader, events::Event};
 use std::{collections::BTreeSet, path::Path};
 
+pub const MISSION_TABLE: &str = "METADATA/SIMULATION/MISSIONS/TABLES/WIKIMISSIONTABLE.EXML";
+
+fn fauna_mission(role: u8) -> String {
+    format!("SQN_SP_F{role:02}")
+}
+
+pub fn expand_fauna_missions(bytes: &[u8]) -> Result<Vec<u8>> {
+    let source = std::str::from_utf8(bytes)?;
+    let marker =
+        r#"<Property name="Missions" value="GcGenericMissionSequence" _id="SQN_SP_FAUNA">"#;
+    let start = source
+        .find(marker)
+        .ok_or("missing fauna mission template")?;
+    let next = source[start + marker.len()..]
+        .find("\n    <Property name=\"Missions\" value=\"GcGenericMissionSequence\"")
+        .ok_or("fauna mission template is not followed by another mission")?;
+    let end = start + marker.len() + next;
+    let template = &source[start..end];
+    if template.matches("_id=\"SQN_SP_FAUNA\"").count() != 1
+        || template
+            .matches("name=\"MissionID\" value=\"SQN_SP_FAUNA\"")
+            .count()
+            != 1
+        || (0..search_probes_model::target::FAUNA_ROLES)
+            .any(|role| source.contains(&format!("_id=\"{}\"", fauna_mission(role))))
+    {
+        return Err("fauna mission template cannot be expanded safely".into());
+    }
+    let mut expanded = String::with_capacity(source.len() + template.len() * 30);
+    expanded.push_str(&source[..end]);
+    for role in 0..search_probes_model::target::FAUNA_ROLES {
+        let mission = fauna_mission(role);
+        let clone = template
+            .replacen("_id=\"SQN_SP_FAUNA\"", &format!("_id=\"{mission}\""), 1)
+            .replacen(
+                "name=\"MissionID\" value=\"SQN_SP_FAUNA\"",
+                &format!("name=\"MissionID\" value=\"{mission}\""),
+                1,
+            );
+        expanded.push('\n');
+        expanded.push_str(&clone);
+    }
+    expanded.push_str(&source[end..]);
+    Ok(expanded.into_bytes())
+}
+
 fn properties(path: &Path, mission: Option<&str>) -> Result<Vec<(String, String)>> {
     let bytes = std::fs::read(path)?;
     let mut reader = Reader::from_reader(bytes.as_slice());
@@ -57,7 +103,7 @@ fn properties(path: &Path, mission: Option<&str>) -> Result<Vec<(String, String)
     Ok(result)
 }
 
-pub fn validate(root: &Path) -> Result<()> {
+pub fn validate(root: &Path, expanded: bool) -> Result<()> {
     let expected: BTreeSet<_> = [
         "LocTable.MXML",
         "METADATA/REALITY/WIKI.EXML",
@@ -77,7 +123,7 @@ pub fn validate(root: &Path) -> Result<()> {
         return Err("unexpected asset inventory".into());
     }
     let wiki = properties(&root.join("METADATA/REALITY/WIKI.EXML"), None)?;
-    let table = root.join("METADATA/SIMULATION/MISSIONS/TABLES/WIKIMISSIONTABLE.EXML");
+    let table = root.join(MISSION_TABLE);
     let mut navigation = Vec::new();
     let localization = properties(&root.join("LocTable.MXML"), None)?;
     let values = |items: &[(String, String)], key: &str| -> Vec<String> {
@@ -95,11 +141,19 @@ pub fn validate(root: &Path) -> Result<()> {
         guide.extend(properties(&table, Some(mission))?);
     }
     let mut expected = missions.clone();
-    expected.extend(
-        search_probes_model::target::TargetKind::ALL
-            .into_iter()
-            .map(|kind| kind.mission().to_owned()),
-    );
+    expected.extend([
+        search_probes_model::target::TargetKind::Planet
+            .asset_mission()
+            .to_owned(),
+        search_probes_model::target::TargetKind::System
+            .asset_mission()
+            .to_owned(),
+        search_probes_model::target::LEGACY_FAUNA_MISSION.to_owned(),
+    ]);
+    if expanded {
+        expected.extend((0..search_probes_model::target::FAUNA_ROLES).map(fauna_mission));
+    }
+    expected.push("SQN_SP_SIGNAL".to_owned());
     if values(&properties(&table, None)?, "MissionID") != expected {
         return Err("unexpected mission table entries".into());
     }
@@ -110,25 +164,52 @@ pub fn validate(root: &Path) -> Result<()> {
     {
         return Err("Guide slot identities do not match the native dispatcher".into());
     }
-    for kind in search_probes_model::target::TargetKind::ALL {
+    let mut targets = vec![
+        (
+            search_probes_model::target::TargetKind::Planet,
+            search_probes_model::target::TargetKind::Planet
+                .asset_mission()
+                .to_owned(),
+        ),
+        (
+            search_probes_model::target::TargetKind::System,
+            search_probes_model::target::TargetKind::System
+                .asset_mission()
+                .to_owned(),
+        ),
+        (
+            search_probes_model::target::TargetKind::Fauna,
+            search_probes_model::target::LEGACY_FAUNA_MISSION.to_owned(),
+        ),
+    ];
+    if expanded {
+        targets.extend((0..search_probes_model::target::FAUNA_ROLES).map(|role| {
+            (
+                search_probes_model::target::TargetKind::Fauna,
+                fauna_mission(role),
+            )
+        }));
+    }
+    for (kind, mission) in targets {
         use search_probes_model::target::TargetKind;
-        let target = properties(&table, Some(kind.mission()))?;
+        let target = properties(&table, Some(&mission))?;
         let (search, location, conditions) = match kind {
             TargetKind::Planet => (
                 "Any",
                 "PlanetSearch",
+                vec!["GcMissionConditionIsScanEventOnCurrentPlanet"],
+            ),
+            TargetKind::System => ("SpaceMarker", "Nearest", vec![]),
+            TargetKind::Fauna => (
+                "Any",
+                "PlanetSearch",
                 vec![
-                    "GcMissionConditionIsScanEventLocal",
                     "GcMissionConditionIsScanEventOnCurrentPlanet",
+                    "GcMissionConditionMissionMessage",
                 ],
             ),
-            TargetKind::System => (
-                "SpaceMarker",
-                "Nearest",
-                vec!["GcMissionConditionIsScanEventLocal"],
-            ),
         };
-        if values(&target, "MissionID") != [kind.mission()]
+        if values(&target, "MissionID") != [mission]
             || values(&target, "Name") != [kind.event()]
             || values(&target, "UseScanEventDetailsInLogInfo") != ["true"]
             || values(&target, "ObjectivesCanBeFormattedBySequences") != ["true"]
@@ -138,7 +219,15 @@ pub fn validate(root: &Path) -> Result<()> {
             || values(&target, "SolarSystemLocation") != ["FromList"]
             || values(&target, "SearchType") != [search]
             || values(&target, "BuildingLocation") != [location]
+            || values(&target, "AlwaysShow") != ["false"]
+            || values(&target, "ShowOnlyIfSequenceTarget") != ["false"]
+            || values(&target, "DisableMultiplayerSync") != ["false"]
+            || values(&target, "ReplaceEventIfAlreadyActive") != ["false"]
             || values(&target, "Conditions") != conditions
+            || values(&target, "GalaxyMapMessage") != ["UI_SCANEVENT_GOTO_MAP"]
+            || values(&target, "Distance") != ["1000000000.000000"]
+            || values(&target, "EndEventWhenReached") != ["false"]
+            || values(&target, "CanFormatObjectives") != ["true"]
             || values(&target, "Event")
                 .iter()
                 .any(|event| event != kind.event())
@@ -149,19 +238,28 @@ pub fn validate(root: &Path) -> Result<()> {
             "GcMissionSequenceEndScanEvent",
             "GcMissionSequenceStartScanEvent",
             "GcMissionSequenceGroup",
-            "GcMissionSequenceWaitForConditions",
+            "GcMissionSequenceGetToScanEvent",
         ];
         if kind != TargetKind::System {
             stages.push("GcMissionSequenceWaitForConditions");
         }
-        stages.extend([
-            "GcMissionSequenceEndScanEvent",
-            "GcMissionSequenceShowMissionUpdateMessage",
-        ]);
+        stages.extend(["GcMissionSequenceEndScanEvent"]);
+        if kind == TargetKind::Fauna {
+            stages.push("GcMissionSequenceWaitForConditions");
+        }
+        stages.push("GcMissionSequenceShowMissionUpdateMessage");
         if values(&target, "Stage") != stages {
             return Err("unsupported destination lifecycle".into());
         }
         navigation.extend(target);
+    }
+    let signal = properties(&table, Some("SQN_SP_SIGNAL"))?;
+    if values(&signal, "MissionID") != ["SQN_SP_SIGNAL"]
+        || values(&signal, "Stage") != ["GcMissionSequenceBroadcastMessage"]
+        || values(&signal, "MessageID") != ["SQN_SP_SCANNED"]
+        || values(&signal, "Seeded") != ["true"]
+    {
+        return Err("unsupported creature-scan completion signal".into());
     }
     if !values(&guide, "Stage").is_empty()
         || values(&navigation, "NeedsBiome")
