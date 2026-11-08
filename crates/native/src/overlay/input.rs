@@ -37,11 +37,18 @@ struct Input {
     hotkey: bool,
     events: Vec<Event>,
     buttons: [bool; 3],
-    clipped: Option<RECT>,
-    cursor: usize,
+    game: Option<GameInput>,
     surrogate: Option<u16>,
     wheel: Option<(i32, i16, bool)>,
 }
+
+#[derive(Clone, Copy)]
+struct GameInput {
+    clipped: Option<RECT>,
+    cursor: usize,
+    position: Option<POINT>,
+}
+
 impl Input {
     const fn new() -> Self {
         Self {
@@ -50,8 +57,7 @@ impl Input {
             hotkey: false,
             events: Vec::new(),
             buttons: [false; 3],
-            clipped: None,
-            cursor: 0,
+            game: None,
             surrogate: None,
             wheel: None,
         }
@@ -120,26 +126,35 @@ fn modifiers() -> Modifiers {
         command: down(i32::from(VK_CONTROL)),
     }
 }
-fn restore(input: &mut Input) -> Option<(RECT, usize)> {
+fn deactivate(input: &mut Input) {
     ACTIVE.store(false, Ordering::Release);
-    let previous = input.clipped.take().map(|rect| (rect, input.cursor));
     input.buttons = [false; 3];
     input.events.clear();
     input.surrogate = None;
-    previous
 }
-fn restore_cursor(previous: Option<(RECT, usize)>, focused: bool) {
-    if focused && let Some((rect, cursor)) = previous {
+fn restore(input: &mut Input) -> Option<GameInput> {
+    deactivate(input);
+    input.game.take()
+}
+fn restore_game_input(game: Option<GameInput>, focused: bool) {
+    if focused && let Some(game) = game {
         unsafe {
-            ClipCursor(&rect);
-            SetCursor(cursor as HCURSOR);
+            if let Some(position) = game.position {
+                SetCursorPos(position.x, position.y);
+            }
+            if let Some(rect) = game.clipped {
+                ClipCursor(&rect);
+            } else {
+                ClipCursor(std::ptr::null());
+            }
+            SetCursor(game.cursor as HCURSOR);
         }
     }
 }
 pub fn release() {
-    let previous = restore(&mut INPUT.lock().unwrap_or_else(|e| e.into_inner()));
+    let game = restore(&mut INPUT.lock().unwrap_or_else(|e| e.into_inner()));
     let focused = unsafe { GetForegroundWindow() } as usize == WINDOW.load(Ordering::Acquire);
-    restore_cursor(previous, focused);
+    restore_game_input(game, focused);
 }
 
 fn dpi_scale(window: HWND) -> f32 {
@@ -163,6 +178,8 @@ pub fn take(hwnd: usize, extent: vk::Extent2D, time: f64) -> Option<egui::RawInp
     let mut clipped = RECT::default();
     let has_clip = unsafe { GetClipCursor(&mut clipped) } != 0;
     let cursor = unsafe { GetCursor() } as usize;
+    let mut cursor_position = POINT::default();
+    let has_cursor_position = unsafe { GetCursorPos(&mut cursor_position) } != 0;
     let mut rect = RECT::default();
     unsafe {
         GetClientRect(window, &mut rect);
@@ -177,16 +194,23 @@ pub fn take(hwnd: usize, extent: vk::Extent2D, time: f64) -> Option<egui::RawInp
         input.visible = !input.visible;
     }
     input.hotkey = down;
-    if !input.visible || !focused || iconic || rect.right <= 0 || rect.bottom <= 0 {
-        let previous = restore(&mut input);
+    if !focused {
+        deactivate(&mut input);
+        return None;
+    }
+    if !input.visible || iconic || rect.right <= 0 || rect.bottom <= 0 {
+        let game = restore(&mut input);
         drop(input);
-        restore_cursor(previous, focused);
+        restore_game_input(game, true);
         return None;
     }
     let activated = !ACTIVE.swap(true, Ordering::AcqRel);
-    if activated {
-        input.clipped = has_clip.then_some(clipped);
-        input.cursor = cursor;
+    if activated && input.game.is_none() {
+        input.game = Some(GameInput {
+            clipped: has_clip.then_some(clipped),
+            cursor,
+            position: has_cursor_position.then_some(cursor_position),
+        });
     }
     input.events.push(Event::PointerMoved(position));
     input.events.push(Event::ModifiersChanged(modifiers));
@@ -221,7 +245,6 @@ pub fn take(hwnd: usize, extent: vk::Extent2D, time: f64) -> Option<egui::RawInp
     if activated {
         unsafe {
             ClipCursor(std::ptr::null());
-            ReleaseCapture();
             let cursor = LoadCursorW(std::ptr::null_mut(), IDC_ARROW);
             UI_CURSOR.store(cursor as usize, Ordering::Release);
             SetCursor(cursor);
@@ -320,7 +343,8 @@ unsafe extern "system" fn procedure(
             return (previous, false);
         }
         if message == WM_KILLFOCUS {
-            restore(&mut input);
+            input.visible = false;
+            deactivate(&mut input);
         }
         if active {
             if input.events.len() >= 4096 {
@@ -604,5 +628,5 @@ pub unsafe extern "system" fn game_cursor(cursor: HCURSOR) -> HCURSOR {
 
 pub fn diagnostics() -> serde_json::Value {
     let input = INPUT.lock().unwrap_or_else(|e| e.into_inner());
-    serde_json::json!({"visible":input.visible,"active":ACTIVE.load(Ordering::Acquire),"window":WINDOW.load(Ordering::Acquire)})
+    serde_json::json!({"visible":input.visible,"active":ACTIVE.load(Ordering::Acquire),"restore_pending":input.game.is_some(),"window":WINDOW.load(Ordering::Acquire)})
 }

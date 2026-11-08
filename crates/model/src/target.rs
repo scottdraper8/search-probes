@@ -1,9 +1,11 @@
 use crate::address::Address;
 use serde::{Deserialize, Serialize};
 
-pub const LEGACY_FAUNA_MISSION: &str = "SQN_SP_FAUNA";
 const FAUNA_MISSION_PREFIX: &str = "SQN_SP_F";
 pub const FAUNA_ROLES: u8 = 30;
+/// Mission progress retained while the nested fauna objective waits for its exact discovery.
+/// Keep this shared with the checked mission asset contract.
+pub const FAUNA_SCAN_READY_PROGRESS: u32 = 5;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -24,12 +26,12 @@ impl TargetKind {
         }
     }
 
-    /// Mission entry used by the checked-in asset template.
-    pub fn asset_mission(self) -> &'static str {
+    /// Fixed mission identity for target kinds that do not require a fauna-role slot.
+    pub fn fixed_mission(self) -> Option<&'static str> {
         match self {
-            Self::Planet => "SQN_SP_NAV",
-            Self::System => "SQN_SP_SYSTEM",
-            Self::Fauna => LEGACY_FAUNA_MISSION,
+            Self::Planet => Some("SQN_SP_NAV"),
+            Self::System => Some("SQN_SP_SYSTEM"),
+            Self::Fauna => None,
         }
     }
 
@@ -43,14 +45,11 @@ impl TargetKind {
 
     pub fn from_mission(identity: &[u8]) -> Result<Option<(Self, Option<u8>)>, &'static str> {
         let identity = identity.split(|byte| *byte == 0).next().unwrap_or_default();
-        if identity == Self::Planet.asset_mission().as_bytes() {
+        if identity == Self::Planet.fixed_mission().unwrap().as_bytes() {
             return Ok(Some((Self::Planet, None)));
         }
-        if identity == Self::System.asset_mission().as_bytes() {
+        if identity == Self::System.fixed_mission().unwrap().as_bytes() {
             return Ok(Some((Self::System, None)));
-        }
-        if identity == LEGACY_FAUNA_MISSION.as_bytes() {
-            return Err("abandon the legacy Search Probes Animal mission and set it again");
         }
         let Some(role) = identity.strip_prefix(FAUNA_MISSION_PREFIX.as_bytes()) else {
             return Ok(None);
@@ -108,8 +107,8 @@ impl Target {
     pub fn mission(self) -> Result<String, &'static str> {
         self.validate()?;
         Ok(match (self.kind, self.fauna_role) {
-            (TargetKind::Planet, None) => TargetKind::Planet.asset_mission().to_owned(),
-            (TargetKind::System, None) => TargetKind::System.asset_mission().to_owned(),
+            (TargetKind::Planet, None) => TargetKind::Planet.fixed_mission().unwrap().to_owned(),
+            (TargetKind::System, None) => TargetKind::System.fixed_mission().unwrap().to_owned(),
             (TargetKind::Fauna, Some(role)) => format!("{FAUNA_MISSION_PREFIX}{role:02}"),
             _ => return Err("destination address does not match its target type"),
         })
@@ -206,10 +205,10 @@ mod tests {
     }
 
     #[test]
-    fn legacy_fauna_mission_requires_an_explicit_restart() {
+    fn invalid_fauna_identity_is_rejected() {
         assert_eq!(
-            TargetKind::from_mission(LEGACY_FAUNA_MISSION.as_bytes()),
-            Err("abandon the legacy Search Probes Animal mission and set it again")
+            TargetKind::from_mission(b"SQN_SP_FAUNA"),
+            Err("invalid Search Probes Animal mission identity")
         );
     }
 }

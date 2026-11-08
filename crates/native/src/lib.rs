@@ -36,6 +36,8 @@ pub mod identity;
 #[cfg(windows)]
 pub mod lifecycle_hook;
 #[cfg(windows)]
+mod mission_text_hook;
+#[cfg(windows)]
 pub mod navigation;
 #[cfg(windows)]
 mod navigation_hook;

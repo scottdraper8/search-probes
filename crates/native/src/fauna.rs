@@ -2,14 +2,17 @@ const ROLE_TABLE: usize = 0x3180;
 const ROLE_STRIDE: usize = 0x5d8;
 const MAX_ROLES: i32 = search_probes_model::fauna::MAX_SPECIES as i32;
 const PLAYER_PREDATOR: u32 = 2;
-const NAME_RVA: usize = 0xf6a430;
-const NAME_PREFIX: [u8; 18] = [
-    0x48, 0x89, 0x5c, 0x24, 0x08, 0x55, 0x48, 0x8d, 0x6c, 0x24, 0xd0, 0x48, 0x81, 0xec, 0x30, 0x01,
-    0x00, 0x00,
+const APPLICATION_RVA: usize = 0x6f6b208;
+const NAME_CONTEXT: usize = 0xcd0;
+const NAME_RVA: usize = 0xeb39f0;
+const NAME_PREFIX: [u8; 20] = [
+    0x48, 0x89, 0x5c, 0x24, 0x20, 0x55, 0x56, 0x57, 0x41, 0x54, 0x41, 0x55, 0x41, 0x56, 0x41, 0x57,
+    0x48, 0x8d, 0xac, 0x24,
 ];
-type GenerateName = unsafe extern "system" fn(*mut u8, u64) -> *mut u8;
+type GenerateName = unsafe extern "system" fn(usize, u64, u64, *mut u8, bool);
 
 pub struct Context {
+    name_context: usize,
     generate_name: GenerateName,
 }
 
@@ -23,17 +26,36 @@ impl Context {
         {
             return Err("creature name generator does not match this build");
         }
+        let application = unsafe { ((base + APPLICATION_RVA) as *const usize).read_unaligned() };
+        if !(0x10000..=0x0000_7fff_ffff_ffff - NAME_CONTEXT).contains(&application) {
+            return Err("invalid NMS application object for creature naming");
+        }
         Ok(Self {
+            name_context: application + NAME_CONTEXT,
             generate_name: unsafe { std::mem::transmute::<usize, GenerateName>(address) },
         })
     }
 
-    unsafe fn name(&self, seed: u64) -> Result<Box<str>, &'static str> {
-        let mut buffer = [0u8; 127];
-        let returned = unsafe { (self.generate_name)(buffer.as_mut_ptr(), seed) };
-        if returned != buffer.as_mut_ptr() {
-            return Err("creature name generator returned unexpected storage");
+    /// # Safety
+    /// NMS's game-owned name resources must be live and this call must run on the gameplay thread.
+    pub unsafe fn name(
+        &self,
+        species_seed: u64,
+        genus_seed: u64,
+    ) -> Result<Box<str>, &'static str> {
+        if species_seed == 0 || genus_seed == 0 {
+            return Err("creature name identity is incomplete");
         }
+        let mut buffer = [0u8; 127];
+        unsafe {
+            (self.generate_name)(
+                self.name_context,
+                species_seed,
+                genus_seed,
+                buffer.as_mut_ptr(),
+                false,
+            )
+        };
         let length = buffer
             .iter()
             .position(|byte| *byte == 0)
@@ -102,7 +124,7 @@ pub struct Observation {
 
 /// # Safety
 /// Same observation window as `player_attacking`. No native pointer is retained.
-pub unsafe fn capture(planet: *const u8, context: &Context) -> Result<Observation, &'static str> {
+pub unsafe fn capture(planet: *const u8) -> Result<Observation, &'static str> {
     use search_probes_model::fauna::{Domain, Family, Species};
     let player_attacking = unsafe { player_attacking(planet)? };
     let sandworms = unsafe { sandworms(planet)? };
@@ -150,7 +172,6 @@ pub unsafe fn capture(planet: *const u8, context: &Context) -> Result<Observatio
         }
         species.push(Species {
             role: role_index,
-            name: unsafe { context.name(seed)? },
             family,
             domain,
             activity: activity as u8,

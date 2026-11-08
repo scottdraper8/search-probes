@@ -2386,7 +2386,7 @@
           </Property>
           <Property name="Stage" value="GcMissionSequenceGroup">
             <Property name="GcMissionSequenceGroup">
-              <Property name="Silent" value="false" />
+              <Property name="Silent" value="true" />
               <Property name="Icon" value="TkTextureResource">
                 <Property name="Filename" value="" />
               </Property>
@@ -2399,9 +2399,9 @@
               <Property name="InventoryHint" value="" />
               <Property name="TerrainTarget" value="" />
               <Property name="FoodTarget" value="" />
-              <Property name="DebugText" value="" />
-              <Property name="ObjectiveID" value="SQN_SP_NAV_MISSION_OBJ" />
-              <Property name="ObjectiveTipID" value="SQN_SP_NAV_MISSION_OBJ_TIP" />
+              <Property name="DebugText" value="Search Probes objective holder" />
+              <Property name="ObjectiveID" value="" />
+              <Property name="ObjectiveTipID" value="" />
               <Property name="HasCategoryOverride" value="false" />
               <Property name="OverrideCategory" value="GcMissionCategory">
                 <Property name="MissionCategory" value="Mission" />
@@ -2430,9 +2430,9 @@
                 <Property name="InputButton" value="None" />
               </Property>
               <Property name="ObjectiveFormatting" value="GcObjectiveTextFormatOptions">
-                <Property name="ObjectivesCanBeFormattedBySequences" value="true" />
-                <Property name="FormattableObjective" value="SQN_SP_NAV_MISSION_OBJ" />
-                <Property name="FormattableObjectiveTip" value="SQN_SP_NAV_MISSION_OBJ_TIP" />
+                <Property name="ObjectivesCanBeFormattedBySequences" value="false" />
+                <Property name="FormattableObjective" value="" />
+                <Property name="FormattableObjectiveTip" value="" />
               </Property>
               <Property name="SeasonalObjectiveOverrides" value="GcSeasonalObjectiveOverrides">
                 <Property name="ApplicableSeasonNumbers" />
@@ -2458,67 +2458,222 @@
               <Property name="Consequences" />
               <Property name="Stages">
                 <Property name="Stages" value="GcGenericMissionStage">
-                  <Property name="Versions">
-                    <Property name="Versions" value="GcGenericMissionVersionProgress">
-                      <Property name="Version" value="1" />
-                      <Property name="Progress" value="3" />
-                    </Property>
-                  </Property>
-                  <Property name="Stage" value="GcMissionSequenceGetToScanEvent">
-                    <Property name="GcMissionSequenceGetToScanEvent">
-                      <Property name="Message" value="SQN_SP_SYSTEM" />
-                      <Property name="GalaxyMapMessage" value="UI_SCANEVENT_GOTO_MAP" />
-                      <Property name="GalaxyMapMessageNotSpace" value="" />
-                      <Property name="UseTeleporterMessage" value="" />
-                      <Property name="NexusMessage" value="" />
-                      <Property name="Event" value="SE_SQN_SP_TARGET" />
-                      <Property name="Distance" value="1000000000.000000" />
-                      <Property name="EndEventWhenReached" value="false" />
-                      <Property name="WaterworldEndEventWhenPlanetReached" value="false" />
-                      <Property name="RequireInsideToEnd" value="false" />
-                      <Property name="Timeout" value="0.000000" />
-                      <Property name="DistanceTimeout" value="false" />
-                      <Property name="TimeoutOSD" value="SIGNAL_TIME_FAIL" />
-                      <Property name="UseGPSInText" value="GcScanEventGPSHint">
-                        <Property name="ScanEventGPSHint" value="None" />
+                  <Property name="Versions" />
+                  <Property name="Stage" value="GcMissionSequenceGroup">
+                    <Property name="GcMissionSequenceGroup">
+                      <Property name="Silent" value="false" />
+                      <Property name="Icon" value="TkTextureResource">
+                        <Property name="Filename" value="" />
                       </Property>
-                      <Property name="CanFormatObjectives" value="true" />
-                      <Property name="AlwaysAllowInShip" value="false" />
-                      <Property name="SurveyInactiveHint" value="NOTIFY_MISSION_SURVEY_INACTIVE" />
-                      <Property name="SurveySwapHint" value="NOTIFY_MISSION_SURVEY_SWAP" />
-                      <Property name="SurveyHint" value="NOTIFY_MISSION_SURVEY" />
-                      <Property name="SurveyVehicleHint" value="NOTIFY_MISSION_SURVEY_CAR" />
-                      <Property name="DebugText" value="Navigate to the Search Probes target system" />
+                      <Property name="PageHint" value="GcMissionPageHint">
+                        <Property name="MissionPageHint" value="None" />
+                      </Property>
+                      <Property name="GetPageHintFromInventoryHint" value="true" />
+                      <Property name="PageDataLocID" value="" />
+                      <Property name="BuildMenuHint" value="" />
+                      <Property name="InventoryHint" value="" />
+                      <Property name="TerrainTarget" value="" />
+                      <Property name="FoodTarget" value="" />
+                      <Property name="DebugText" value="Reach the target system objective" />
+                      <Property name="ObjectiveID" value="SQN_SP_SYSTEM_MISSION_OBJ" />
+                      <Property name="ObjectiveTipID" value="SQN_SP_SYSTEM_MISSION_OBJ_TIP" />
+                      <Property name="HasCategoryOverride" value="false" />
+                      <Property name="OverrideCategory" value="GcMissionCategory">
+                        <Property name="MissionCategory" value="Mission" />
+                      </Property>
+                      <Property name="HasColourOverride" value="false" />
+                      <Property name="ColourOverride">
+                        <Property name="R" value="1.000000" />
+                        <Property name="G" value="1.000000" />
+                        <Property name="B" value="1.000000" />
+                        <Property name="A" value="1.000000" />
+                      </Property>
+                      <Property name="PrefixTitle" value="false" />
+                      <Property name="PrefixTitleText" value="" />
+                      <Property name="BlockPinning" value="false" />
+                      <Property name="AutoPinRepairs" value="false" />
+                      <Property name="BlockSpaceBattles" value="false" />
+                      <Property name="ConditionTest" value="GcMissionConditionTest">
+                        <Property name="ConditionTest" value="AnyFalse" />
+                      </Property>
+                      <Property name="HideFromLogIfConditionsMet" value="false" />
+                      <Property name="DoConsequencesIfNeverActivated" value="true" />
+                      <Property name="RepeatLogic" value="None" />
+                      <Property name="IconStyle" value="Default" />
+                      <Property name="GalMapPathOverride" value="None" />
+                      <Property name="SpecialButtonIcon" value="TkInputEnum">
+                        <Property name="InputButton" value="None" />
+                      </Property>
+                      <Property name="ObjectiveFormatting" value="GcObjectiveTextFormatOptions">
+                        <Property name="ObjectivesCanBeFormattedBySequences" value="true" />
+                        <Property name="FormattableObjective" value="SQN_SP_SYSTEM_MISSION_OBJ" />
+                        <Property name="FormattableObjectiveTip" value="SQN_SP_SYSTEM_MISSION_OBJ_TIP" />
+                      </Property>
+                      <Property name="SeasonalObjectiveOverrides" value="GcSeasonalObjectiveOverrides">
+                        <Property name="ApplicableSeasonNumbers" />
+                        <Property name="OverrideObjective" value="" />
+                        <Property name="OverrideObjectiveTip" value="" />
+                      </Property>
+                      <Property name="SurveyTarget" value="GcTargetMissionSurveyOptions">
+                        <Property name="TargetMissionSurveyId" value="" />
+                        <Property name="TargetMissionSurveyDefinitelyExists" value="false" />
+                        <Property name="ForceSurveyTextForAllSequencesInThisGroup" value="false" />
+                        <Property name="TargetMissionSurveyDefinitelyExistsWithResourceHint" value="" />
+                        <Property name="SurveyInactiveHint" value="NOTIFY_MISSION_SURVEY_INACTIVE" />
+                        <Property name="SurveySwapHint" value="NOTIFY_MISSION_SURVEY_SWAP" />
+                        <Property name="SurveyHint" value="NOTIFY_MISSION_SURVEY" />
+                        <Property name="SurveyVehicleHint" value="NOTIFY_MISSION_SURVEY_CAR" />
+                      </Property>
+                      <Property name="CustomNotifyTimers" value="GcCustomNotifyTimerOptions">
+                        <Property name="HasCustomNotifyTimer" value="false" />
+                        <Property name="NotifyDisplayTime" value="20.000000" />
+                        <Property name="NotifyPauseTime" value="30.000000" />
+                      </Property>
+                      <Property name="Conditions" />
+                      <Property name="Consequences" />
+                      <Property name="Stages">
+                        <Property name="Stages" value="GcGenericMissionStage">
+                          <Property name="Versions">
+                            <Property name="Versions" value="GcGenericMissionVersionProgress">
+                              <Property name="Version" value="1" />
+                              <Property name="Progress" value="3" />
+                            </Property>
+                          </Property>
+                          <Property name="Stage" value="GcMissionSequenceWaitForConditions">
+                            <Property name="GcMissionSequenceWaitForConditions">
+                              <Property name="Message" value="SQN_SP_SYSTEM" />
+                              <Property name="ConditionTest" value="GcMissionConditionTest">
+                                <Property name="ConditionTest" value="AnyTrue" />
+                              </Property>
+                              <Property name="Conditions">
+                                <Property name="Conditions" value="GcMissionConditionIsScanEventLocal">
+                                  <Property name="GcMissionConditionIsScanEventLocal">
+                                    <Property name="Event" value="SE_SQN_SP_TARGET" />
+                                    <Property name="RequiresFullFireteam" value="false" />
+                                    <Property name="BlockMissionRestart" value="false" />
+                                  </Property>
+                                </Property>
+                              </Property>
+                              <Property name="AllowedToFormatObjectives" value="true" />
+                              <Property name="ForceAllowMissionRestart" value="false" />
+                              <Property name="ForceAllowMissionRestartEvent" value="" />
+                              <Property name="DebugText" value="Reach the Search Probes target system" />
+                              <Property name="StatusMessageMissionMarkup" value="GcStatusMessageMissionMarkup">
+                                <Property name="MissionMarkup" value="None" />
+                              </Property>
+                            </Property>
+                          </Property>
+                        </Property>
+                      </Property>
                     </Property>
                   </Property>
                 </Property>
                 <Property name="Stages" value="GcGenericMissionStage">
-                  <Property name="Versions">
-                    <Property name="Versions" value="GcGenericMissionVersionProgress">
-                      <Property name="Version" value="1" />
-                      <Property name="Progress" value="4" />
-                    </Property>
-                  </Property>
-                  <Property name="Stage" value="GcMissionSequenceWaitForConditions">
-                    <Property name="GcMissionSequenceWaitForConditions">
-                      <Property name="Message" value="SQN_SP_PLANET" />
-                      <Property name="ConditionTest" value="GcMissionConditionTest">
-                        <Property name="ConditionTest" value="AnyTrue" />
+                  <Property name="Versions" />
+                  <Property name="Stage" value="GcMissionSequenceGroup">
+                    <Property name="GcMissionSequenceGroup">
+                      <Property name="Silent" value="false" />
+                      <Property name="Icon" value="TkTextureResource">
+                        <Property name="Filename" value="" />
                       </Property>
-                      <Property name="Conditions">
-                        <Property name="Conditions" value="GcMissionConditionIsScanEventOnCurrentPlanet">
-                          <Property name="GcMissionConditionIsScanEventOnCurrentPlanet">
-                            <Property name="Event" value="SE_SQN_SP_TARGET" />
-                            <Property name="AllowInShip" value="true" />
+                      <Property name="PageHint" value="GcMissionPageHint">
+                        <Property name="MissionPageHint" value="None" />
+                      </Property>
+                      <Property name="GetPageHintFromInventoryHint" value="true" />
+                      <Property name="PageDataLocID" value="" />
+                      <Property name="BuildMenuHint" value="" />
+                      <Property name="InventoryHint" value="" />
+                      <Property name="TerrainTarget" value="" />
+                      <Property name="FoodTarget" value="" />
+                      <Property name="DebugText" value="Reach the target planet objective" />
+                      <Property name="ObjectiveID" value="SQN_SP_NAV_MISSION_OBJ" />
+                      <Property name="ObjectiveTipID" value="SQN_SP_NAV_MISSION_OBJ_TIP" />
+                      <Property name="HasCategoryOverride" value="false" />
+                      <Property name="OverrideCategory" value="GcMissionCategory">
+                        <Property name="MissionCategory" value="Mission" />
+                      </Property>
+                      <Property name="HasColourOverride" value="false" />
+                      <Property name="ColourOverride">
+                        <Property name="R" value="1.000000" />
+                        <Property name="G" value="1.000000" />
+                        <Property name="B" value="1.000000" />
+                        <Property name="A" value="1.000000" />
+                      </Property>
+                      <Property name="PrefixTitle" value="false" />
+                      <Property name="PrefixTitleText" value="" />
+                      <Property name="BlockPinning" value="false" />
+                      <Property name="AutoPinRepairs" value="false" />
+                      <Property name="BlockSpaceBattles" value="false" />
+                      <Property name="ConditionTest" value="GcMissionConditionTest">
+                        <Property name="ConditionTest" value="AnyFalse" />
+                      </Property>
+                      <Property name="HideFromLogIfConditionsMet" value="false" />
+                      <Property name="DoConsequencesIfNeverActivated" value="true" />
+                      <Property name="RepeatLogic" value="None" />
+                      <Property name="IconStyle" value="Default" />
+                      <Property name="GalMapPathOverride" value="None" />
+                      <Property name="SpecialButtonIcon" value="TkInputEnum">
+                        <Property name="InputButton" value="None" />
+                      </Property>
+                      <Property name="ObjectiveFormatting" value="GcObjectiveTextFormatOptions">
+                        <Property name="ObjectivesCanBeFormattedBySequences" value="true" />
+                        <Property name="FormattableObjective" value="SQN_SP_NAV_MISSION_OBJ" />
+                        <Property name="FormattableObjectiveTip" value="SQN_SP_NAV_MISSION_OBJ_TIP" />
+                      </Property>
+                      <Property name="SeasonalObjectiveOverrides" value="GcSeasonalObjectiveOverrides">
+                        <Property name="ApplicableSeasonNumbers" />
+                        <Property name="OverrideObjective" value="" />
+                        <Property name="OverrideObjectiveTip" value="" />
+                      </Property>
+                      <Property name="SurveyTarget" value="GcTargetMissionSurveyOptions">
+                        <Property name="TargetMissionSurveyId" value="" />
+                        <Property name="TargetMissionSurveyDefinitelyExists" value="false" />
+                        <Property name="ForceSurveyTextForAllSequencesInThisGroup" value="false" />
+                        <Property name="TargetMissionSurveyDefinitelyExistsWithResourceHint" value="" />
+                        <Property name="SurveyInactiveHint" value="NOTIFY_MISSION_SURVEY_INACTIVE" />
+                        <Property name="SurveySwapHint" value="NOTIFY_MISSION_SURVEY_SWAP" />
+                        <Property name="SurveyHint" value="NOTIFY_MISSION_SURVEY" />
+                        <Property name="SurveyVehicleHint" value="NOTIFY_MISSION_SURVEY_CAR" />
+                      </Property>
+                      <Property name="CustomNotifyTimers" value="GcCustomNotifyTimerOptions">
+                        <Property name="HasCustomNotifyTimer" value="false" />
+                        <Property name="NotifyDisplayTime" value="20.000000" />
+                        <Property name="NotifyPauseTime" value="30.000000" />
+                      </Property>
+                      <Property name="Conditions" />
+                      <Property name="Consequences" />
+                      <Property name="Stages">
+                        <Property name="Stages" value="GcGenericMissionStage">
+                          <Property name="Versions">
+                            <Property name="Versions" value="GcGenericMissionVersionProgress">
+                              <Property name="Version" value="1" />
+                              <Property name="Progress" value="4" />
+                            </Property>
+                          </Property>
+                          <Property name="Stage" value="GcMissionSequenceWaitForConditions">
+                            <Property name="GcMissionSequenceWaitForConditions">
+                              <Property name="Message" value="SQN_SP_PLANET" />
+                              <Property name="ConditionTest" value="GcMissionConditionTest">
+                                <Property name="ConditionTest" value="AnyTrue" />
+                              </Property>
+                              <Property name="Conditions">
+                                <Property name="Conditions" value="GcMissionConditionIsScanEventOnCurrentPlanet">
+                                  <Property name="GcMissionConditionIsScanEventOnCurrentPlanet">
+                                    <Property name="Event" value="SE_SQN_SP_TARGET" />
+                                    <Property name="AllowInShip" value="true" />
+                                  </Property>
+                                </Property>
+                              </Property>
+                              <Property name="AllowedToFormatObjectives" value="true" />
+                              <Property name="ForceAllowMissionRestart" value="false" />
+                              <Property name="ForceAllowMissionRestartEvent" value="" />
+                              <Property name="DebugText" value="" />
+                              <Property name="StatusMessageMissionMarkup" value="GcStatusMessageMissionMarkup">
+                                <Property name="MissionMarkup" value="None" />
+                              </Property>
+                            </Property>
                           </Property>
                         </Property>
-                      </Property>
-                      <Property name="AllowedToFormatObjectives" value="true" />
-                      <Property name="ForceAllowMissionRestart" value="false" />
-                      <Property name="ForceAllowMissionRestartEvent" value="" />
-                      <Property name="DebugText" value="" />
-                      <Property name="StatusMessageMissionMarkup" value="GcStatusMessageMissionMarkup">
-                        <Property name="MissionMarkup" value="None" />
                       </Property>
                     </Property>
                   </Property>
@@ -3235,8 +3390,8 @@
       <Property name="RequiresSettlement" value="false" />
       <Property name="SettlementAbandonOSD" value="" />
     </Property>
-    <Property name="Missions" value="GcGenericMissionSequence" _id="SQN_SP_FAUNA">
-      <Property name="MissionID" value="SQN_SP_FAUNA" />
+    <Property name="Missions" value="GcGenericMissionSequence" _id="SQN_SP_FTPL">
+      <Property name="MissionID" value="SQN_SP_FTPL" />
       <Property name="MissionClass" value="Secondary" />
       <Property name="MissionIsCritical" value="false" />
       <Property name="MissionObjective" value="" />
@@ -3739,7 +3894,7 @@
           </Property>
           <Property name="Stage" value="GcMissionSequenceGroup">
             <Property name="GcMissionSequenceGroup">
-              <Property name="Silent" value="false" />
+              <Property name="Silent" value="true" />
               <Property name="Icon" value="TkTextureResource">
                 <Property name="Filename" value="" />
               </Property>
@@ -3752,9 +3907,9 @@
               <Property name="InventoryHint" value="" />
               <Property name="TerrainTarget" value="" />
               <Property name="FoodTarget" value="" />
-              <Property name="DebugText" value="" />
-              <Property name="ObjectiveID" value="SQN_SP_FAUNA_MISSION_OBJ" />
-              <Property name="ObjectiveTipID" value="SQN_SP_FAUNA_MISSION_OBJ_TIP" />
+              <Property name="DebugText" value="Search Probes objective holder" />
+              <Property name="ObjectiveID" value="" />
+              <Property name="ObjectiveTipID" value="" />
               <Property name="HasCategoryOverride" value="false" />
               <Property name="OverrideCategory" value="GcMissionCategory">
                 <Property name="MissionCategory" value="Mission" />
@@ -3783,9 +3938,9 @@
                 <Property name="InputButton" value="None" />
               </Property>
               <Property name="ObjectiveFormatting" value="GcObjectiveTextFormatOptions">
-                <Property name="ObjectivesCanBeFormattedBySequences" value="true" />
-                <Property name="FormattableObjective" value="SQN_SP_FAUNA_MISSION_OBJ" />
-                <Property name="FormattableObjectiveTip" value="SQN_SP_FAUNA_MISSION_OBJ_TIP" />
+                <Property name="ObjectivesCanBeFormattedBySequences" value="false" />
+                <Property name="FormattableObjective" value="" />
+                <Property name="FormattableObjectiveTip" value="" />
               </Property>
               <Property name="SeasonalObjectiveOverrides" value="GcSeasonalObjectiveOverrides">
                 <Property name="ApplicableSeasonNumbers" />
@@ -3811,37 +3966,223 @@
               <Property name="Consequences" />
               <Property name="Stages">
                 <Property name="Stages" value="GcGenericMissionStage">
-                  <Property name="Versions">
-                    <Property name="Versions" value="GcGenericMissionVersionProgress">
-                      <Property name="Version" value="1" />
-                      <Property name="Progress" value="3" />
+                  <Property name="Versions" />
+                  <Property name="Stage" value="GcMissionSequenceGroup">
+                    <Property name="GcMissionSequenceGroup">
+                      <Property name="Silent" value="false" />
+                      <Property name="Icon" value="TkTextureResource">
+                        <Property name="Filename" value="" />
+                      </Property>
+                      <Property name="PageHint" value="GcMissionPageHint">
+                        <Property name="MissionPageHint" value="None" />
+                      </Property>
+                      <Property name="GetPageHintFromInventoryHint" value="true" />
+                      <Property name="PageDataLocID" value="" />
+                      <Property name="BuildMenuHint" value="" />
+                      <Property name="InventoryHint" value="" />
+                      <Property name="TerrainTarget" value="" />
+                      <Property name="FoodTarget" value="" />
+                      <Property name="DebugText" value="Reach the target system objective" />
+                      <Property name="ObjectiveID" value="SQN_SP_SYSTEM_MISSION_OBJ" />
+                      <Property name="ObjectiveTipID" value="SQN_SP_SYSTEM_MISSION_OBJ_TIP" />
+                      <Property name="HasCategoryOverride" value="false" />
+                      <Property name="OverrideCategory" value="GcMissionCategory">
+                        <Property name="MissionCategory" value="Mission" />
+                      </Property>
+                      <Property name="HasColourOverride" value="false" />
+                      <Property name="ColourOverride">
+                        <Property name="R" value="1.000000" />
+                        <Property name="G" value="1.000000" />
+                        <Property name="B" value="1.000000" />
+                        <Property name="A" value="1.000000" />
+                      </Property>
+                      <Property name="PrefixTitle" value="false" />
+                      <Property name="PrefixTitleText" value="" />
+                      <Property name="BlockPinning" value="false" />
+                      <Property name="AutoPinRepairs" value="false" />
+                      <Property name="BlockSpaceBattles" value="false" />
+                      <Property name="ConditionTest" value="GcMissionConditionTest">
+                        <Property name="ConditionTest" value="AnyFalse" />
+                      </Property>
+                      <Property name="HideFromLogIfConditionsMet" value="false" />
+                      <Property name="DoConsequencesIfNeverActivated" value="true" />
+                      <Property name="RepeatLogic" value="None" />
+                      <Property name="IconStyle" value="Default" />
+                      <Property name="GalMapPathOverride" value="None" />
+                      <Property name="SpecialButtonIcon" value="TkInputEnum">
+                        <Property name="InputButton" value="None" />
+                      </Property>
+                      <Property name="ObjectiveFormatting" value="GcObjectiveTextFormatOptions">
+                        <Property name="ObjectivesCanBeFormattedBySequences" value="true" />
+                        <Property name="FormattableObjective" value="SQN_SP_SYSTEM_MISSION_OBJ" />
+                        <Property name="FormattableObjectiveTip" value="SQN_SP_SYSTEM_MISSION_OBJ_TIP" />
+                      </Property>
+                      <Property name="SeasonalObjectiveOverrides" value="GcSeasonalObjectiveOverrides">
+                        <Property name="ApplicableSeasonNumbers" />
+                        <Property name="OverrideObjective" value="" />
+                        <Property name="OverrideObjectiveTip" value="" />
+                      </Property>
+                      <Property name="SurveyTarget" value="GcTargetMissionSurveyOptions">
+                        <Property name="TargetMissionSurveyId" value="" />
+                        <Property name="TargetMissionSurveyDefinitelyExists" value="false" />
+                        <Property name="ForceSurveyTextForAllSequencesInThisGroup" value="false" />
+                        <Property name="TargetMissionSurveyDefinitelyExistsWithResourceHint" value="" />
+                        <Property name="SurveyInactiveHint" value="NOTIFY_MISSION_SURVEY_INACTIVE" />
+                        <Property name="SurveySwapHint" value="NOTIFY_MISSION_SURVEY_SWAP" />
+                        <Property name="SurveyHint" value="NOTIFY_MISSION_SURVEY" />
+                        <Property name="SurveyVehicleHint" value="NOTIFY_MISSION_SURVEY_CAR" />
+                      </Property>
+                      <Property name="CustomNotifyTimers" value="GcCustomNotifyTimerOptions">
+                        <Property name="HasCustomNotifyTimer" value="false" />
+                        <Property name="NotifyDisplayTime" value="20.000000" />
+                        <Property name="NotifyPauseTime" value="30.000000" />
+                      </Property>
+                      <Property name="Conditions" />
+                      <Property name="Consequences" />
+                      <Property name="Stages">
+                        <Property name="Stages" value="GcGenericMissionStage">
+                          <Property name="Versions">
+                            <Property name="Versions" value="GcGenericMissionVersionProgress">
+                              <Property name="Version" value="1" />
+                              <Property name="Progress" value="3" />
+                            </Property>
+                          </Property>
+                          <Property name="Stage" value="GcMissionSequenceWaitForConditions">
+                            <Property name="GcMissionSequenceWaitForConditions">
+                              <Property name="Message" value="SQN_SP_SYSTEM" />
+                              <Property name="ConditionTest" value="GcMissionConditionTest">
+                                <Property name="ConditionTest" value="AnyTrue" />
+                              </Property>
+                              <Property name="Conditions">
+                                <Property name="Conditions" value="GcMissionConditionIsScanEventLocal">
+                                  <Property name="GcMissionConditionIsScanEventLocal">
+                                    <Property name="Event" value="SE_SQN_SP_FAUNA" />
+                                    <Property name="RequiresFullFireteam" value="false" />
+                                    <Property name="BlockMissionRestart" value="false" />
+                                  </Property>
+                                </Property>
+                              </Property>
+                              <Property name="AllowedToFormatObjectives" value="true" />
+                              <Property name="ForceAllowMissionRestart" value="false" />
+                              <Property name="ForceAllowMissionRestartEvent" value="" />
+                              <Property name="DebugText" value="Reach the Search Probes target system" />
+                              <Property name="StatusMessageMissionMarkup" value="GcStatusMessageMissionMarkup">
+                                <Property name="MissionMarkup" value="None" />
+                              </Property>
+                            </Property>
+                          </Property>
+                        </Property>
+                      </Property>
                     </Property>
                   </Property>
-                  <Property name="Stage" value="GcMissionSequenceGetToScanEvent">
-                    <Property name="GcMissionSequenceGetToScanEvent">
-                      <Property name="Message" value="SQN_SP_SYSTEM" />
-                      <Property name="GalaxyMapMessage" value="UI_SCANEVENT_GOTO_MAP" />
-                      <Property name="GalaxyMapMessageNotSpace" value="" />
-                      <Property name="UseTeleporterMessage" value="" />
-                      <Property name="NexusMessage" value="" />
-                      <Property name="Event" value="SE_SQN_SP_FAUNA" />
-                      <Property name="Distance" value="1000000000.000000" />
-                      <Property name="EndEventWhenReached" value="false" />
-                      <Property name="WaterworldEndEventWhenPlanetReached" value="false" />
-                      <Property name="RequireInsideToEnd" value="false" />
-                      <Property name="Timeout" value="0.000000" />
-                      <Property name="DistanceTimeout" value="false" />
-                      <Property name="TimeoutOSD" value="SIGNAL_TIME_FAIL" />
-                      <Property name="UseGPSInText" value="GcScanEventGPSHint">
-                        <Property name="ScanEventGPSHint" value="None" />
+                </Property>
+                <Property name="Stages" value="GcGenericMissionStage">
+                  <Property name="Versions" />
+                  <Property name="Stage" value="GcMissionSequenceGroup">
+                    <Property name="GcMissionSequenceGroup">
+                      <Property name="Silent" value="false" />
+                      <Property name="Icon" value="TkTextureResource">
+                        <Property name="Filename" value="" />
                       </Property>
-                      <Property name="CanFormatObjectives" value="true" />
-                      <Property name="AlwaysAllowInShip" value="false" />
-                      <Property name="SurveyInactiveHint" value="NOTIFY_MISSION_SURVEY_INACTIVE" />
-                      <Property name="SurveySwapHint" value="NOTIFY_MISSION_SURVEY_SWAP" />
-                      <Property name="SurveyHint" value="NOTIFY_MISSION_SURVEY" />
-                      <Property name="SurveyVehicleHint" value="NOTIFY_MISSION_SURVEY_CAR" />
-                      <Property name="DebugText" value="Navigate to the Search Probes target system" />
+                      <Property name="PageHint" value="GcMissionPageHint">
+                        <Property name="MissionPageHint" value="None" />
+                      </Property>
+                      <Property name="GetPageHintFromInventoryHint" value="true" />
+                      <Property name="PageDataLocID" value="" />
+                      <Property name="BuildMenuHint" value="" />
+                      <Property name="InventoryHint" value="" />
+                      <Property name="TerrainTarget" value="" />
+                      <Property name="FoodTarget" value="" />
+                      <Property name="DebugText" value="Reach the target planet objective" />
+                      <Property name="ObjectiveID" value="SQN_SP_NAV_MISSION_OBJ" />
+                      <Property name="ObjectiveTipID" value="SQN_SP_NAV_MISSION_OBJ_TIP" />
+                      <Property name="HasCategoryOverride" value="false" />
+                      <Property name="OverrideCategory" value="GcMissionCategory">
+                        <Property name="MissionCategory" value="Mission" />
+                      </Property>
+                      <Property name="HasColourOverride" value="false" />
+                      <Property name="ColourOverride">
+                        <Property name="R" value="1.000000" />
+                        <Property name="G" value="1.000000" />
+                        <Property name="B" value="1.000000" />
+                        <Property name="A" value="1.000000" />
+                      </Property>
+                      <Property name="PrefixTitle" value="false" />
+                      <Property name="PrefixTitleText" value="" />
+                      <Property name="BlockPinning" value="false" />
+                      <Property name="AutoPinRepairs" value="false" />
+                      <Property name="BlockSpaceBattles" value="false" />
+                      <Property name="ConditionTest" value="GcMissionConditionTest">
+                        <Property name="ConditionTest" value="AnyFalse" />
+                      </Property>
+                      <Property name="HideFromLogIfConditionsMet" value="false" />
+                      <Property name="DoConsequencesIfNeverActivated" value="true" />
+                      <Property name="RepeatLogic" value="None" />
+                      <Property name="IconStyle" value="Default" />
+                      <Property name="GalMapPathOverride" value="None" />
+                      <Property name="SpecialButtonIcon" value="TkInputEnum">
+                        <Property name="InputButton" value="None" />
+                      </Property>
+                      <Property name="ObjectiveFormatting" value="GcObjectiveTextFormatOptions">
+                        <Property name="ObjectivesCanBeFormattedBySequences" value="true" />
+                        <Property name="FormattableObjective" value="SQN_SP_NAV_MISSION_OBJ" />
+                        <Property name="FormattableObjectiveTip" value="SQN_SP_NAV_MISSION_OBJ_TIP" />
+                      </Property>
+                      <Property name="SeasonalObjectiveOverrides" value="GcSeasonalObjectiveOverrides">
+                        <Property name="ApplicableSeasonNumbers" />
+                        <Property name="OverrideObjective" value="" />
+                        <Property name="OverrideObjectiveTip" value="" />
+                      </Property>
+                      <Property name="SurveyTarget" value="GcTargetMissionSurveyOptions">
+                        <Property name="TargetMissionSurveyId" value="" />
+                        <Property name="TargetMissionSurveyDefinitelyExists" value="false" />
+                        <Property name="ForceSurveyTextForAllSequencesInThisGroup" value="false" />
+                        <Property name="TargetMissionSurveyDefinitelyExistsWithResourceHint" value="" />
+                        <Property name="SurveyInactiveHint" value="NOTIFY_MISSION_SURVEY_INACTIVE" />
+                        <Property name="SurveySwapHint" value="NOTIFY_MISSION_SURVEY_SWAP" />
+                        <Property name="SurveyHint" value="NOTIFY_MISSION_SURVEY" />
+                        <Property name="SurveyVehicleHint" value="NOTIFY_MISSION_SURVEY_CAR" />
+                      </Property>
+                      <Property name="CustomNotifyTimers" value="GcCustomNotifyTimerOptions">
+                        <Property name="HasCustomNotifyTimer" value="false" />
+                        <Property name="NotifyDisplayTime" value="20.000000" />
+                        <Property name="NotifyPauseTime" value="30.000000" />
+                      </Property>
+                      <Property name="Conditions" />
+                      <Property name="Consequences" />
+                      <Property name="Stages">
+                        <Property name="Stages" value="GcGenericMissionStage">
+                          <Property name="Versions">
+                            <Property name="Versions" value="GcGenericMissionVersionProgress">
+                              <Property name="Version" value="1" />
+                              <Property name="Progress" value="4" />
+                            </Property>
+                          </Property>
+                          <Property name="Stage" value="GcMissionSequenceWaitForConditions">
+                            <Property name="GcMissionSequenceWaitForConditions">
+                              <Property name="Message" value="SQN_SP_PLANET" />
+                              <Property name="ConditionTest" value="GcMissionConditionTest">
+                                <Property name="ConditionTest" value="AnyTrue" />
+                              </Property>
+                              <Property name="Conditions">
+                                <Property name="Conditions" value="GcMissionConditionIsScanEventOnCurrentPlanet">
+                                  <Property name="GcMissionConditionIsScanEventOnCurrentPlanet">
+                                    <Property name="Event" value="SE_SQN_SP_FAUNA" />
+                                    <Property name="AllowInShip" value="true" />
+                                  </Property>
+                                </Property>
+                              </Property>
+                              <Property name="AllowedToFormatObjectives" value="true" />
+                              <Property name="ForceAllowMissionRestart" value="false" />
+                              <Property name="ForceAllowMissionRestartEvent" value="" />
+                              <Property name="DebugText" value="" />
+                              <Property name="StatusMessageMissionMarkup" value="GcStatusMessageMissionMarkup">
+                                <Property name="MissionMarkup" value="None" />
+                              </Property>
+                            </Property>
+                          </Property>
+                        </Property>
+                      </Property>
                     </Property>
                   </Property>
                 </Property>
@@ -3849,78 +4190,126 @@
                   <Property name="Versions">
                     <Property name="Versions" value="GcGenericMissionVersionProgress">
                       <Property name="Version" value="1" />
-                      <Property name="Progress" value="4" />
+                      <Property name="Progress" value="5" />
                     </Property>
                   </Property>
-                  <Property name="Stage" value="GcMissionSequenceWaitForConditions">
-                    <Property name="GcMissionSequenceWaitForConditions">
-                      <Property name="Message" value="SQN_SP_PLANET" />
-                      <Property name="ConditionTest" value="GcMissionConditionTest">
-                        <Property name="ConditionTest" value="AnyTrue" />
+                  <Property name="Stage" value="GcMissionSequenceEndScanEvent">
+                    <Property name="GcMissionSequenceEndScanEvent">
+                      <Property name="Event" value="SE_SQN_SP_FAUNA" />
+                      <Property name="DebugText" value="" />
+                    </Property>
+                  </Property>
+                </Property>
+                <Property name="Stages" value="GcGenericMissionStage">
+                  <Property name="Versions" />
+                  <Property name="Stage" value="GcMissionSequenceGroup">
+                    <Property name="GcMissionSequenceGroup">
+                      <Property name="Silent" value="false" />
+                      <Property name="Icon" value="TkTextureResource">
+                        <Property name="Filename" value="" />
                       </Property>
-                      <Property name="Conditions">
-                        <Property name="Conditions" value="GcMissionConditionIsScanEventOnCurrentPlanet">
-                          <Property name="GcMissionConditionIsScanEventOnCurrentPlanet">
-                            <Property name="Event" value="SE_SQN_SP_FAUNA" />
-                            <Property name="AllowInShip" value="true" />
+                      <Property name="PageHint" value="GcMissionPageHint">
+                        <Property name="MissionPageHint" value="None" />
+                      </Property>
+                      <Property name="GetPageHintFromInventoryHint" value="true" />
+                      <Property name="PageDataLocID" value="" />
+                      <Property name="BuildMenuHint" value="" />
+                      <Property name="InventoryHint" value="" />
+                      <Property name="TerrainTarget" value="" />
+                      <Property name="FoodTarget" value="" />
+                      <Property name="DebugText" value="Scan the exact target animal objective" />
+                      <Property name="ObjectiveID" value="SQN_SP_FAUNA_MISSION_OBJ" />
+                      <Property name="ObjectiveTipID" value="SQN_SP_FAUNA_MISSION_OBJ_TIP" />
+                      <Property name="HasCategoryOverride" value="false" />
+                      <Property name="OverrideCategory" value="GcMissionCategory">
+                        <Property name="MissionCategory" value="Mission" />
+                      </Property>
+                      <Property name="HasColourOverride" value="false" />
+                      <Property name="ColourOverride">
+                        <Property name="R" value="1.000000" />
+                        <Property name="G" value="1.000000" />
+                        <Property name="B" value="1.000000" />
+                        <Property name="A" value="1.000000" />
+                      </Property>
+                      <Property name="PrefixTitle" value="false" />
+                      <Property name="PrefixTitleText" value="" />
+                      <Property name="BlockPinning" value="false" />
+                      <Property name="AutoPinRepairs" value="false" />
+                      <Property name="BlockSpaceBattles" value="false" />
+                      <Property name="ConditionTest" value="GcMissionConditionTest">
+                        <Property name="ConditionTest" value="AnyFalse" />
+                      </Property>
+                      <Property name="HideFromLogIfConditionsMet" value="false" />
+                      <Property name="DoConsequencesIfNeverActivated" value="true" />
+                      <Property name="RepeatLogic" value="None" />
+                      <Property name="IconStyle" value="Default" />
+                      <Property name="GalMapPathOverride" value="None" />
+                      <Property name="SpecialButtonIcon" value="TkInputEnum">
+                        <Property name="InputButton" value="None" />
+                      </Property>
+                      <Property name="ObjectiveFormatting" value="GcObjectiveTextFormatOptions">
+                        <Property name="ObjectivesCanBeFormattedBySequences" value="true" />
+                        <Property name="FormattableObjective" value="SQN_SP_FAUNA_MISSION_OBJ" />
+                        <Property name="FormattableObjectiveTip" value="SQN_SP_FAUNA_MISSION_OBJ_TIP" />
+                      </Property>
+                      <Property name="SeasonalObjectiveOverrides" value="GcSeasonalObjectiveOverrides">
+                        <Property name="ApplicableSeasonNumbers" />
+                        <Property name="OverrideObjective" value="" />
+                        <Property name="OverrideObjectiveTip" value="" />
+                      </Property>
+                      <Property name="SurveyTarget" value="GcTargetMissionSurveyOptions">
+                        <Property name="TargetMissionSurveyId" value="" />
+                        <Property name="TargetMissionSurveyDefinitelyExists" value="false" />
+                        <Property name="ForceSurveyTextForAllSequencesInThisGroup" value="false" />
+                        <Property name="TargetMissionSurveyDefinitelyExistsWithResourceHint" value="" />
+                        <Property name="SurveyInactiveHint" value="NOTIFY_MISSION_SURVEY_INACTIVE" />
+                        <Property name="SurveySwapHint" value="NOTIFY_MISSION_SURVEY_SWAP" />
+                        <Property name="SurveyHint" value="NOTIFY_MISSION_SURVEY" />
+                        <Property name="SurveyVehicleHint" value="NOTIFY_MISSION_SURVEY_CAR" />
+                      </Property>
+                      <Property name="CustomNotifyTimers" value="GcCustomNotifyTimerOptions">
+                        <Property name="HasCustomNotifyTimer" value="false" />
+                        <Property name="NotifyDisplayTime" value="20.000000" />
+                        <Property name="NotifyPauseTime" value="30.000000" />
+                      </Property>
+                      <Property name="Conditions" />
+                      <Property name="Consequences" />
+                      <Property name="Stages">
+                        <Property name="Stages" value="GcGenericMissionStage">
+                          <Property name="Versions">
+                            <Property name="Versions" value="GcGenericMissionVersionProgress">
+                              <Property name="Version" value="1" />
+                              <Property name="Progress" value="6" />
+                            </Property>
+                          </Property>
+                          <Property name="Stage" value="GcMissionSequenceWaitForConditions">
+                            <Property name="GcMissionSequenceWaitForConditions">
+                              <Property name="Message" value="SQN_SP_FAUNA_SCAN" />
+                              <Property name="ConditionTest" value="GcMissionConditionTest">
+                                <Property name="ConditionTest" value="AnyTrue" />
+                              </Property>
+                              <Property name="Conditions">
+                                <Property name="Conditions" value="GcMissionConditionMissionMessage">
+                                  <Property name="GcMissionConditionMissionMessage">
+                                    <Property name="Message" value="SQN_SP_SCANNED" />
+                                    <Property name="MessageToFormatSeasonalIDInto" value="" />
+                                  </Property>
+                                </Property>
+                              </Property>
+                              <Property name="AllowedToFormatObjectives" value="false" />
+                              <Property name="ForceAllowMissionRestart" value="false" />
+                              <Property name="ForceAllowMissionRestartEvent" value="" />
+                              <Property name="DebugText" value="Wait for the exact Search Probes animal discovery" />
+                              <Property name="StatusMessageMissionMarkup" value="GcStatusMessageMissionMarkup">
+                                <Property name="MissionMarkup" value="None" />
+                              </Property>
+                            </Property>
                           </Property>
                         </Property>
                       </Property>
-                      <Property name="AllowedToFormatObjectives" value="true" />
-                      <Property name="ForceAllowMissionRestart" value="false" />
-                      <Property name="ForceAllowMissionRestartEvent" value="" />
-                      <Property name="DebugText" value="" />
-                      <Property name="StatusMessageMissionMarkup" value="GcStatusMessageMissionMarkup">
-                        <Property name="MissionMarkup" value="None" />
-                      </Property>
                     </Property>
                   </Property>
                 </Property>
-              </Property>
-            </Property>
-          </Property>
-        </Property>
-        <Property name="Stages" value="GcGenericMissionStage">
-          <Property name="Versions">
-            <Property name="Versions" value="GcGenericMissionVersionProgress">
-              <Property name="Version" value="1" />
-              <Property name="Progress" value="5" />
-            </Property>
-          </Property>
-          <Property name="Stage" value="GcMissionSequenceEndScanEvent">
-            <Property name="GcMissionSequenceEndScanEvent">
-              <Property name="Event" value="SE_SQN_SP_FAUNA" />
-              <Property name="DebugText" value="" />
-            </Property>
-          </Property>
-        </Property>
-        <Property name="Stages" value="GcGenericMissionStage">
-          <Property name="Versions">
-            <Property name="Versions" value="GcGenericMissionVersionProgress">
-              <Property name="Version" value="1" />
-              <Property name="Progress" value="6" />
-            </Property>
-          </Property>
-          <Property name="Stage" value="GcMissionSequenceWaitForConditions">
-            <Property name="GcMissionSequenceWaitForConditions">
-              <Property name="Message" value="SQN_SP_FAUNA_SCAN" />
-              <Property name="ConditionTest" value="GcMissionConditionTest">
-                <Property name="ConditionTest" value="AnyTrue" />
-              </Property>
-              <Property name="Conditions">
-                <Property name="Conditions" value="GcMissionConditionMissionMessage">
-                  <Property name="GcMissionConditionMissionMessage">
-                    <Property name="Message" value="SQN_SP_SCANNED" />
-                    <Property name="MessageToFormatSeasonalIDInto" value="" />
-                  </Property>
-                </Property>
-              </Property>
-              <Property name="AllowedToFormatObjectives" value="false" />
-              <Property name="ForceAllowMissionRestart" value="false" />
-              <Property name="ForceAllowMissionRestartEvent" value="" />
-              <Property name="DebugText" value="Wait for the exact Search Probes animal discovery" />
-              <Property name="StatusMessageMissionMarkup" value="GcStatusMessageMissionMarkup">
-                <Property name="MissionMarkup" value="None" />
               </Property>
             </Property>
           </Property>
@@ -4067,7 +4456,7 @@
         </Property>
       </Property>
       <Property name="AutoStart" value="None" />
-      <Property name="RestartOnCompletion" value="true" />
+      <Property name="RestartOnCompletion" value="false" />
       <Property name="CancelSetsComplete" value="false" />
       <Property name="Dialog" value="GcAlienPuzzleTable">
         <Property name="Table" />
@@ -4167,7 +4556,7 @@
               <Property name="DebugText" value="Complete the exact Search Probes animal scan" />
               <Property name="MessageID" value="SQN_SP_SCANNED" />
               <Property name="Seeded" value="true" />
-              <Property name="SendToAllMatchingSeeds" value="false" />
+              <Property name="SendToAllMatchingSeeds" value="true" />
               <Property name="Multiplayer" value="false" />
               <Property name="CanSendToInactive" value="false" />
               <Property name="BroadcastToActiveMultiplayerMission" value="false" />

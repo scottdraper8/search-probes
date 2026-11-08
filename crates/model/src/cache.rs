@@ -114,13 +114,7 @@ impl SystemRecord {
                 if species.len() > crate::fauna::MAX_SPECIES {
                     return Err("cached fauna exceeds species bound");
                 }
-                Ok(bytes
-                    + std::mem::size_of_val(species)
-                    + species
-                        .iter()
-                        .map(|animal| animal.name.len())
-                        .sum::<usize>()
-                    + 32)
+                Ok(bytes + std::mem::size_of_val(species) + 32)
             })
     }
     pub fn evaluate(&self, plan: &Plan) -> Evaluation {
@@ -184,7 +178,10 @@ impl SystemRecord {
                     .map(|animal| CachedMatch {
                         address,
                         kind: TargetKind::Fauna,
-                        name: Some(animal.name.clone()),
+                        // A generated role identifies the target but does not contain the
+                        // species/genus identity from which NMS derives its exact name. That
+                        // identity is captured from the spawned creature at the destination.
+                        name: None,
                         fauna_role: Some(animal.role),
                     })
                     .collect();
@@ -331,10 +328,9 @@ mod tests {
         }
     }
 
-    fn species(role: u8, name: &str) -> Species {
+    fn species(role: u8) -> Species {
         Species {
             role,
-            name: name.into(),
             family: Family::Cats,
             domain: Domain::Land,
             activity: 2,
@@ -346,7 +342,7 @@ mod tests {
     }
 
     #[test]
-    fn positive_fauna_result_targets_the_named_animal() {
+    fn positive_fauna_result_targets_the_matching_animal_without_inventing_a_name() {
         let mut masks = [0; FaunaField::ALL.len()];
         masks[FaunaField::Family as usize] = 1 << Family::Cats as usize;
         let selection = Selection {
@@ -358,7 +354,6 @@ mod tests {
         };
         let results = record(vec![Species {
             role: 5,
-            name: "Q. Felycus".into(),
             family: Family::Cats,
             domain: Domain::Land,
             activity: 2,
@@ -372,7 +367,7 @@ mod tests {
         assert_eq!(results.len(), 1);
         assert_eq!(results[0].kind, TargetKind::Fauna);
         assert_eq!(results[0].fauna_role, Some(5));
-        assert_eq!(results[0].name.as_deref(), Some("Q. Felycus"));
+        assert_eq!(results[0].name, None);
         assert_eq!(results[0].address, address().planet(0).unwrap());
     }
 
@@ -394,7 +389,7 @@ mod tests {
     }
 
     #[test]
-    fn arena_result_targets_the_named_qualifying_animal() {
+    fn arena_result_targets_the_qualifying_animal() {
         let mut masks = [0; ArenaField::ALL.len()];
         masks[ArenaField::Affinity as usize] = 1 << 7;
         masks[ArenaField::OverallRank as usize] = 1 << 3;
@@ -406,7 +401,7 @@ mod tests {
             masks,
             mode: ResourceMode::All,
         });
-        let mut record = record(vec![species(5, "Q. Arenacus")]);
+        let mut record = record(vec![species(5)]);
         record.planets[0].set_arena(vec![Creature {
             role: 5,
             affinity: 7,
@@ -423,7 +418,7 @@ mod tests {
         assert_eq!(results.len(), 1);
         assert_eq!(results[0].kind, TargetKind::Fauna);
         assert_eq!(results[0].fauna_role, Some(5));
-        assert_eq!(results[0].name.as_deref(), Some("Q. Arenacus"));
+        assert_eq!(results[0].name, None);
     }
 
     #[test]
@@ -435,7 +430,7 @@ mod tests {
             masks,
             mode: ResourceMode::All,
         });
-        let mut record = record(vec![species(4, "Q. Otherus")]);
+        let mut record = record(vec![species(4)]);
         record.planets[0].set_arena(vec![Creature {
             role: 5,
             affinity: 7,

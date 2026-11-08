@@ -10,7 +10,9 @@ const SUBMIT_PREFIX: [u8; 20] = [
     0x48, 0x89, 0x5c, 0x24, 0x08, 0x48, 0x89, 0x6c, 0x24, 0x10, 0x48, 0x89, 0x74, 0x24, 0x18, 0x48,
     0x89, 0x7c, 0x24, 0x20,
 ];
+const DISCOVERY_DATA_BYTES: usize = 0x40;
 const ANIMAL_DISCOVERY: u32 = 3;
+const MAX_LOCAL_IDS: usize = 5;
 const MAX_PENDING: usize = 64;
 
 type Submit = unsafe extern "system" fn(usize, *const u8, *mut bool, bool) -> bool;
@@ -18,7 +20,14 @@ type Submit = unsafe extern "system" fn(usize, *const u8, *mut bool, bool) -> bo
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Discovery {
     pub address: Address,
-    pub identity: [u64; 2],
+    pub local_ids: [u64; MAX_LOCAL_IDS],
+    pub count: u8,
+}
+
+impl Discovery {
+    pub fn first_local_id(&self) -> Option<u64> {
+        (self.count != 0).then_some(self.local_ids[0])
+    }
 }
 
 static ORIGINAL: AtomicUsize = AtomicUsize::new(0);
@@ -47,6 +56,35 @@ pub fn take() -> Result<Vec<Discovery>, &'static str> {
     ))
 }
 
+fn decode(data: &[u8; DISCOVERY_DATA_BYTES]) -> Option<Discovery> {
+    let kind = u32::from_le_bytes(data[0x38..0x3c].try_into().unwrap());
+    let count = u32::from_le_bytes(data[0x30..0x34].try_into().unwrap());
+    if kind != ANIMAL_DISCOVERY || !(4..=MAX_LOCAL_IDS as u32).contains(&count) {
+        return None;
+    }
+    let address = Address::from_raw(u64::from_le_bytes(data[..8].try_into().unwrap())).ok()?;
+    let mut local_ids = [0; MAX_LOCAL_IDS];
+    for (index, local_id) in local_ids.iter_mut().enumerate().take(count as usize) {
+        let start = 8 + index * 8;
+        *local_id = u64::from_le_bytes(data[start..start + 8].try_into().unwrap());
+    }
+    Some(Discovery {
+        address,
+        local_ids,
+        count: count as u8,
+    })
+}
+
+fn retain(discovery: Discovery) {
+    let mut pending = PENDING.lock().unwrap_or_else(|error| error.into_inner());
+    if pending.len() == MAX_PENDING {
+        *ERROR.lock().unwrap_or_else(|error| error.into_inner()) =
+            Some("too many creature scans were completed before navigation could process them");
+    } else {
+        pending.push(discovery);
+    }
+}
+
 unsafe extern "system" fn detour(
     manager: usize,
     data: *const u8,
@@ -55,31 +93,18 @@ unsafe extern "system" fn detour(
 ) -> bool {
     let original =
         unsafe { std::mem::transmute::<usize, Submit>(ORIGINAL.load(Ordering::Acquire)) };
+    let snapshot = (!data.is_null()).then(|| {
+        let mut snapshot = [0; DISCOVERY_DATA_BYTES];
+        unsafe { std::ptr::copy_nonoverlapping(data, snapshot.as_mut_ptr(), snapshot.len()) };
+        snapshot
+    });
     let inserted = unsafe { original(manager, data, submitted, synchronize) };
     let accepted = inserted || (!submitted.is_null() && unsafe { submitted.read() });
-    if !accepted || data.is_null() {
-        return inserted;
-    }
-    let kind = unsafe { data.add(0x38).cast::<u32>().read_unaligned() };
-    let count = unsafe { data.add(0x30).cast::<u32>().read_unaligned() };
-    if kind != ANIMAL_DISCOVERY || !(4..=5).contains(&count) {
-        return inserted;
-    }
-    let raw_address = unsafe { data.cast::<u64>().read_unaligned() };
-    let identity = [
-        unsafe { data.add(0x18).cast::<u64>().read_unaligned() },
-        unsafe { data.add(0x20).cast::<u64>().read_unaligned() },
-    ];
-    let Ok(address) = Address::from_raw(raw_address) else {
-        return inserted;
-    };
-    let mut pending = PENDING.lock().unwrap_or_else(|error| error.into_inner());
-    if pending.len() == MAX_PENDING {
-        *ERROR.lock().unwrap_or_else(|error| error.into_inner()) = Some(
-            "too many creature discoveries were submitted before navigation could process them",
-        );
-    } else {
-        pending.push(Discovery { address, identity });
+    if accepted
+        && let Some(snapshot) = snapshot
+        && let Some(discovery) = decode(&snapshot)
+    {
+        retain(discovery);
     }
     inserted
 }
@@ -115,4 +140,48 @@ pub unsafe fn disable() -> Result<(), HookError> {
     }
     reset();
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use search_probes_model::address::Coordinates;
+
+    fn address() -> Address {
+        Address::new(Coordinates {
+            x: 1,
+            y: 2,
+            z: 3,
+            galaxy: 0,
+            system: 4,
+            planet: 1,
+        })
+        .unwrap()
+    }
+
+    #[test]
+    fn animal_scan_retains_every_local_identity_component() {
+        let mut data = [0; DISCOVERY_DATA_BYTES];
+        data[..8].copy_from_slice(&address().raw().to_le_bytes());
+        for (index, value) in [11_u64, 22, 33, 44, 55].into_iter().enumerate() {
+            let start = 8 + index * 8;
+            data[start..start + 8].copy_from_slice(&value.to_le_bytes());
+        }
+        data[0x30..0x34].copy_from_slice(&5_u32.to_le_bytes());
+        data[0x38..0x3c].copy_from_slice(&ANIMAL_DISCOVERY.to_le_bytes());
+
+        let discovery = decode(&data).unwrap();
+        assert_eq!(discovery.address, address());
+        assert_eq!(discovery.local_ids, [11, 22, 33, 44, 55]);
+        assert_eq!(discovery.first_local_id(), Some(11));
+    }
+
+    #[test]
+    fn non_animal_submission_is_not_a_creature_scan() {
+        let mut data = [0; DISCOVERY_DATA_BYTES];
+        data[..8].copy_from_slice(&address().raw().to_le_bytes());
+        data[0x30..0x34].copy_from_slice(&4_u32.to_le_bytes());
+        data[0x38..0x3c].copy_from_slice(&2_u32.to_le_bytes());
+        assert_eq!(decode(&data), None);
+    }
 }
