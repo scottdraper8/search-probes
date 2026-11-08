@@ -3,7 +3,7 @@ use crate::{
     game_state::{Epoch, Snapshot},
     gameplay_hook, guide_hook,
     identity::Image,
-    lifecycle_hook,
+    lifecycle_hook, mission_text_hook,
     navigation::Navigation,
     navigation_hook, platform, query_hooks,
     scheduler::Scheduler,
@@ -128,6 +128,8 @@ fn attach(image: Image, controls: Arc<Controls>, settings: Settings) -> Result<(
             .map_err(|error| format!("Cannot preserve destination planets: {error:?}"))?;
         unsafe { discovery_hook::enable(base) }
             .map_err(|error| format!("Cannot observe creature discoveries: {error:?}"))?;
+        unsafe { mission_text_hook::enable(base) }
+            .map_err(|error| format!("Cannot format Search Probes mission text: {error:?}"))?;
         RUNTIME
             .set(crate::dispatch_gate::Gate::new(runtime))
             .map_err(|_| "Search Probes is already attached")?;
@@ -141,6 +143,7 @@ fn attach(image: Image, controls: Arc<Controls>, settings: Settings) -> Result<(
         for rollback in unsafe {
             [
                 gameplay_hook::disable(),
+                mission_text_hook::disable(),
                 discovery_hook::disable(),
                 guide_hook::disable(),
                 navigation_hook::disable(),
@@ -251,6 +254,7 @@ impl Runtime {
         self.navigation = Navigation::default();
         navigation_hook::reset();
         discovery_hook::reset();
+        mission_text_hook::clear();
         self.navigation_polled = None;
         self.controls.reset_search_clock();
     }

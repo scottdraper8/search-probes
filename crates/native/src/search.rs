@@ -75,7 +75,6 @@ pub struct Generator<'cache> {
     planet: PlanetQueryContext,
     objects: Option<ObjectTables>,
     arena: Option<crate::arena::Context>,
-    fauna: Option<crate::fauna::Context>,
     base: usize,
 }
 
@@ -95,7 +94,6 @@ impl<'cache> Generator<'cache> {
                 planet: PlanetQueryContext::borrow_query_configuration(base, live)?,
                 objects: None,
                 arena: None,
-                fauna: None,
                 object_summaries,
                 base,
             })
@@ -222,10 +220,7 @@ impl<'cache> Generator<'cache> {
                     let needed = plan.missing_planet_requirements(facts);
                     if needed.fauna {
                         if plan.targets_animals() && facts.fauna().is_none() {
-                            if self.fauna.is_none() {
-                                self.fauna = Some(crate::fauna::Context::from_verified_image(self.base)?);
-                            }
-                            let observed = crate::fauna::capture(live, self.fauna.as_ref().unwrap())?;
+                            let observed = crate::fauna::capture(live)?;
                             facts.set_planet_flag(PlanetFlag::PlayerAttackingFauna, observed.player_attacking);
                             facts.set_planet_flag(PlanetFlag::Sandworms, observed.sandworms);
                             facts.set_fauna(observed.species);

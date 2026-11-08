@@ -3,6 +3,7 @@ use quick_xml::{Reader, events::Event};
 use std::{collections::BTreeSet, path::Path};
 
 pub const MISSION_TABLE: &str = "METADATA/SIMULATION/MISSIONS/TABLES/WIKIMISSIONTABLE.EXML";
+const FAUNA_MISSION_TEMPLATE: &str = "SQN_SP_FTPL";
 
 fn fauna_mission(role: u8) -> String {
     format!("SQN_SP_F{role:02}")
@@ -10,8 +11,7 @@ fn fauna_mission(role: u8) -> String {
 
 pub fn expand_fauna_missions(bytes: &[u8]) -> Result<Vec<u8>> {
     let source = std::str::from_utf8(bytes)?;
-    let marker =
-        r#"<Property name="Missions" value="GcGenericMissionSequence" _id="SQN_SP_FAUNA">"#;
+    let marker = r#"<Property name="Missions" value="GcGenericMissionSequence" _id="SQN_SP_FTPL">"#;
     let start = source
         .find(marker)
         .ok_or("missing fauna mission template")?;
@@ -20,9 +20,9 @@ pub fn expand_fauna_missions(bytes: &[u8]) -> Result<Vec<u8>> {
         .ok_or("fauna mission template is not followed by another mission")?;
     let end = start + marker.len() + next;
     let template = &source[start..end];
-    if template.matches("_id=\"SQN_SP_FAUNA\"").count() != 1
+    if template.matches("_id=\"SQN_SP_FTPL\"").count() != 1
         || template
-            .matches("name=\"MissionID\" value=\"SQN_SP_FAUNA\"")
+            .matches("name=\"MissionID\" value=\"SQN_SP_FTPL\"")
             .count()
             != 1
         || (0..search_probes_model::target::FAUNA_ROLES)
@@ -30,14 +30,14 @@ pub fn expand_fauna_missions(bytes: &[u8]) -> Result<Vec<u8>> {
     {
         return Err("fauna mission template cannot be expanded safely".into());
     }
-    let mut expanded = String::with_capacity(source.len() + template.len() * 30);
-    expanded.push_str(&source[..end]);
+    let mut expanded = String::with_capacity(source.len() + template.len() * 29);
+    expanded.push_str(&source[..start]);
     for role in 0..search_probes_model::target::FAUNA_ROLES {
         let mission = fauna_mission(role);
         let clone = template
-            .replacen("_id=\"SQN_SP_FAUNA\"", &format!("_id=\"{mission}\""), 1)
+            .replacen("_id=\"SQN_SP_FTPL\"", &format!("_id=\"{mission}\""), 1)
             .replacen(
-                "name=\"MissionID\" value=\"SQN_SP_FAUNA\"",
+                "name=\"MissionID\" value=\"SQN_SP_FTPL\"",
                 &format!("name=\"MissionID\" value=\"{mission}\""),
                 1,
             );
@@ -143,13 +143,17 @@ pub fn validate(root: &Path, expanded: bool) -> Result<()> {
     let mut expected = missions.clone();
     expected.extend([
         search_probes_model::target::TargetKind::Planet
-            .asset_mission()
+            .fixed_mission()
+            .unwrap()
             .to_owned(),
         search_probes_model::target::TargetKind::System
-            .asset_mission()
+            .fixed_mission()
+            .unwrap()
             .to_owned(),
-        search_probes_model::target::LEGACY_FAUNA_MISSION.to_owned(),
     ]);
+    if !expanded {
+        expected.push(FAUNA_MISSION_TEMPLATE.to_owned());
+    }
     if expanded {
         expected.extend((0..search_probes_model::target::FAUNA_ROLES).map(fauna_mission));
     }
@@ -168,20 +172,24 @@ pub fn validate(root: &Path, expanded: bool) -> Result<()> {
         (
             search_probes_model::target::TargetKind::Planet,
             search_probes_model::target::TargetKind::Planet
-                .asset_mission()
+                .fixed_mission()
+                .unwrap()
                 .to_owned(),
         ),
         (
             search_probes_model::target::TargetKind::System,
             search_probes_model::target::TargetKind::System
-                .asset_mission()
+                .fixed_mission()
+                .unwrap()
                 .to_owned(),
         ),
-        (
-            search_probes_model::target::TargetKind::Fauna,
-            search_probes_model::target::LEGACY_FAUNA_MISSION.to_owned(),
-        ),
     ];
+    if !expanded {
+        targets.push((
+            search_probes_model::target::TargetKind::Fauna,
+            FAUNA_MISSION_TEMPLATE.to_owned(),
+        ));
+    }
     if expanded {
         targets.extend((0..search_probes_model::target::FAUNA_ROLES).map(|role| {
             (
@@ -193,26 +201,50 @@ pub fn validate(root: &Path, expanded: bool) -> Result<()> {
     for (kind, mission) in targets {
         use search_probes_model::target::TargetKind;
         let target = properties(&table, Some(&mission))?;
-        let (search, location, conditions) = match kind {
+        let (search, location, conditions, objectives, formatting, allowed_formatting) = match kind
+        {
             TargetKind::Planet => (
                 "Any",
                 "PlanetSearch",
-                vec!["GcMissionConditionIsScanEventOnCurrentPlanet"],
+                vec![
+                    "GcMissionConditionIsScanEventLocal",
+                    "GcMissionConditionIsScanEventOnCurrentPlanet",
+                ],
+                vec!["", "SQN_SP_SYSTEM_MISSION_OBJ", "SQN_SP_NAV_MISSION_OBJ"],
+                vec!["false", "true", "true"],
+                vec!["true", "true"],
             ),
-            TargetKind::System => ("SpaceMarker", "Nearest", vec![]),
+            TargetKind::System => (
+                "SpaceMarker",
+                "Nearest",
+                vec![],
+                vec!["SQN_SP_SYSTEM_MISSION_OBJ"],
+                vec!["true"],
+                vec![],
+            ),
             TargetKind::Fauna => (
                 "Any",
                 "PlanetSearch",
                 vec![
+                    "GcMissionConditionIsScanEventLocal",
                     "GcMissionConditionIsScanEventOnCurrentPlanet",
                     "GcMissionConditionMissionMessage",
                 ],
+                vec![
+                    "",
+                    "SQN_SP_SYSTEM_MISSION_OBJ",
+                    "SQN_SP_NAV_MISSION_OBJ",
+                    "SQN_SP_FAUNA_MISSION_OBJ",
+                ],
+                vec!["false", "true", "true", "true"],
+                vec!["true", "true", "false"],
             ),
         };
         if values(&target, "MissionID") != [mission]
             || values(&target, "Name") != [kind.event()]
             || values(&target, "UseScanEventDetailsInLogInfo") != ["true"]
-            || values(&target, "ObjectivesCanBeFormattedBySequences") != ["true"]
+            || values(&target, "ObjectiveID") != objectives
+            || values(&target, "ObjectivesCanBeFormattedBySequences") != formatting
             || values(&target, "FormattableObjective") != values(&target, "ObjectiveID")
             || values(&target, "FormattableObjectiveTip") != values(&target, "ObjectiveTipID")
             || values(&target, "UAsList") != ["0000000000000000"]
@@ -224,32 +256,64 @@ pub fn validate(root: &Path, expanded: bool) -> Result<()> {
             || values(&target, "DisableMultiplayerSync") != ["false"]
             || values(&target, "ReplaceEventIfAlreadyActive") != ["false"]
             || values(&target, "Conditions") != conditions
-            || values(&target, "GalaxyMapMessage") != ["UI_SCANEVENT_GOTO_MAP"]
-            || values(&target, "Distance") != ["1000000000.000000"]
-            || values(&target, "EndEventWhenReached") != ["false"]
-            || values(&target, "CanFormatObjectives") != ["true"]
+            || values(&target, "AllowedToFormatObjectives") != allowed_formatting
             || values(&target, "Event")
                 .iter()
                 .any(|event| event != kind.event())
         {
             return Err("navigation assets do not match the native destination contract".into());
         }
-        let mut stages = vec![
-            "GcMissionSequenceEndScanEvent",
-            "GcMissionSequenceStartScanEvent",
-            "GcMissionSequenceGroup",
-            "GcMissionSequenceGetToScanEvent",
-        ];
-        if kind != TargetKind::System {
-            stages.push("GcMissionSequenceWaitForConditions");
-        }
-        stages.extend(["GcMissionSequenceEndScanEvent"]);
-        if kind == TargetKind::Fauna {
-            stages.push("GcMissionSequenceWaitForConditions");
-        }
-        stages.push("GcMissionSequenceShowMissionUpdateMessage");
+        let stages = match kind {
+            TargetKind::Planet => vec![
+                "GcMissionSequenceEndScanEvent",
+                "GcMissionSequenceStartScanEvent",
+                "GcMissionSequenceGroup",
+                "GcMissionSequenceGroup",
+                "GcMissionSequenceWaitForConditions",
+                "GcMissionSequenceGroup",
+                "GcMissionSequenceWaitForConditions",
+                "GcMissionSequenceEndScanEvent",
+                "GcMissionSequenceShowMissionUpdateMessage",
+            ],
+            TargetKind::System => vec![
+                "GcMissionSequenceEndScanEvent",
+                "GcMissionSequenceStartScanEvent",
+                "GcMissionSequenceGroup",
+                "GcMissionSequenceGetToScanEvent",
+                "GcMissionSequenceEndScanEvent",
+                "GcMissionSequenceShowMissionUpdateMessage",
+            ],
+            TargetKind::Fauna => vec![
+                "GcMissionSequenceEndScanEvent",
+                "GcMissionSequenceStartScanEvent",
+                "GcMissionSequenceGroup",
+                "GcMissionSequenceGroup",
+                "GcMissionSequenceWaitForConditions",
+                "GcMissionSequenceGroup",
+                "GcMissionSequenceWaitForConditions",
+                "GcMissionSequenceEndScanEvent",
+                "GcMissionSequenceGroup",
+                "GcMissionSequenceWaitForConditions",
+                "GcMissionSequenceShowMissionUpdateMessage",
+            ],
+        };
         if values(&target, "Stage") != stages {
             return Err("unsupported destination lifecycle".into());
+        }
+        if kind == TargetKind::Fauna {
+            let scan_ready = search_probes_model::target::FAUNA_SCAN_READY_PROGRESS.to_string();
+            let progress = values(&target, "Progress");
+            if progress != ["8", "1", "2", "3", "3", "4", scan_ready.as_str(), "6", "7"] {
+                return Err("fauna scan progress does not match the native completion gate".into());
+            }
+        }
+        if kind == TargetKind::System
+            && (values(&target, "GalaxyMapMessage") != ["UI_SCANEVENT_GOTO_MAP"]
+                || values(&target, "Distance") != ["1000000000.000000"]
+                || values(&target, "EndEventWhenReached") != ["false"]
+                || values(&target, "CanFormatObjectives") != ["true"])
+        {
+            return Err("system navigation lifecycle is incomplete".into());
         }
         navigation.extend(target);
     }
@@ -258,6 +322,8 @@ pub fn validate(root: &Path, expanded: bool) -> Result<()> {
         || values(&signal, "Stage") != ["GcMissionSequenceBroadcastMessage"]
         || values(&signal, "MessageID") != ["SQN_SP_SCANNED"]
         || values(&signal, "Seeded") != ["true"]
+        || values(&signal, "SendToAllMatchingSeeds") != ["true"]
+        || values(&signal, "RestartOnCompletion") != ["false"]
     {
         return Err("unsupported creature-scan completion signal".into());
     }
@@ -278,4 +344,28 @@ pub fn validate(root: &Path, expanded: bool) -> Result<()> {
         }
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn packaged_fauna_missions_contain_only_role_specific_runtime_ids() {
+        let source = include_bytes!(
+            "../../../assets/METADATA/SIMULATION/MISSIONS/TABLES/WIKIMISSIONTABLE.EXML"
+        );
+        let expanded = String::from_utf8(expand_fauna_missions(source).unwrap()).unwrap();
+        assert!(!expanded.contains(FAUNA_MISSION_TEMPLATE));
+        for role in 0..search_probes_model::target::FAUNA_ROLES {
+            let mission = fauna_mission(role);
+            assert_eq!(expanded.matches(&format!("_id=\"{mission}\"")).count(), 1);
+            assert_eq!(
+                expanded
+                    .matches(&format!("name=\"MissionID\" value=\"{mission}\""))
+                    .count(),
+                1
+            );
+        }
+    }
 }

@@ -8,10 +8,11 @@ mod.
 The native runtime currently targets public NMS 7.13 (Steam build `26385139`) and rejects other
 executable identities. The exact executable fingerprint is maintained in `crates/model/src/supported.rs`.
 
-Positive fauna filters produce one Animal result for each matching generated species, including its
-generated name and the planet's copyable coordinates. Its destination mission reaches the target
-planet and remains active until that exact species is scanned. A fauna absence filter has no animal
-to target, so its result and destination remain planet-level.
+Positive fauna filters produce one Animal result for each matching generated species and include
+the planet's copyable coordinates. NMS does not attach the exact species/genus naming identity to
+the remote role record, so the destination mission resolves and displays the generated animal name
+after the target system is loaded. The mission remains active until that exact species is scanned.
+A fauna absence filter has no animal to target, so its result and destination remain planet-level.
 
 ## Agent instructions
 

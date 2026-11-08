@@ -21,6 +21,7 @@ pub struct Snapshot {
     pub epoch: Epoch,
     pub address: Address,
     pub application: usize,
+    pub root: usize,
     pub planet: usize,
     pub difficulty: usize,
 }
@@ -108,6 +109,7 @@ impl Snapshot {
             epoch,
             address,
             application,
+            root,
             planet,
             difficulty: difficulty as usize,
         })

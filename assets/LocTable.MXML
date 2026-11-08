@@ -163,43 +163,43 @@
     </Property>
     <Property name="Table" value="TkLocalisationEntry">
       <Property name="Id" value="SQN_SP_NAV_MISSION_OBJ" />
-      <Property name="BrazilianPortuguese" value="Approach %PLANET%" />
-      <Property name="Dutch" value="Approach %PLANET%" />
-      <Property name="English" value="Approach %PLANET%" />
-      <Property name="French" value="Approach %PLANET%" />
-      <Property name="German" value="Approach %PLANET%" />
-      <Property name="Italian" value="Approach %PLANET%" />
-      <Property name="Japanese" value="Approach %PLANET%" />
-      <Property name="Korean" value="Approach %PLANET%" />
-      <Property name="LatinAmericanSpanish" value="Approach %PLANET%" />
-      <Property name="Polish" value="Approach %PLANET%" />
-      <Property name="Portuguese" value="Approach %PLANET%" />
-      <Property name="Russian" value="Approach %PLANET%" />
-      <Property name="SimplifiedChinese" value="Approach %PLANET%" />
-      <Property name="Spanish" value="Approach %PLANET%" />
-      <Property name="TencentChinese" value="Approach %PLANET%" />
-      <Property name="TraditionalChinese" value="Approach %PLANET%" />
-      <Property name="USEnglish" value="Approach %PLANET%" />
+      <Property name="BrazilianPortuguese" value="Land on %PLANET%" />
+      <Property name="Dutch" value="Land on %PLANET%" />
+      <Property name="English" value="Land on %PLANET%" />
+      <Property name="French" value="Land on %PLANET%" />
+      <Property name="German" value="Land on %PLANET%" />
+      <Property name="Italian" value="Land on %PLANET%" />
+      <Property name="Japanese" value="Land on %PLANET%" />
+      <Property name="Korean" value="Land on %PLANET%" />
+      <Property name="LatinAmericanSpanish" value="Land on %PLANET%" />
+      <Property name="Polish" value="Land on %PLANET%" />
+      <Property name="Portuguese" value="Land on %PLANET%" />
+      <Property name="Russian" value="Land on %PLANET%" />
+      <Property name="SimplifiedChinese" value="Land on %PLANET%" />
+      <Property name="Spanish" value="Land on %PLANET%" />
+      <Property name="TencentChinese" value="Land on %PLANET%" />
+      <Property name="TraditionalChinese" value="Land on %PLANET%" />
+      <Property name="USEnglish" value="Land on %PLANET%" />
     </Property>
     <Property name="Table" value="TkLocalisationEntry">
       <Property name="Id" value="SQN_SP_NAV_MISSION_OBJ_TIP" />
-      <Property name="BrazilianPortuguese" value="Follow Current Mission in the Galaxy Map." />
-      <Property name="Dutch" value="Follow Current Mission in the Galaxy Map." />
-      <Property name="English" value="Follow Current Mission in the Galaxy Map." />
-      <Property name="French" value="Follow Current Mission in the Galaxy Map." />
-      <Property name="German" value="Follow Current Mission in the Galaxy Map." />
-      <Property name="Italian" value="Follow Current Mission in the Galaxy Map." />
-      <Property name="Japanese" value="Follow Current Mission in the Galaxy Map." />
-      <Property name="Korean" value="Follow Current Mission in the Galaxy Map." />
-      <Property name="LatinAmericanSpanish" value="Follow Current Mission in the Galaxy Map." />
-      <Property name="Polish" value="Follow Current Mission in the Galaxy Map." />
-      <Property name="Portuguese" value="Follow Current Mission in the Galaxy Map." />
-      <Property name="Russian" value="Follow Current Mission in the Galaxy Map." />
-      <Property name="SimplifiedChinese" value="Follow Current Mission in the Galaxy Map." />
-      <Property name="Spanish" value="Follow Current Mission in the Galaxy Map." />
-      <Property name="TencentChinese" value="Follow Current Mission in the Galaxy Map." />
-      <Property name="TraditionalChinese" value="Follow Current Mission in the Galaxy Map." />
-      <Property name="USEnglish" value="Follow Current Mission in the Galaxy Map." />
+      <Property name="BrazilianPortuguese" value="Reach the marked target planet" />
+      <Property name="Dutch" value="Reach the marked target planet" />
+      <Property name="English" value="Reach the marked target planet" />
+      <Property name="French" value="Reach the marked target planet" />
+      <Property name="German" value="Reach the marked target planet" />
+      <Property name="Italian" value="Reach the marked target planet" />
+      <Property name="Japanese" value="Reach the marked target planet" />
+      <Property name="Korean" value="Reach the marked target planet" />
+      <Property name="LatinAmericanSpanish" value="Reach the marked target planet" />
+      <Property name="Polish" value="Reach the marked target planet" />
+      <Property name="Portuguese" value="Reach the marked target planet" />
+      <Property name="Russian" value="Reach the marked target planet" />
+      <Property name="SimplifiedChinese" value="Reach the marked target planet" />
+      <Property name="Spanish" value="Reach the marked target planet" />
+      <Property name="TencentChinese" value="Reach the marked target planet" />
+      <Property name="TraditionalChinese" value="Reach the marked target planet" />
+      <Property name="USEnglish" value="Reach the marked target planet" />
     </Property>
     <Property name="Table" value="TkLocalisationEntry">
       <Property name="Id" value="SQN_SP_SYSTEM" />
@@ -663,83 +663,83 @@
     </Property>
     <Property name="Table" value="TkLocalisationEntry">
       <Property name="Id" value="SQN_SP_FAUNA_MISSION_DESC" />
-      <Property name="BrazilianPortuguese" value="A search probe has identified %PLANET% as containing a matching animal." />
-      <Property name="Dutch" value="A search probe has identified %PLANET% as containing a matching animal." />
-      <Property name="English" value="A search probe has identified %PLANET% as containing a matching animal." />
-      <Property name="French" value="A search probe has identified %PLANET% as containing a matching animal." />
-      <Property name="German" value="A search probe has identified %PLANET% as containing a matching animal." />
-      <Property name="Italian" value="A search probe has identified %PLANET% as containing a matching animal." />
-      <Property name="Japanese" value="A search probe has identified %PLANET% as containing a matching animal." />
-      <Property name="Korean" value="A search probe has identified %PLANET% as containing a matching animal." />
-      <Property name="LatinAmericanSpanish" value="A search probe has identified %PLANET% as containing a matching animal." />
-      <Property name="Polish" value="A search probe has identified %PLANET% as containing a matching animal." />
-      <Property name="Portuguese" value="A search probe has identified %PLANET% as containing a matching animal." />
-      <Property name="Russian" value="A search probe has identified %PLANET% as containing a matching animal." />
-      <Property name="SimplifiedChinese" value="A search probe has identified %PLANET% as containing a matching animal." />
-      <Property name="Spanish" value="A search probe has identified %PLANET% as containing a matching animal." />
-      <Property name="TencentChinese" value="A search probe has identified %PLANET% as containing a matching animal." />
-      <Property name="TraditionalChinese" value="A search probe has identified %PLANET% as containing a matching animal." />
-      <Property name="USEnglish" value="A search probe has identified %PLANET% as containing a matching animal." />
+      <Property name="BrazilianPortuguese" value="A search probe has identified the marked target planet as containing a matching animal." />
+      <Property name="Dutch" value="A search probe has identified the marked target planet as containing a matching animal." />
+      <Property name="English" value="A search probe has identified the marked target planet as containing a matching animal." />
+      <Property name="French" value="A search probe has identified the marked target planet as containing a matching animal." />
+      <Property name="German" value="A search probe has identified the marked target planet as containing a matching animal." />
+      <Property name="Italian" value="A search probe has identified the marked target planet as containing a matching animal." />
+      <Property name="Japanese" value="A search probe has identified the marked target planet as containing a matching animal." />
+      <Property name="Korean" value="A search probe has identified the marked target planet as containing a matching animal." />
+      <Property name="LatinAmericanSpanish" value="A search probe has identified the marked target planet as containing a matching animal." />
+      <Property name="Polish" value="A search probe has identified the marked target planet as containing a matching animal." />
+      <Property name="Portuguese" value="A search probe has identified the marked target planet as containing a matching animal." />
+      <Property name="Russian" value="A search probe has identified the marked target planet as containing a matching animal." />
+      <Property name="SimplifiedChinese" value="A search probe has identified the marked target planet as containing a matching animal." />
+      <Property name="Spanish" value="A search probe has identified the marked target planet as containing a matching animal." />
+      <Property name="TencentChinese" value="A search probe has identified the marked target planet as containing a matching animal." />
+      <Property name="TraditionalChinese" value="A search probe has identified the marked target planet as containing a matching animal." />
+      <Property name="USEnglish" value="A search probe has identified the marked target planet as containing a matching animal." />
     </Property>
     <Property name="Table" value="TkLocalisationEntry">
       <Property name="Id" value="SQN_SP_FAUNA_MISSION_FLAVOUR" />
-      <Property name="BrazilianPortuguese" value="Travel to %PLANET% and scan the target animal with the Analysis Visor." />
-      <Property name="Dutch" value="Travel to %PLANET% and scan the target animal with the Analysis Visor." />
-      <Property name="English" value="Travel to %PLANET% and scan the target animal with the Analysis Visor." />
-      <Property name="French" value="Travel to %PLANET% and scan the target animal with the Analysis Visor." />
-      <Property name="German" value="Travel to %PLANET% and scan the target animal with the Analysis Visor." />
-      <Property name="Italian" value="Travel to %PLANET% and scan the target animal with the Analysis Visor." />
-      <Property name="Japanese" value="Travel to %PLANET% and scan the target animal with the Analysis Visor." />
-      <Property name="Korean" value="Travel to %PLANET% and scan the target animal with the Analysis Visor." />
-      <Property name="LatinAmericanSpanish" value="Travel to %PLANET% and scan the target animal with the Analysis Visor." />
-      <Property name="Polish" value="Travel to %PLANET% and scan the target animal with the Analysis Visor." />
-      <Property name="Portuguese" value="Travel to %PLANET% and scan the target animal with the Analysis Visor." />
-      <Property name="Russian" value="Travel to %PLANET% and scan the target animal with the Analysis Visor." />
-      <Property name="SimplifiedChinese" value="Travel to %PLANET% and scan the target animal with the Analysis Visor." />
-      <Property name="Spanish" value="Travel to %PLANET% and scan the target animal with the Analysis Visor." />
-      <Property name="TencentChinese" value="Travel to %PLANET% and scan the target animal with the Analysis Visor." />
-      <Property name="TraditionalChinese" value="Travel to %PLANET% and scan the target animal with the Analysis Visor." />
-      <Property name="USEnglish" value="Travel to %PLANET% and scan the target animal with the Analysis Visor." />
+      <Property name="BrazilianPortuguese" value="Travel to the marked target planet and scan the target animal with the Analysis Visor." />
+      <Property name="Dutch" value="Travel to the marked target planet and scan the target animal with the Analysis Visor." />
+      <Property name="English" value="Travel to the marked target planet and scan the target animal with the Analysis Visor." />
+      <Property name="French" value="Travel to the marked target planet and scan the target animal with the Analysis Visor." />
+      <Property name="German" value="Travel to the marked target planet and scan the target animal with the Analysis Visor." />
+      <Property name="Italian" value="Travel to the marked target planet and scan the target animal with the Analysis Visor." />
+      <Property name="Japanese" value="Travel to the marked target planet and scan the target animal with the Analysis Visor." />
+      <Property name="Korean" value="Travel to the marked target planet and scan the target animal with the Analysis Visor." />
+      <Property name="LatinAmericanSpanish" value="Travel to the marked target planet and scan the target animal with the Analysis Visor." />
+      <Property name="Polish" value="Travel to the marked target planet and scan the target animal with the Analysis Visor." />
+      <Property name="Portuguese" value="Travel to the marked target planet and scan the target animal with the Analysis Visor." />
+      <Property name="Russian" value="Travel to the marked target planet and scan the target animal with the Analysis Visor." />
+      <Property name="SimplifiedChinese" value="Travel to the marked target planet and scan the target animal with the Analysis Visor." />
+      <Property name="Spanish" value="Travel to the marked target planet and scan the target animal with the Analysis Visor." />
+      <Property name="TencentChinese" value="Travel to the marked target planet and scan the target animal with the Analysis Visor." />
+      <Property name="TraditionalChinese" value="Travel to the marked target planet and scan the target animal with the Analysis Visor." />
+      <Property name="USEnglish" value="Travel to the marked target planet and scan the target animal with the Analysis Visor." />
     </Property>
     <Property name="Table" value="TkLocalisationEntry">
       <Property name="Id" value="SQN_SP_FAUNA_MISSION_OBJ" />
-      <Property name="BrazilianPortuguese" value="Travel to %PLANET% and scan the target animal" />
-      <Property name="Dutch" value="Travel to %PLANET% and scan the target animal" />
-      <Property name="English" value="Travel to %PLANET% and scan the target animal" />
-      <Property name="French" value="Travel to %PLANET% and scan the target animal" />
-      <Property name="German" value="Travel to %PLANET% and scan the target animal" />
-      <Property name="Italian" value="Travel to %PLANET% and scan the target animal" />
-      <Property name="Japanese" value="Travel to %PLANET% and scan the target animal" />
-      <Property name="Korean" value="Travel to %PLANET% and scan the target animal" />
-      <Property name="LatinAmericanSpanish" value="Travel to %PLANET% and scan the target animal" />
-      <Property name="Polish" value="Travel to %PLANET% and scan the target animal" />
-      <Property name="Portuguese" value="Travel to %PLANET% and scan the target animal" />
-      <Property name="Russian" value="Travel to %PLANET% and scan the target animal" />
-      <Property name="SimplifiedChinese" value="Travel to %PLANET% and scan the target animal" />
-      <Property name="Spanish" value="Travel to %PLANET% and scan the target animal" />
-      <Property name="TencentChinese" value="Travel to %PLANET% and scan the target animal" />
-      <Property name="TraditionalChinese" value="Travel to %PLANET% and scan the target animal" />
-      <Property name="USEnglish" value="Travel to %PLANET% and scan the target animal" />
+      <Property name="BrazilianPortuguese" value="Scan the target animal" />
+      <Property name="Dutch" value="Scan the target animal" />
+      <Property name="English" value="Scan the target animal" />
+      <Property name="French" value="Scan the target animal" />
+      <Property name="German" value="Scan the target animal" />
+      <Property name="Italian" value="Scan the target animal" />
+      <Property name="Japanese" value="Scan the target animal" />
+      <Property name="Korean" value="Scan the target animal" />
+      <Property name="LatinAmericanSpanish" value="Scan the target animal" />
+      <Property name="Polish" value="Scan the target animal" />
+      <Property name="Portuguese" value="Scan the target animal" />
+      <Property name="Russian" value="Scan the target animal" />
+      <Property name="SimplifiedChinese" value="Scan the target animal" />
+      <Property name="Spanish" value="Scan the target animal" />
+      <Property name="TencentChinese" value="Scan the target animal" />
+      <Property name="TraditionalChinese" value="Scan the target animal" />
+      <Property name="USEnglish" value="Scan the target animal" />
     </Property>
     <Property name="Table" value="TkLocalisationEntry">
       <Property name="Id" value="SQN_SP_FAUNA_MISSION_OBJ_TIP" />
-      <Property name="BrazilianPortuguese" value="Follow Current Mission in the Galaxy Map, then use the Analysis Visor to identify the animal." />
-      <Property name="Dutch" value="Follow Current Mission in the Galaxy Map, then use the Analysis Visor to identify the animal." />
-      <Property name="English" value="Follow Current Mission in the Galaxy Map, then use the Analysis Visor to identify the animal." />
-      <Property name="French" value="Follow Current Mission in the Galaxy Map, then use the Analysis Visor to identify the animal." />
-      <Property name="German" value="Follow Current Mission in the Galaxy Map, then use the Analysis Visor to identify the animal." />
-      <Property name="Italian" value="Follow Current Mission in the Galaxy Map, then use the Analysis Visor to identify the animal." />
-      <Property name="Japanese" value="Follow Current Mission in the Galaxy Map, then use the Analysis Visor to identify the animal." />
-      <Property name="Korean" value="Follow Current Mission in the Galaxy Map, then use the Analysis Visor to identify the animal." />
-      <Property name="LatinAmericanSpanish" value="Follow Current Mission in the Galaxy Map, then use the Analysis Visor to identify the animal." />
-      <Property name="Polish" value="Follow Current Mission in the Galaxy Map, then use the Analysis Visor to identify the animal." />
-      <Property name="Portuguese" value="Follow Current Mission in the Galaxy Map, then use the Analysis Visor to identify the animal." />
-      <Property name="Russian" value="Follow Current Mission in the Galaxy Map, then use the Analysis Visor to identify the animal." />
-      <Property name="SimplifiedChinese" value="Follow Current Mission in the Galaxy Map, then use the Analysis Visor to identify the animal." />
-      <Property name="Spanish" value="Follow Current Mission in the Galaxy Map, then use the Analysis Visor to identify the animal." />
-      <Property name="TencentChinese" value="Follow Current Mission in the Galaxy Map, then use the Analysis Visor to identify the animal." />
-      <Property name="TraditionalChinese" value="Follow Current Mission in the Galaxy Map, then use the Analysis Visor to identify the animal." />
-      <Property name="USEnglish" value="Follow Current Mission in the Galaxy Map, then use the Analysis Visor to identify the animal." />
+      <Property name="BrazilianPortuguese" value="Use the Analysis Visor to scan the target animal." />
+      <Property name="Dutch" value="Use the Analysis Visor to scan the target animal." />
+      <Property name="English" value="Use the Analysis Visor to scan the target animal." />
+      <Property name="French" value="Use the Analysis Visor to scan the target animal." />
+      <Property name="German" value="Use the Analysis Visor to scan the target animal." />
+      <Property name="Italian" value="Use the Analysis Visor to scan the target animal." />
+      <Property name="Japanese" value="Use the Analysis Visor to scan the target animal." />
+      <Property name="Korean" value="Use the Analysis Visor to scan the target animal." />
+      <Property name="LatinAmericanSpanish" value="Use the Analysis Visor to scan the target animal." />
+      <Property name="Polish" value="Use the Analysis Visor to scan the target animal." />
+      <Property name="Portuguese" value="Use the Analysis Visor to scan the target animal." />
+      <Property name="Russian" value="Use the Analysis Visor to scan the target animal." />
+      <Property name="SimplifiedChinese" value="Use the Analysis Visor to scan the target animal." />
+      <Property name="Spanish" value="Use the Analysis Visor to scan the target animal." />
+      <Property name="TencentChinese" value="Use the Analysis Visor to scan the target animal." />
+      <Property name="TraditionalChinese" value="Use the Analysis Visor to scan the target animal." />
+      <Property name="USEnglish" value="Use the Analysis Visor to scan the target animal." />
     </Property>
     <Property name="Table" value="TkLocalisationEntry">
       <Property name="Id" value="SQN_SP_FAUNA_SCAN" />

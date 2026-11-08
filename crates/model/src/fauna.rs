@@ -256,7 +256,6 @@ pub struct Species {
     /// Index in the generated planet's creature-role table. The current game exposes at most 30
     /// corresponding discovery records for a loaded planet.
     pub role: u8,
-    pub name: Box<str>,
     pub family: Family,
     pub domain: Domain,
     pub activity: u8,
@@ -348,10 +347,9 @@ impl Selection {
 mod tests {
     use super::*;
 
-    fn animal(role: u8, name: &str, family: Family, domain: Domain) -> Species {
+    fn animal(role: u8, family: Family, domain: Domain) -> Species {
         Species {
             role,
-            name: name.into(),
             family,
             domain,
             activity: 2,
@@ -374,16 +372,15 @@ mod tests {
             mode: ResourceMode::All,
         };
         let species = [
-            animal(4, "I. Felycus", Family::Cats, Domain::Land),
-            animal(7, "O. Bovidus", Family::Cattle, Domain::Land),
-            animal(9, "N. Pelagicus", Family::Fish, Domain::Aquatic),
+            animal(4, Family::Cats, Domain::Land),
+            animal(7, Family::Cattle, Domain::Land),
+            animal(9, Family::Fish, Domain::Aquatic),
         ];
 
         let witnesses = selection.witnesses(&species);
 
         assert_eq!(witnesses.len(), 1);
         assert_eq!(witnesses[0].role, 4);
-        assert_eq!(witnesses[0].name.as_ref(), "I. Felycus");
         assert_eq!(selection.evaluate(&species), Verdict::Match);
     }
 
@@ -396,7 +393,7 @@ mod tests {
             height: HeightRange::default(),
             mode: ResourceMode::All,
         };
-        let species = [animal(2, "O. Bovidus", Family::Cattle, Domain::Land)];
+        let species = [animal(2, Family::Cattle, Domain::Land)];
 
         assert_eq!(selection.evaluate(&species), Verdict::Match);
         assert!(selection.witnesses(&species).is_empty());
