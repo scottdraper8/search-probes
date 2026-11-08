@@ -319,6 +319,89 @@ fn combine(values: impl IntoIterator<Item = Verdict>, mode: ResourceMode) -> Ver
 }
 
 impl Plan {
+    pub fn targets_animals(&self) -> bool {
+        self.planet.iter().any(|predicate| match predicate {
+            Predicate::Fauna(selection) => selection.targets_animals(),
+            Predicate::Arena(selection) => selection.targets_animals(),
+            _ => false,
+        })
+    }
+
+    /// Concrete generated animals that satisfy the selected fauna sections on an otherwise
+    /// matching planet. Negative-only fauna rules intentionally yield no destination animal.
+    pub fn fauna_witnesses<'a>(&self, facts: &'a Facts) -> Vec<&'a crate::fauna::Species> {
+        let Some(species) = facts.fauna() else {
+            return Vec::new();
+        };
+        let mut witnesses = Vec::new();
+        for selection in self.planet.iter().filter_map(|predicate| match predicate {
+            Predicate::Fauna(selection) => Some(*selection),
+            _ => None,
+        }) {
+            for animal in selection.witnesses(species) {
+                if !witnesses
+                    .iter()
+                    .any(|previous: &&crate::fauna::Species| previous.role == animal.role)
+                {
+                    witnesses.push(animal);
+                }
+            }
+        }
+        witnesses.sort_by_key(|animal| animal.role);
+        witnesses
+    }
+
+    /// Concrete generated animals that satisfy every positive Arena selection. Arena facts retain
+    /// role indices so their ranks can be joined to the discovery names captured for the planet.
+    pub fn arena_witnesses<'a>(&self, facts: &'a Facts) -> Vec<&'a crate::fauna::Species> {
+        let (Some(creatures), Some(species)) = (facts.arena(), facts.fauna()) else {
+            return Vec::new();
+        };
+        let mut roles: Option<Vec<u8>> = None;
+        for selection in self.planet.iter().filter_map(|predicate| match predicate {
+            Predicate::Arena(selection) if selection.targets_animals() => Some(*selection),
+            _ => None,
+        }) {
+            let current: Vec<_> = selection
+                .witnesses(creatures)
+                .into_iter()
+                .map(|creature| creature.role)
+                .collect();
+            if let Some(roles) = &mut roles {
+                roles.retain(|role| current.contains(role));
+            } else {
+                roles = Some(current);
+            }
+        }
+        let Some(roles) = roles else {
+            return Vec::new();
+        };
+        species
+            .iter()
+            .filter(|animal| roles.contains(&animal.role))
+            .collect()
+    }
+
+    pub fn animal_witnesses<'a>(&self, facts: &'a Facts) -> Vec<&'a crate::fauna::Species> {
+        let fauna_selected = self.planet.iter().any(|predicate| {
+            matches!(predicate, Predicate::Fauna(selection) if selection.targets_animals())
+        });
+        let arena_selected = self.planet.iter().any(|predicate| {
+            matches!(predicate, Predicate::Arena(selection) if selection.targets_animals())
+        });
+        let mut fauna = self.fauna_witnesses(facts);
+        let arena = self.arena_witnesses(facts);
+        match (fauna_selected, arena_selected) {
+            (true, true) => {
+                fauna.retain(|animal| arena.iter().any(|other| other.role == animal.role));
+                fauna
+            }
+            (true, false) => fauna,
+            (false, true) => arena,
+            (false, false) => Vec::new(),
+        }
+    }
+
     pub fn missing_planet_requirements(&self, facts: &Facts) -> Requirements {
         let mut needed = Requirements::default();
         let sections =

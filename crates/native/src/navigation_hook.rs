@@ -16,12 +16,29 @@ use std::{
 
 type FindBuilding =
     unsafe extern "system" fn(usize, usize, usize, bool, bool, usize, bool, bool, usize) -> usize;
+type ResolveScanEvent = unsafe extern "system" fn(
+    usize,
+    usize,
+    u32,
+    usize,
+    usize,
+    bool,
+    f32,
+    usize,
+    usize,
+    bool,
+    bool,
+    bool,
+    usize,
+    bool,
+) -> usize;
 type PlanetFilter = unsafe extern "system" fn(usize, usize, bool, u8) -> bool;
 type PlanetAddress = unsafe extern "system" fn(usize) -> u64;
 const PLANET_ADDRESS_OFFSET: usize = 0x16ae410;
 const PLANET_ADDRESS_PREFIX: [u8; 12] = [
     0x48, 0x83, 0xec, 0x38, 0x4c, 0x8b, 0xd1, 0x48, 0x8d, 0x4c, 0x24, 0x20,
 ];
+static ORIGINAL_RESOLVE: AtomicUsize = AtomicUsize::new(0);
 static ORIGINAL_BUILDING: AtomicUsize = AtomicUsize::new(0);
 static ORIGINAL_FILTER: AtomicUsize = AtomicUsize::new(0);
 static PLANET_ADDRESS: AtomicUsize = AtomicUsize::new(0);
@@ -78,9 +95,11 @@ fn owned(event: usize) -> Option<TargetKind> {
 
 fn select(event: usize, context: usize) -> Result<Selection, &'static str> {
     let kind = owned(event).ok_or("unrecognized Search Probes destination event")?;
-    let mut identity = [0; 16];
-    identity[..kind.mission().len()].copy_from_slice(kind.mission().as_bytes());
-    if platform::read::<16>(context)? != identity
+    let identity = platform::read::<16>(context)?;
+    let Some((mission_kind, fauna_role)) = TargetKind::from_mission(&identity)? else {
+        return Err("Search Probes received an incompatible destination mission");
+    };
+    if mission_kind != kind
         || platform::read::<1>(context + 0x18)? != [1]
         || platform::u32_at(event + 0x48c)? != 4
         || platform::u32_at(event + 0x430)? != 1
@@ -88,7 +107,7 @@ fn select(event: usize, context: usize) -> Result<Selection, &'static str> {
         return Err("Search Probes received an incompatible destination event");
     }
     let seed = u64::from_le_bytes(platform::read(context + 0x10)?);
-    let target = crate::destination::from_seed(kind, seed)?;
+    let target = crate::destination::from_seed(kind, fauna_role, seed)?;
     let text = platform::pointer(platform::pointer(event + 0x428)?)?;
     let previous = platform::read::<17>(text)?;
     if previous[16] != 0 || !previous[..16].iter().all(u8::is_ascii_hexdigit) {
@@ -150,7 +169,9 @@ unsafe extern "system" fn building_detour(
             let actual = platform::pointer(building + 0x70)
                 .and_then(|planet| unsafe { planet_address(planet) });
             let matches_target = match (selection.target.kind, actual) {
-                (TargetKind::Planet, Ok(actual)) => actual == selection.target.address,
+                (TargetKind::Planet | TargetKind::Fauna, Ok(actual)) => {
+                    actual == selection.target.address
+                }
                 (TargetKind::System, Ok(actual)) => actual.system() == selection.target.address,
                 (_, Err(_)) => false,
             };
@@ -166,6 +187,57 @@ unsafe extern "system" fn building_detour(
     building
 }
 
+unsafe extern "system" fn resolve_detour(
+    manager: usize,
+    result: usize,
+    mode: u32,
+    event: usize,
+    argument_5: usize,
+    argument_6: bool,
+    argument_7: f32,
+    context: usize,
+    destination: usize,
+    argument_10: bool,
+    argument_11: bool,
+    argument_12: bool,
+    argument_13: usize,
+    argument_14: bool,
+) -> usize {
+    let selection = if owned(event).is_some() {
+        match select(event, context) {
+            Ok(selection) => Some(selection),
+            Err(error) => {
+                fail(error);
+                None
+            }
+        }
+    } else {
+        None
+    };
+    let _guard = SelectionGuard(SELECTION.replace(selection));
+    let original = unsafe {
+        std::mem::transmute::<usize, ResolveScanEvent>(ORIGINAL_RESOLVE.load(Ordering::Acquire))
+    };
+    unsafe {
+        original(
+            manager,
+            result,
+            mode,
+            event,
+            argument_5,
+            argument_6,
+            argument_7,
+            context,
+            destination,
+            argument_10,
+            argument_11,
+            argument_12,
+            argument_13,
+            argument_14,
+        )
+    }
+}
+
 unsafe extern "system" fn filter_detour(
     planet: usize,
     parameters: usize,
@@ -173,7 +245,10 @@ unsafe extern "system" fn filter_detour(
     class: u8,
 ) -> bool {
     if let Some(selection) = SELECTION.get().filter(|selection| {
-        selection.target.kind == TargetKind::Planet
+        matches!(
+            selection.target.kind,
+            TargetKind::Planet | TargetKind::Fauna
+        )
             // FindBuilding passes its event-data pointer through unchanged as argument two.
             && parameters == selection.event
     }) {
@@ -204,7 +279,16 @@ pub unsafe fn enable(base: usize) -> Result<(), HookError> {
         {
             return Err(HookError::PrefixChanged);
         }
-        let definitions: [(usize, usize, &[u8], &AtomicUsize); 2] = [
+        let definitions: [(usize, usize, &[u8], &AtomicUsize); 3] = [
+            (
+                0x1305bf0,
+                resolve_detour as *const () as usize,
+                &[
+                    0x44, 0x89, 0x44, 0x24, 0x18, 0x48, 0x89, 0x4c, 0x24, 0x08, 0x55, 0x53, 0x56,
+                    0x57, 0x41, 0x54,
+                ],
+                &ORIGINAL_RESOLVE,
+            ),
             (
                 0x130d3b0,
                 building_detour as *const () as usize,

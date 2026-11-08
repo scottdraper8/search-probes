@@ -13,6 +13,8 @@ mod control_worker;
 #[cfg(windows)]
 mod destination;
 #[cfg(windows)]
+mod discovery_hook;
+#[cfg(windows)]
 mod dispatch_gate;
 pub mod fauna;
 pub mod fauna_model_scalars;

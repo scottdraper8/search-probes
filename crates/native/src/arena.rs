@@ -283,7 +283,14 @@ impl Context {
             })
         }
     }
-    fn role(&self, role: &[u8], planet: u64, biome: u32, subtype: u32) -> Result<Option<Creature>> {
+    fn role(
+        &self,
+        role_index: usize,
+        role: &[u8],
+        planet: u64,
+        biome: u32,
+        subtype: u32,
+    ) -> Result<Option<Creature>> {
         let id: [u8; 16] = role[0x5a0..0x5b0].try_into().unwrap();
         let entry = *self
             .catalogue
@@ -308,7 +315,15 @@ impl Context {
             }
             RankEvidence::bounded(possible_ranks)?
         };
-        Ok(Some(Creature { affinity, ranks }))
+        let role = u8::try_from(role_index)
+            .ok()
+            .filter(|role| *role < 30)
+            .ok_or("Arena creature role exceeds discovery-table bounds")?;
+        Ok(Some(Creature {
+            role,
+            affinity,
+            ranks,
+        }))
     }
     /// # Safety
     /// Same initialized immutable query-planet lifetime as `fauna::capture`; no pointers escape.
@@ -327,6 +342,7 @@ impl Context {
         let mut creatures = Vec::with_capacity(inputs.roles.len());
         for role in &inputs.roles {
             if let Some(creature) = self.role(
+                role.index(),
                 &role.calculation_bytes(),
                 inputs.address.raw(),
                 inputs.biome,

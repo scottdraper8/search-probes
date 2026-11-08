@@ -251,8 +251,12 @@ impl FaunaCriteria {
         )
     }
 }
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct Species {
+    /// Index in the generated planet's creature-role table. The current game exposes at most 30
+    /// corresponding discovery records for a loaded planet.
+    pub role: u8,
+    pub name: Box<str>,
     pub family: Family,
     pub domain: Domain,
     pub activity: u8,
@@ -264,41 +268,70 @@ pub struct Species {
     pub heights_cm: [i32; 2],
 }
 impl Selection {
+    pub fn targets_animals(self) -> bool {
+        self.presence == Some(true)
+            || self.masks.iter().any(|&mask| mask != 0)
+            || self.height.active()
+    }
+
+    fn fields_match(self, species: &Species) -> bool {
+        let mut all = true;
+        let mut any = false;
+        for (index, value) in [
+            species.family as usize,
+            species.family.category() as usize,
+            species.activity as usize,
+            species.rarity as usize,
+            usize::from(species.cave),
+            species.hemisphere as usize,
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            if self.masks[index] != 0 {
+                let accepted = self.masks[index] & (1u64 << value) != 0;
+                all &= accepted;
+                any |= accepted;
+            }
+        }
+        if self.height.active() {
+            let accepted = self.height.matches(species.heights_cm);
+            all &= accepted;
+            any |= accepted;
+        }
+        match self.mode {
+            ResourceMode::All => all,
+            ResourceMode::Any => any,
+        }
+    }
+
+    /// Return the concrete animals that make an accepted positive fauna selection useful as an
+    /// animal destination. A pure absence rule can match a planet but deliberately has no animal
+    /// witness.
+    pub fn witnesses(self, species: &[Species]) -> Vec<&Species> {
+        let has_fields = self.masks.iter().any(|mask| *mask != 0) || self.height.active();
+        let presence_matches = self.presence == Some(true)
+            && species.iter().any(|species| species.domain == self.domain);
+        species
+            .iter()
+            .filter(|species| species.domain == self.domain)
+            .filter(|species| {
+                (self.mode == ResourceMode::Any && presence_matches)
+                    || (has_fields && self.fields_match(species))
+                    || (!has_fields && self.presence == Some(true))
+            })
+            .collect()
+    }
+
     pub fn evaluate(self, species: &[Species]) -> Verdict {
         let has_fields = self.masks.iter().any(|m| *m != 0) || self.height.active();
         let presence = self
             .presence
             .map(|expected| species.iter().any(|s| s.domain == self.domain) == expected);
-        let found = species.iter().filter(|s| s.domain == self.domain).any(|s| {
-            let mut all = true;
-            let mut any = false;
-            for (index, value) in [
-                s.family as usize,
-                s.family.category() as usize,
-                s.activity as usize,
-                s.rarity as usize,
-                usize::from(s.cave),
-                s.hemisphere as usize,
-            ]
-            .into_iter()
-            .enumerate()
-            {
-                if self.masks[index] != 0 {
-                    let accepted = self.masks[index] & (1u64 << value) != 0;
-                    all &= accepted;
-                    any |= accepted;
-                }
-            }
-            if self.height.active() {
-                let accepted = self.height.matches(s.heights_cm);
-                all &= accepted;
-                any |= accepted;
-            }
-            match self.mode {
-                ResourceMode::All => all,
-                ResourceMode::Any => any,
-            }
-        });
+        let found = species
+            .iter()
+            .filter(|species| species.domain == self.domain)
+            .any(|species| self.fields_match(species));
         let accepted = match self.mode {
             ResourceMode::All => presence.unwrap_or(true) && (!has_fields || found),
             ResourceMode::Any => presence.unwrap_or(false) || (has_fields && found),
@@ -308,5 +341,64 @@ impl Selection {
         } else {
             Verdict::NoMatch
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn animal(role: u8, name: &str, family: Family, domain: Domain) -> Species {
+        Species {
+            role,
+            name: name.into(),
+            family,
+            domain,
+            activity: 2,
+            rarity: 0,
+            cave: false,
+            hemisphere: 0,
+            heights_cm: [100, 120],
+        }
+    }
+
+    #[test]
+    fn positive_filters_return_only_concrete_matching_animals() {
+        let mut masks = [0; FaunaField::ALL.len()];
+        masks[FaunaField::Family as usize] = 1 << Family::Cats as usize;
+        let selection = Selection {
+            domain: Domain::Land,
+            presence: None,
+            masks,
+            height: HeightRange::default(),
+            mode: ResourceMode::All,
+        };
+        let species = [
+            animal(4, "I. Felycus", Family::Cats, Domain::Land),
+            animal(7, "O. Bovidus", Family::Cattle, Domain::Land),
+            animal(9, "N. Pelagicus", Family::Fish, Domain::Aquatic),
+        ];
+
+        let witnesses = selection.witnesses(&species);
+
+        assert_eq!(witnesses.len(), 1);
+        assert_eq!(witnesses[0].role, 4);
+        assert_eq!(witnesses[0].name.as_ref(), "I. Felycus");
+        assert_eq!(selection.evaluate(&species), Verdict::Match);
+    }
+
+    #[test]
+    fn absence_filter_has_no_animal_witness() {
+        let selection = Selection {
+            domain: Domain::Airborne,
+            presence: Some(false),
+            masks: [0; FaunaField::ALL.len()],
+            height: HeightRange::default(),
+            mode: ResourceMode::All,
+        };
+        let species = [animal(2, "O. Bovidus", Family::Cattle, Domain::Land)];
+
+        assert_eq!(selection.evaluate(&species), Verdict::Match);
+        assert!(selection.witnesses(&species).is_empty());
     }
 }

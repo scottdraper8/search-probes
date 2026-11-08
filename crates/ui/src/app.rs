@@ -660,7 +660,9 @@ impl App {
                         ui.columns(columns, |cards| {
                             for (column, result) in results.iter().enumerate() {
                                 let index = row * columns + column;
-                                cards[column].push_id(result.address.raw(), |ui| {
+                                cards[column].push_id(
+                                    (result.address.raw(), result.kind, result.fauna_role),
+                                    |ui| {
                                     egui::Frame::group(ui.style()).show(ui, |ui| {
                                         ui.set_width(ui.available_width());
                                         let coordinates = result.address.coordinates();
@@ -672,6 +674,7 @@ impl App {
                                             .unwrap_or_else(|| {
                                                 match result.kind {
                                                     search_probes_model::target::TargetKind::Planet => format!("Planet {}", coordinates.planet),
+                                                    search_probes_model::target::TargetKind::Fauna => "Animal".to_owned(),
                                                     kind => kind.label().to_owned(),
                                                 }
                                             });
@@ -680,13 +683,9 @@ impl App {
                                                 .strong(),
                                         );
                                         ui.small(format!(
-                                            "{} · Galaxy {} · {}, {}, {} · System {}",
+                                            "{} · Galaxy {}",
                                             result.kind.label(),
-                                            u16::from(coordinates.galaxy) + 1,
-                                            coordinates.x,
-                                            coordinates.y,
-                                            coordinates.z,
-                                            coordinates.system
+                                            u16::from(coordinates.galaxy) + 1
                                         ));
                                         ui.horizontal_wrapped(|ui| {
                                             if ui
@@ -707,7 +706,7 @@ impl App {
                                                     "{}\nUse a portal in Galaxy {}. {}",
                                                     result.target().portal_code(),
                                                     u16::from(coordinates.galaxy) + 1,
-                                                    if result.kind == search_probes_model::target::TargetKind::Planet { "Arrives on the target planet." } else { "Arrives through the first planet’s portal in this system." }
+                                                    if result.kind == search_probes_model::target::TargetKind::System { "Arrives through the first planet’s portal in this system." } else { "Arrives on the target planet." }
                                                 ))
                                                 .clicked()
                                             {
@@ -728,7 +727,8 @@ impl App {
                                             }
                                         });
                                     });
-                                });
+                                    },
+                                );
                             }
                         });
                     }

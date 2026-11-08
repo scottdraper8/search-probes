@@ -192,6 +192,8 @@ fn tuples(mut bits: u64) -> impl Iterator<Item = Ranks> {
 }
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 pub struct Creature {
+    /// Index in the generated planet's creature-role table.
+    pub role: u8,
     pub affinity: u8,
     pub ranks: RankEvidence,
 }
@@ -245,6 +247,42 @@ impl Selection {
             self.mode,
         )
     }
+    fn evaluate_creature(self, creature: &Creature) -> Verdict {
+        if let Some(ranks) = creature.ranks.single() {
+            return self.creature(creature.affinity, ranks);
+        }
+        if tuples(creature.ranks.known)
+            .any(|ranks| self.creature(creature.affinity, ranks) == Verdict::Match)
+        {
+            return Verdict::Match;
+        }
+        // A unanimous verdict is exact without knowing the placement. Disagreement needs a
+        // placement observation; existential acceptance would invent a creature variant.
+        let mut verdict = None;
+        for ranks in tuples(creature.ranks.possible) {
+            let current = self.creature(creature.affinity, ranks);
+            if verdict.is_some_and(|value| value != current) {
+                return Verdict::Unknown;
+            }
+            verdict = Some(current);
+        }
+        verdict.unwrap_or(Verdict::Unknown)
+    }
+    pub fn targets_animals(self) -> bool {
+        self.presence == Some(true) || self.masks.iter().any(|&mask| mask != 0)
+    }
+    pub fn witnesses(self, creatures: &[Creature]) -> Vec<&Creature> {
+        if !self.targets_animals() {
+            return Vec::new();
+        }
+        if !self.masks.iter().any(|&mask| mask != 0) {
+            return creatures.iter().collect();
+        }
+        creatures
+            .iter()
+            .filter(|creature| self.evaluate_creature(creature) == Verdict::Match)
+            .collect()
+    }
     pub fn evaluate(self, creatures: &[Creature]) -> Verdict {
         let fields = self.masks.iter().any(|&m| m != 0);
         let presence = self.presence.map(|expected| {
@@ -256,28 +294,9 @@ impl Selection {
         });
         let found = fields.then(|| {
             combine(
-                creatures.iter().map(|c| {
-                    if let Some(ranks) = c.ranks.single() {
-                        return self.creature(c.affinity, ranks);
-                    }
-                    if tuples(c.ranks.known)
-                        .any(|ranks| self.creature(c.affinity, ranks) == Verdict::Match)
-                    {
-                        return Verdict::Match;
-                    }
-                    // A unanimous verdict is exact without knowing the placement. Disagreement
-                    // needs a placement observation; existential acceptance of this upper bound
-                    // would invent a creature variant that may not exist on this planet.
-                    let mut verdict = None;
-                    for ranks in tuples(c.ranks.possible) {
-                        let current = self.creature(c.affinity, ranks);
-                        if verdict.is_some_and(|v| v != current) {
-                            return Verdict::Unknown;
-                        }
-                        verdict = Some(current);
-                    }
-                    verdict.unwrap_or(Verdict::Unknown)
-                }),
+                creatures
+                    .iter()
+                    .map(|creature| self.evaluate_creature(creature)),
                 ResourceMode::Any,
             )
         });

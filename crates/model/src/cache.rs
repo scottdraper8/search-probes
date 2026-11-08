@@ -25,6 +25,8 @@ pub struct CachedMatch {
     pub address: Address,
     pub kind: TargetKind,
     pub name: Option<Box<str>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub fauna_role: Option<u8>,
 }
 
 impl CachedMatch {
@@ -32,6 +34,7 @@ impl CachedMatch {
         Target {
             address: self.address,
             kind: self.kind,
+            fauna_role: self.fauna_role,
         }
     }
 }
@@ -111,7 +114,13 @@ impl SystemRecord {
                 if species.len() > crate::fauna::MAX_SPECIES {
                     return Err("cached fauna exceeds species bound");
                 }
-                Ok(bytes + std::mem::size_of_val(species) + 32)
+                Ok(bytes
+                    + std::mem::size_of_val(species)
+                    + species
+                        .iter()
+                        .map(|animal| animal.name.len())
+                        .sum::<usize>()
+                    + 32)
             })
     }
     pub fn evaluate(&self, plan: &Plan) -> Evaluation {
@@ -158,19 +167,36 @@ impl SystemRecord {
             })
     }
 
-    pub fn result(&self, address: Address, index: usize, plan: &Plan) -> CachedMatch {
+    pub fn results(&self, address: Address, index: usize, plan: &Plan) -> Vec<CachedMatch> {
         if plan.planet.is_empty() {
-            CachedMatch {
+            vec![CachedMatch {
                 address: address.system(),
                 kind: TargetKind::System,
                 name: self.system_name.clone(),
+                fauna_role: None,
+            }]
+        } else if let Some(facts) = self.planets.get(index) {
+            let address = address.planet(index).expect("bounded result planet");
+            if plan.targets_animals() {
+                return plan
+                    .animal_witnesses(facts)
+                    .into_iter()
+                    .map(|animal| CachedMatch {
+                        address,
+                        kind: TargetKind::Fauna,
+                        name: Some(animal.name.clone()),
+                        fauna_role: Some(animal.role),
+                    })
+                    .collect();
             }
-        } else {
-            CachedMatch {
-                address: address.planet(index).expect("bounded result planet"),
+            vec![CachedMatch {
+                address,
                 kind: TargetKind::Planet,
                 name: self.names[index].clone(),
-            }
+                fauna_role: None,
+            }]
+        } else {
+            Vec::new()
         }
     }
 }
@@ -252,5 +278,175 @@ impl Cache {
             .remove(&oldest)
             .expect("cache order tracks records");
         self.fauna_bytes -= removed.fauna_bytes().expect("validated cached fauna");
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{
+        address::Coordinates,
+        arena::{ArenaField, Creature, RankEvidence, Ranks, Selection as ArenaSelection},
+        criteria::{Predicate, Requirements, ResourceMode, Section},
+        fauna::{Domain, Family, FaunaField, HeightRange, Selection, Species},
+    };
+
+    fn address() -> Address {
+        Address::new(Coordinates {
+            x: 1,
+            y: 2,
+            z: 3,
+            galaxy: 0,
+            system: 4,
+            planet: 0,
+        })
+        .unwrap()
+    }
+
+    fn plan(selection: Selection) -> Plan {
+        Plan {
+            system: Vec::new(),
+            planet: vec![Predicate::Fauna(selection)],
+            requirements: Requirements::default(),
+            match_modes: [ResourceMode::All; Section::ALL.len()],
+        }
+    }
+
+    fn record(species: Vec<Species>) -> SystemRecord {
+        let mut system = Facts::default();
+        system.set_planet_count(1);
+        let mut planets: [Facts; 8] = std::array::from_fn(|_| Facts::default());
+        planets[0].set_fauna(species);
+        let mut record = SystemRecord::new(system, planets).unwrap();
+        record.set_name(0, "Test Planet").unwrap();
+        record
+    }
+
+    fn arena_plan(selection: ArenaSelection) -> Plan {
+        Plan {
+            system: Vec::new(),
+            planet: vec![Predicate::Arena(selection)],
+            requirements: Requirements::default(),
+            match_modes: [ResourceMode::All; Section::ALL.len()],
+        }
+    }
+
+    fn species(role: u8, name: &str) -> Species {
+        Species {
+            role,
+            name: name.into(),
+            family: Family::Cats,
+            domain: Domain::Land,
+            activity: 2,
+            rarity: 0,
+            cave: false,
+            hemisphere: 0,
+            heights_cm: [100, 120],
+        }
+    }
+
+    #[test]
+    fn positive_fauna_result_targets_the_named_animal() {
+        let mut masks = [0; FaunaField::ALL.len()];
+        masks[FaunaField::Family as usize] = 1 << Family::Cats as usize;
+        let selection = Selection {
+            domain: Domain::Land,
+            presence: None,
+            masks,
+            height: HeightRange::default(),
+            mode: ResourceMode::All,
+        };
+        let results = record(vec![Species {
+            role: 5,
+            name: "Q. Felycus".into(),
+            family: Family::Cats,
+            domain: Domain::Land,
+            activity: 2,
+            rarity: 0,
+            cave: false,
+            hemisphere: 0,
+            heights_cm: [100, 120],
+        }])
+        .results(address(), 0, &plan(selection));
+
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].kind, TargetKind::Fauna);
+        assert_eq!(results[0].fauna_role, Some(5));
+        assert_eq!(results[0].name.as_deref(), Some("Q. Felycus"));
+        assert_eq!(results[0].address, address().planet(0).unwrap());
+    }
+
+    #[test]
+    fn negative_only_fauna_result_remains_a_planet_target() {
+        let selection = Selection {
+            domain: Domain::Airborne,
+            presence: Some(false),
+            masks: [0; FaunaField::ALL.len()],
+            height: HeightRange::default(),
+            mode: ResourceMode::All,
+        };
+        let results = record(Vec::new()).results(address(), 0, &plan(selection));
+
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].kind, TargetKind::Planet);
+        assert_eq!(results[0].fauna_role, None);
+        assert_eq!(results[0].name.as_deref(), Some("Test Planet"));
+    }
+
+    #[test]
+    fn arena_result_targets_the_named_qualifying_animal() {
+        let mut masks = [0; ArenaField::ALL.len()];
+        masks[ArenaField::Affinity as usize] = 1 << 7;
+        masks[ArenaField::OverallRank as usize] = 1 << 3;
+        masks[ArenaField::Combat as usize] = 1 << 3;
+        masks[ArenaField::Agility as usize] = 1 << 3;
+        masks[ArenaField::Health as usize] = 1 << 3;
+        let plan = arena_plan(ArenaSelection {
+            presence: None,
+            masks,
+            mode: ResourceMode::All,
+        });
+        let mut record = record(vec![species(5, "Q. Arenacus")]);
+        record.planets[0].set_arena(vec![Creature {
+            role: 5,
+            affinity: 7,
+            ranks: RankEvidence::exact(Ranks {
+                combat: 3,
+                agility: 3,
+                health: 3,
+            })
+            .unwrap(),
+        }]);
+
+        let results = record.results(address(), 0, &plan);
+
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].kind, TargetKind::Fauna);
+        assert_eq!(results[0].fauna_role, Some(5));
+        assert_eq!(results[0].name.as_deref(), Some("Q. Arenacus"));
+    }
+
+    #[test]
+    fn arena_result_does_not_fall_back_to_a_planet_without_an_animal_witness() {
+        let mut masks = [0; ArenaField::ALL.len()];
+        masks[ArenaField::Affinity as usize] = 1 << 7;
+        let plan = arena_plan(ArenaSelection {
+            presence: None,
+            masks,
+            mode: ResourceMode::All,
+        });
+        let mut record = record(vec![species(4, "Q. Otherus")]);
+        record.planets[0].set_arena(vec![Creature {
+            role: 5,
+            affinity: 7,
+            ranks: RankEvidence::exact(Ranks {
+                combat: 0,
+                agility: 0,
+                health: 0,
+            })
+            .unwrap(),
+        }]);
+
+        assert!(record.results(address(), 0, &plan).is_empty());
     }
 }
