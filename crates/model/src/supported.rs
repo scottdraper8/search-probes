@@ -1,5 +1,5 @@
-pub const GAME_VERSION: &str = "7.13 (Forsaken)";
-pub const STEAM_BUILD: u64 = 26_385_139;
-pub const EXECUTABLE_BYTES: u64 = 89_535_560;
+pub const GAME_VERSION: &str = "7.14 (Forsaken)";
+pub const STEAM_BUILD: u64 = 26_540_391;
+pub const EXECUTABLE_BYTES: u64 = 89_540_680;
 pub const EXECUTABLE_SHA256: &str =
-    "a77fc29877789c3da9181afeb5941b9b85a27d3df24919a24403cf8e194c6109";
+    "092236962ee050e419424699b5c343a0173f7773d5ad0866b7ec366d334c07d4";

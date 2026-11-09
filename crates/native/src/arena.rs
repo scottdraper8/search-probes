@@ -4,10 +4,10 @@ use search_probes_model::address::Address;
 use search_probes_model::arena::{Creature, RankEvidence, Ranks};
 
 type Result<T> = std::result::Result<T, &'static str>;
-const RANK_FUNCTION_RVA: usize = 0x13d0270;
-const RANK_WEIGHTS_RVA: usize = 0x53286e4;
-const RANK_FORK_IDS_RVA: usize = 0x4afdf40;
-const RANK_ROOT_FORK_ID_RVA: usize = 0x4ba8960;
+const RANK_FUNCTION_RVA: usize = 0x13d0740;
+const RANK_WEIGHTS_RVA: usize = 0x5329724;
+const RANK_FORK_IDS_RVA: usize = 0x4aff480;
+const RANK_ROOT_FORK_ID_RVA: usize = 0x4baa208;
 const RANK_FUNCTION_PREFIX: [u8; 36] = [
     0x48, 0x89, 0x5c, 0x24, 0x08, 0x48, 0x89, 0x74, 0x24, 0x10, 0x48, 0x89, 0x7c, 0x24, 0x20, 0x44,
     0x89, 0x44, 0x24, 0x18, 0x55, 0x41, 0x54, 0x41, 0x55, 0x41, 0x56, 0x41, 0x57, 0x48, 0x81, 0xec,
@@ -104,13 +104,13 @@ impl Context {
             if read::<[[u8; 16]; 3]>(image, RANK_FORK_IDS_RVA) != RANK_FORK_IDS
                 || read::<[u8; 17]>(image, RANK_ROOT_FORK_ID_RVA) != RANK_ROOT_FORK_ID
             {
-                return Err("Arena rank fork IDs do not match 7.13");
+                return Err("Arena rank fork IDs do not match 7.14");
             }
             let catalogue = crate::fauna_models::Catalogue::from_verified_image(base)?;
             let affinities = catalogue.affinity_map();
             let weights = read::<[u32; 12]>(image, RANK_WEIGHTS_RVA);
             if weights != RANK_WEIGHTS {
-                return Err("Arena rank weights do not match 7.13");
+                return Err("Arena rank weights do not match 7.14");
             }
             Ok(Self {
                 catalogue,

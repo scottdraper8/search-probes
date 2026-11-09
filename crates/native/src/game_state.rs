@@ -45,7 +45,7 @@ impl Snapshot {
             return Err("gameplay resources are loading");
         }
         let base = image.base();
-        let application = platform::pointer(base + 0x6f6b208)?;
+        let application = platform::pointer(base + 0x6f6c288)?;
         let root = platform::pointer(application + 0x72b610)?;
         let raw = platform::read::<24>(application + 0xc1a0)?;
         let components: [i32; 6] = std::array::from_fn(|index| {
@@ -82,16 +82,16 @@ impl Snapshot {
         if difficulty > 3 {
             return Err("unsupported combat difficulty");
         }
-        let planet = root + 0x5217a0;
+        let planet = root + 0x522b40;
         let configuration = configuration_identity(platform::read::<CONFIGURATION_SIZE>(planet)?);
-        let solar_resources = platform::read::<16>(root + 0x5223b0 + 0x6c0)?;
+        let solar_resources = platform::read::<16>(root + 0x523750 + 0x6c0)?;
         if solar_resources
             .chunks_exact(8)
             .any(|bytes| u64::from_le_bytes(bytes.try_into().expect("resource pointer")) < 0x10000)
         {
             return Err("solar generator resources are not ready");
         }
-        let object_cache = platform::u32_at(base + 0x756b058)?;
+        let object_cache = platform::u32_at(base + 0x756c148)?;
         if object_cache == 0 || object_cache == u32::MAX {
             return Err("object resources are not ready");
         }
@@ -99,7 +99,7 @@ impl Snapshot {
             transition,
             application,
             root,
-            language: platform::u32_at(base + 0x6ee6308)?,
+            language: platform::u32_at(base + 0x6ee7388)?,
             difficulty,
             object_cache,
             solar_resources,

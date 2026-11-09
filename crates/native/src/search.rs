@@ -348,7 +348,7 @@ impl<'cache> Generator<'cache> {
                                 palettes:capture::flora_palettes(live),
                                 ground_colours:capture::flora_ground_colours(live),
                                 // The 7.11 palette-mode RVA is zero-filled and has no code
-                                // references in the verified 7.13 executable. Keep the current
+                                // references in the verified 7.14 executable. Keep the current
                                 // default mode instead of reading that unrelated storage.
                                 palette_mode: 0,
                             };

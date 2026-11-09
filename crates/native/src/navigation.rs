@@ -27,7 +27,7 @@ const ROLE_DENSITY: usize = 0x5c4;
 const ROLE_TILE: usize = 0x5cc;
 const SIGNAL_MISSION: &[u8] = b"SQN_SP_SIGNAL";
 const MAX_RETAINED_DISCOVERIES: usize = 64;
-const SELECT_MISSION_RVA: usize = 0x9d7de0;
+const SELECT_MISSION_RVA: usize = 0x9d7c90;
 const SELECT_MISSION_PREFIX: [u8; 26] = [
     0x48, 0x8b, 0xc4, 0x44, 0x88, 0x40, 0x18, 0x53, 0x56, 0x57, 0x41, 0x54, 0x48, 0x81, 0xec, 0x58,
     0x01, 0x00, 0x00, 0x45, 0x33, 0xe4, 0x41, 0x0f, 0xb6, 0xf8,
@@ -382,7 +382,7 @@ impl Navigation {
         self.description = Some(result.clone());
         let mission = target.mission()?;
         type Start = unsafe extern "system" fn(usize, *const u8, *const Seed, bool, bool) -> bool;
-        let start = unsafe { std::mem::transmute::<usize, Start>(image.base() + 0x9ced00) };
+        let start = unsafe { std::mem::transmute::<usize, Start>(image.base() + 0x9cebb0) };
         let accepted = unsafe {
             start(
                 manager,
@@ -554,7 +554,7 @@ impl Navigation {
             return Ok(());
         }
         type Start = unsafe extern "system" fn(usize, *const u8, *const Seed, bool, bool) -> bool;
-        let start = unsafe { std::mem::transmute::<usize, Start>(image.base() + 0x9ced00) };
+        let start = unsafe { std::mem::transmute::<usize, Start>(image.base() + 0x9cebb0) };
         let accepted = unsafe {
             start(
                 manager,

@@ -5,7 +5,7 @@ It provides an F7 overlay, coordinate copying, in-space interstellar guidance an
 destinations. The runtime and UI are Rust; parent-repository tooling is not part of the distributed
 mod.
 
-The native runtime currently targets public NMS 7.13 (Steam build `26385139`) and rejects other
+The native runtime currently targets public NMS 7.14 (Steam build `26540391`) and rejects other
 executable identities. The exact executable fingerprint is maintained in `crates/model/src/supported.rs`.
 
 Positive fauna filters produce one Animal result for each matching generated species and include

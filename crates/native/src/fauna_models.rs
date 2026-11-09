@@ -72,7 +72,7 @@ struct SizeRules {
 }
 
 impl SizeRules {
-    fn current_7_13() -> Self {
+    fn current_7_14() -> Self {
         Self {
             maximum: 8.0,
             multiplier: 1.0,
@@ -162,11 +162,11 @@ pub struct Catalogue {
 
 impl Catalogue {
     /// # Safety
-    /// `base` is the verified NMS 7.13 image and its application catalogue remains live.
+    /// `base` is the verified NMS 7.14 image and its application catalogue remains live.
     pub unsafe fn from_verified_image(base: usize) -> Result<Self> {
         unsafe {
             let image = base as *const u8;
-            let application = read::<*const u8>(image, 0x6f6b208);
+            let application = read::<*const u8>(image, 0x6f6c288);
             pointer(application, 0x5c5550)?;
             let count = read::<i32>(application, 0x5c5548);
             if !(1..=32).contains(&count) {
@@ -196,7 +196,7 @@ impl Catalogue {
             }
             Ok(Self {
                 entries,
-                size: SizeRules::current_7_13().validate()?,
+                size: SizeRules::current_7_14().validate()?,
             })
         }
     }
@@ -242,7 +242,7 @@ impl Catalogue {
     pub fn empty_for_tests() -> Self {
         Self {
             entries: BTreeMap::new(),
-            size: SizeRules::current_7_13(),
+            size: SizeRules::current_7_14(),
         }
     }
 }
@@ -318,7 +318,7 @@ mod tests {
         );
         let catalogue = Catalogue {
             entries,
-            size: SizeRules::current_7_13(),
+            size: SizeRules::current_7_14(),
         };
         let mut role = [0u8; ROLE_BYTES];
         role[0x5a0..0x5b0].copy_from_slice(&id);
