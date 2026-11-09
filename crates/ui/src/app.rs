@@ -661,23 +661,16 @@ impl App {
                             for (column, result) in results.iter().enumerate() {
                                 let index = row * columns + column;
                                 cards[column].push_id(
-                                    (result.address.raw(), result.kind, result.fauna_role),
+                                    (
+                                        result.address.raw(),
+                                        result.kind,
+                                        result.fauna.as_ref().map(|fauna| fauna.role),
+                                    ),
                                     |ui| {
                                     egui::Frame::group(ui.style()).show(ui, |ui| {
                                         ui.set_width(ui.available_width());
                                         let coordinates = result.address.coordinates();
-                                        let name = result
-                                            .name
-                                            .as_deref()
-                                            .filter(|name| !name.is_empty())
-                                            .map(str::to_owned)
-                                            .unwrap_or_else(|| {
-                                                match result.kind {
-                                                    search_probes_model::target::TargetKind::Planet => format!("Planet {}", coordinates.planet),
-                                                    search_probes_model::target::TargetKind::Fauna => "Animal".to_owned(),
-                                                    kind => kind.label().to_owned(),
-                                                }
-                                            });
+                                        let name = result.title().unwrap_or("Name unavailable");
                                         ui.label(
                                             RichText::new(format!("{}. {name}", index + 1))
                                                 .strong(),
@@ -691,6 +684,7 @@ impl App {
                                             if ui
                                                 .add_enabled(
                                                     state.availability == Availability::Ready
+                                                        && result.destination_names_complete()
                                                         && state.player.is_some_and(|player| player.coordinates().galaxy == coordinates.galaxy),
                                                     egui::Button::new("Set destination"),
                                                 )

@@ -21,7 +21,6 @@ const GALACTIC_MAP_VTABLE: usize = 0x4b1bfe0;
 const SAVE_SELECTION_VTABLE: usize = 0x4b1c1b8;
 const TITLE_SCREEN_VTABLE: usize = 0x4b1c240;
 const SHUTDOWN_VTABLE: usize = 0x4b1bf90;
-const GLOBAL_LOAD_VTABLE: usize = 0x4b1be70;
 
 thread_local! {
     static TRANSITION_DEPTH: Cell<u32> = const { Cell::new(0) };
@@ -75,9 +74,9 @@ fn application_state(machine: usize, base: usize) -> ApplicationState {
         .ok();
     match vtable.and_then(|vtable| vtable.checked_sub(base)) {
         Some(SIMULATION_VTABLE | GALACTIC_MAP_VTABLE) => ApplicationState::Gameplay,
-        Some(
-            SAVE_SELECTION_VTABLE | TITLE_SCREEN_VTABLE | SHUTDOWN_VTABLE | GLOBAL_LOAD_VTABLE,
-        ) => ApplicationState::NewSession,
+        Some(SAVE_SELECTION_VTABLE | TITLE_SCREEN_VTABLE | SHUTDOWN_VTABLE) => {
+            ApplicationState::NewSession
+        }
         _ => ApplicationState::Loading,
     }
 }

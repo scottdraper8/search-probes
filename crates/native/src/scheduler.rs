@@ -42,11 +42,20 @@ impl Default for Scheduler {
 
 impl Scheduler {
     #[cfg(windows)]
-    pub unsafe fn name_system_results(&mut self, base: usize) -> Result<(), &'static str> {
+    pub unsafe fn name_results(&mut self, base: usize) -> Result<(), &'static str> {
         for address in self.session.unnamed_system_results() {
             let name = unsafe { crate::system_name::generate(base, address) }?;
             self.session.name_system(address, &name)?;
             self.statistics.work.names += 1;
+        }
+        let identities = self.session.unnamed_fauna_results();
+        if !identities.is_empty() {
+            let context = unsafe { crate::fauna::Context::from_verified_image(base) }?;
+            for identity in identities {
+                let name = unsafe { context.name(identity.species_seed, identity.genus_seed) }?;
+                self.session.name_fauna(identity, &name)?;
+                self.statistics.work.names += 1;
+            }
         }
         Ok(())
     }

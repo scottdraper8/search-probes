@@ -221,7 +221,11 @@ pub(crate) fn finish_application_transition() -> Result<(), &'static str> {
 pub(crate) fn retire_application_sources(menu: bool) -> Result<(), &'static str> {
     if let Some(runtime) = RUNTIME.get() {
         let mut runtime = runtime.lock()?;
-        runtime.reset();
+        if menu {
+            runtime.reset_session();
+        } else {
+            runtime.retire_application_sources();
+        }
         runtime.epoch = None;
         runtime.controls.cancel.store(true, Ordering::Release);
         runtime.controls.update(|state| {
@@ -249,15 +253,25 @@ pub(crate) fn retire_application_sources(menu: bool) -> Result<(), &'static str>
 }
 
 impl Runtime {
-    fn reset(&mut self) {
+    fn reset_search(&mut self) {
         self.scheduler.reset();
-        self.navigation = Navigation::default();
-        navigation_hook::reset();
-        discovery_hook::reset();
-        mission_text_hook::clear();
-        self.navigation_polled = None;
         self.controls.reset_search_clock();
     }
+
+    fn retire_application_sources(&mut self) {
+        self.reset_search();
+        self.navigation.retire_application_sources();
+        navigation_hook::reset();
+        discovery_hook::reset();
+        self.navigation_polled = None;
+    }
+
+    fn reset_session(&mut self) {
+        self.retire_application_sources();
+        self.navigation = Navigation::default();
+        mission_text_hook::clear();
+    }
+
     fn tick(&mut self) {
         let available = self
             .controls
@@ -275,7 +289,7 @@ impl Runtime {
         let session = lifecycle_hook::session();
         self.controls.observe_transition(transition, session);
         if session != self.session {
-            self.reset();
+            self.reset_session();
             self.epoch = None;
             self.session = session;
         }
@@ -301,7 +315,7 @@ impl Runtime {
                 .as_ref()
                 .is_some_and(|epoch| epoch.evaluation_rules_changed(&snapshot.epoch))
             {
-                self.reset();
+                self.reset_search();
                 self.controls.update(|state| {
                     state.generation = state.generation.wrapping_add(1);
                     state.progress = None;
@@ -368,7 +382,7 @@ impl Runtime {
                     .update(|state| state.error = Some(error.into()));
             }
         }
-        if let Err(error) = unsafe { self.scheduler.name_system_results(self.image.base()) } {
+        if let Err(error) = unsafe { self.scheduler.name_results(self.image.base()) } {
             self.scheduler.session.fail(error);
             self.controls
                 .update(|state| state.error = Some(error.into()));
@@ -474,11 +488,10 @@ impl Runtime {
                     .map_err(|_| "runtime state poisoned")?
                     .results
                     .iter()
-                    .any(|result| result.target() == target);
-                if !displayed {
-                    return Err("destination is not a current search result");
-                }
-                unsafe { self.navigation.start(&self.image, snapshot, target) }?;
+                    .find(|result| result.target() == target)
+                    .cloned()
+                    .ok_or("destination is not a current search result")?;
+                unsafe { self.navigation.start(&self.image, snapshot, &displayed) }?;
                 self.navigation_polled = None;
             }
         }

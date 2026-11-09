@@ -14,6 +14,7 @@ type GenerateName = unsafe extern "system" fn(usize, u64, u64, *mut u8, bool);
 pub struct Context {
     name_context: usize,
     generate_name: GenerateName,
+    models: crate::fauna_models::Catalogue,
 }
 
 impl Context {
@@ -33,7 +34,16 @@ impl Context {
         Ok(Self {
             name_context: application + NAME_CONTEXT,
             generate_name: unsafe { std::mem::transmute::<usize, GenerateName>(address) },
+            models: unsafe { crate::fauna_models::Catalogue::from_verified_image(base) }?,
         })
+    }
+
+    pub fn identity(
+        &self,
+        role: &[u8],
+        address: search_probes_model::address::Address,
+    ) -> Result<search_probes_model::fauna::NameIdentity, &'static str> {
+        self.models.naming_identity(role, address)
     }
 
     /// # Safety
@@ -124,7 +134,11 @@ pub struct Observation {
 
 /// # Safety
 /// Same observation window as `player_attacking`. No native pointer is retained.
-pub unsafe fn capture(planet: *const u8) -> Result<Observation, &'static str> {
+pub unsafe fn capture(
+    context: &Context,
+    planet: *const u8,
+    address: search_probes_model::address::Address,
+) -> Result<Observation, &'static str> {
     use search_probes_model::fauna::{Domain, Family, Species};
     let player_attacking = unsafe { player_attacking(planet)? };
     let sandworms = unsafe { sandworms(planet)? };
@@ -172,6 +186,10 @@ pub unsafe fn capture(planet: *const u8) -> Result<Observation, &'static str> {
         }
         species.push(Species {
             role: role_index,
+            name_identity: context.identity(
+                unsafe { std::slice::from_raw_parts(role, ROLE_STRIDE) },
+                address,
+            )?,
             family,
             domain,
             activity: activity as u8,

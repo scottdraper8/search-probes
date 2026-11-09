@@ -214,10 +214,21 @@ impl Session {
         self.progress()
             .into_iter()
             .flat_map(|progress| &progress.results)
-            .filter(|result| {
-                result.kind == crate::target::TargetKind::System && result.name.is_none()
-            })
-            .map(|result| result.address)
+            .filter(|result| result.system_name.is_none())
+            .map(|result| result.address.system())
+            .collect::<std::collections::BTreeSet<_>>()
+            .into_iter()
+            .collect()
+    }
+    pub fn unnamed_fauna_results(&self) -> Vec<crate::fauna::NameIdentity> {
+        self.progress()
+            .into_iter()
+            .flat_map(|progress| &progress.results)
+            .filter_map(|result| result.fauna.as_ref())
+            .filter(|fauna| fauna.name.is_none())
+            .map(|fauna| fauna.name_identity)
+            .collect::<std::collections::BTreeSet<_>>()
+            .into_iter()
             .collect()
     }
     pub fn name_system(&mut self, address: Address, name: &str) -> Result<(), &'static str> {
@@ -227,11 +238,30 @@ impl Session {
         self.cache.name_system(address, name)?;
         if let Some(search) = self.search.as_mut() {
             for result in &mut search.progress.results {
-                if result.kind == crate::target::TargetKind::System
-                    && result.address == address.system()
-                {
-                    result.name = Some(name.into());
+                if result.address.system() == address.system() {
+                    result.system_name = Some(name.into());
                 }
+            }
+        }
+        Ok(())
+    }
+    pub fn name_fauna(
+        &mut self,
+        identity: crate::fauna::NameIdentity,
+        name: &str,
+    ) -> Result<(), &'static str> {
+        if name.is_empty() || name.len() > crate::cache::MAX_NAME_BYTES {
+            return Err("invalid result fauna name");
+        }
+        if let Some(search) = self.search.as_mut() {
+            for fauna in search
+                .progress
+                .results
+                .iter_mut()
+                .filter_map(|result| result.fauna.as_mut())
+                .filter(|fauna| fauna.name_identity == identity)
+            {
+                fauna.name = Some(name.into());
             }
         }
         Ok(())
