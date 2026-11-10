@@ -61,10 +61,13 @@ or run huge unattended soak searches.
 
 ```sh
 games/no-mans-sky/tooling/runtime/preview-ui
+games/no-mans-sky/tooling/runtime/preview-ui --fixtures 25
 ```
 
-The preview shares the product UI and reloads after source changes. **Stop it while NMS is running**;
-it must not open windows or steal game focus. `--no-watch` opens one preview.
+The preview shares the product UI and reloads after source changes. `--fixtures COUNT` populates it
+with that many representative results; the fixture patterns repeat with unique identities. **Stop
+it while NMS is running**; it must not open windows or steal game focus. `--no-watch` opens one
+preview.
 
 ### Build and package
 

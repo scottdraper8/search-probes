@@ -148,17 +148,12 @@ pub fn set_fauna(name: &str, domain: Domain, cave: bool) -> Result<(), &'static 
     if name.is_empty() {
         return Err("destination has no fauna name");
     }
-    let habitat = match (domain, cave) {
-        (Domain::Land, true) => "The target is an underground-dwelling creature",
-        (Domain::Land, false) => "The target is a surface-dwelling creature",
-        (Domain::Aquatic, _) => "The target is an aquatic creature",
-        (Domain::Airborne, _) => "The target is an airborne creature",
-    };
+    let habitat = format!("The target is a {} creature", domain.dwelling(cave));
     publish(
         &FAUNA_OBJECTIVE,
         format!("Use the Analysis Visor to scan {name}"),
     )?;
-    publish(&FAUNA_TIP, habitat.into())
+    publish(&FAUNA_TIP, habitat)
 }
 
 pub fn set_destination(result: &CachedMatch) -> Result<(), &'static str> {

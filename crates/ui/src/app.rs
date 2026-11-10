@@ -1,3 +1,4 @@
+use crate::export::{ExportFormat, ExportRequest};
 use egui::{self, Color32, RichText, Ui};
 use search_probes_model::controls::Controls;
 use search_probes_model::{
@@ -137,6 +138,8 @@ pub struct App {
     pending_search: Option<u64>,
     binding_window: bool,
     binding_capture: Option<BindingCapture>,
+    export_request: Option<ExportRequest>,
+    export_status: Option<String>,
 }
 
 impl App {
@@ -168,6 +171,8 @@ impl App {
             pending_search: None,
             binding_window: false,
             binding_capture: None,
+            export_request: None,
+            export_status: None,
         }
     }
     fn send(&mut self, action: Action) {
@@ -934,8 +939,27 @@ impl App {
             });
     }
     fn results(&mut self, ui: &mut Ui) {
-        ui.heading("Results");
         let state = self.state.clone();
+        ui.horizontal(|ui| {
+            ui.heading("Results");
+            if !state.results.is_empty() {
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    ui.menu_button("Export", |ui| {
+                        for format in [ExportFormat::Text, ExportFormat::Csv] {
+                            if ui.button(format.label()).clicked() {
+                                self.export_request =
+                                    Some(ExportRequest::new(format, &state.results));
+                                self.export_status = None;
+                                ui.close();
+                            }
+                        }
+                    });
+                });
+            }
+        });
+        if let Some(status) = &self.export_status {
+            ui.colored_label(Color32::LIGHT_GREEN, status);
+        }
         if state.availability != Availability::Ready {
             ui.label(match state.availability {
                 Availability::MainMenu => "Load a save to search.",
@@ -1002,85 +1026,80 @@ impl App {
         if !state.results.is_empty() {
             ui.separator();
             let results: Vec<_> = state.results.iter().collect();
-            egui::ScrollArea::vertical()
-                .id_salt("results")
-                .show(ui, |ui| {
-                    let gap = ui.spacing().item_spacing.x;
-                    let available = ui.available_width();
-                    let columns = ((available + gap) / (RESULT_CARD_MIN_WIDTH + gap))
-                        .floor()
-                        .max(1.0) as usize;
-                    for (row, results) in results.chunks(columns).enumerate() {
-                        ui.columns(columns, |cards| {
-                            for (column, result) in results.iter().enumerate() {
-                                let index = row * columns + column;
-                                cards[column].push_id(
-                                    (
-                                        result.address.raw(),
-                                        result.kind,
-                                        result.fauna.as_ref().map(|fauna| fauna.role),
-                                    ),
-                                    |ui| {
-                                    egui::Frame::group(ui.style()).show(ui, |ui| {
-                                        ui.set_width(ui.available_width());
-                                        let coordinates = result.address.coordinates();
-                                        let name = result.title().unwrap_or("Name unavailable");
-                                        ui.label(
-                                            RichText::new(format!("{}. {name}", index + 1))
-                                                .strong(),
-                                        );
-                                        ui.small(format!(
-                                            "{} · Galaxy {}",
-                                            result.kind.label(),
-                                            u16::from(coordinates.galaxy) + 1
-                                        ));
-                                        ui.horizontal_wrapped(|ui| {
-                                            if ui
-                                                .add_enabled(
-                                                    state.availability == Availability::Ready
-                                                        && result.destination_names_complete()
-                                                        && state.player.is_some_and(|player| player.coordinates().galaxy == coordinates.galaxy),
-                                                    egui::Button::new("Set destination"),
-                                                )
-                                                .clicked()
-                                            {
-                                                self.send(Action::Navigate {
-                                                    target: result.target(),
-                                                });
-                                            }
-                                            if ui
-                                                .button("Copy portal code")
-                                                .on_hover_text(format!(
-                                                    "{}\nUse a portal in Galaxy {}. {}",
-                                                    result.target().portal_code(),
-                                                    u16::from(coordinates.galaxy) + 1,
-                                                    if result.kind == search_probes_model::target::TargetKind::System { "Arrives through the first planet’s portal in this system." } else { "Arrives on the target planet." }
-                                                ))
-                                                .clicked()
-                                            {
-                                                ui.ctx().copy_text(result.target().portal_code());
-                                            }
-                                            if ui
-                                                .button("Copy galactic coords")
-                                                .on_hover_text(format!(
-                                                    "{}\nIdentifies this system.",
-                                                    result.address.galactic_coordinates()
-                                                ))
-                                                .clicked()
-                                            {
-                                                ui.ctx().copy_text(result.address.galactic_coordinates());
-                                            }
-                                            if state.destination == Some(result.target()) {
-                                                ui.label("Active destination");
-                                            }
-                                        });
+            let gap = ui.spacing().item_spacing.x;
+            let available = ui.available_width();
+            let columns = ((available + gap) / (RESULT_CARD_MIN_WIDTH + gap))
+                .floor()
+                .max(1.0) as usize;
+            for (row, results) in results.chunks(columns).enumerate() {
+                ui.columns(columns, |cards| {
+                    for (column, result) in results.iter().enumerate() {
+                        let index = row * columns + column;
+                        cards[column].push_id(
+                            (
+                                result.address.raw(),
+                                result.kind,
+                                result.fauna.as_ref().map(|fauna| fauna.role),
+                            ),
+                            |ui| {
+                                egui::Frame::group(ui.style()).show(ui, |ui| {
+                                    ui.set_width(ui.available_width());
+                                    let coordinates = result.address.coordinates();
+                                    let name = result.title().unwrap_or("Name unavailable");
+                                    ui.label(
+                                        RichText::new(format!("{}. {name}", index + 1)).strong(),
+                                    );
+                                    ui.small(format!(
+                                        "{} · Galaxy {}",
+                                        result.kind.label(),
+                                        u16::from(coordinates.galaxy) + 1
+                                    ));
+                                    ui.horizontal_wrapped(|ui| {
+                                        if ui
+                                            .add_enabled(
+                                                state.availability == Availability::Ready
+                                                    && result.destination_names_complete()
+                                                    && state.player.is_some_and(|player| player.coordinates().galaxy == coordinates.galaxy),
+                                                egui::Button::new("Set destination"),
+                                            )
+                                            .clicked()
+                                        {
+                                            self.send(Action::Navigate {
+                                                target: result.target(),
+                                            });
+                                        }
+                                        if ui
+                                            .button("Copy portal code")
+                                            .on_hover_text(format!(
+                                                "{}\nUse a portal in Galaxy {}. {}",
+                                                result.target().portal_code(),
+                                                u16::from(coordinates.galaxy) + 1,
+                                                if result.kind == search_probes_model::target::TargetKind::System { "Arrives through the first planet’s portal in this system." } else { "Arrives on the target planet." }
+                                            ))
+                                            .clicked()
+                                        {
+                                            ui.ctx().copy_text(result.target().portal_code());
+                                        }
+                                        if ui
+                                            .button("Copy galactic coords")
+                                            .on_hover_text(format!(
+                                                "{}\nIdentifies this system.",
+                                                result.address.galactic_coordinates()
+                                            ))
+                                            .clicked()
+                                        {
+                                            ui.ctx().copy_text(result.address.galactic_coordinates());
+                                        }
+                                        if state.destination == Some(result.target()) {
+                                            ui.label("Active destination");
+                                        }
                                     });
-                                    },
-                                );
-                            }
-                        });
+                                });
+                            },
+                        );
                     }
                 });
+            }
         }
     }
 }
@@ -1089,6 +1108,24 @@ impl App {
     /// Current draft settings, including edits that have not been applied to the game.
     pub fn settings(&self) -> &Settings {
         &self.settings
+    }
+
+    pub fn take_export_request(&mut self) -> Option<ExportRequest> {
+        self.export_request.take()
+    }
+
+    pub fn finish_export(&mut self, result: Result<Option<String>, String>) {
+        match result {
+            Ok(Some(path)) => {
+                self.error = None;
+                self.export_status = Some(format!("Exported results to {path}"));
+            }
+            Ok(None) => {}
+            Err(error) => {
+                self.export_status = None;
+                self.error = Some(format!("Cannot export results: {error}"));
+            }
+        }
     }
 
     pub fn refresh(&mut self) {

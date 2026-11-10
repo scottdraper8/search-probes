@@ -1,4 +1,4 @@
-use super::{Chain, Device, hdr, input};
+use super::{Chain, Device, export, hdr, input};
 use ash::vk;
 use egui_ash_renderer::{Options, RenderMode, Renderer, allocator::DefaultAllocator};
 use search_probes_model::controls::Controls;
@@ -323,6 +323,11 @@ impl Painter {
                 .show(root.ctx(), |ui_root| ui.app.ui(ui_root));
         });
         input::output(hwnd, &output.platform_output);
+        if let Some(request) = ui.app.take_export_request() {
+            let result = export::save(hwnd, &request);
+            ui.app.finish_export(result);
+            context.request_repaint();
+        }
         let mut texture_error = None;
         for (id, deltas) in output.textures_delta.set.drain() {
             for delta in deltas {

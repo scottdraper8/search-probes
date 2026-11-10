@@ -40,6 +40,14 @@ impl Domain {
     pub fn bit(self) -> u8 {
         1 << self as u8
     }
+    pub const fn dwelling(self, cave: bool) -> &'static str {
+        match (self, cave) {
+            (Self::Land, true) => "underground-dwelling",
+            (Self::Land, false) => "surface-dwelling",
+            (Self::Aquatic, _) => "aquatic",
+            (Self::Airborne, _) => "airborne",
+        }
+    }
 }
 
 macro_rules! families {
