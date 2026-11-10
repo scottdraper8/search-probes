@@ -1,0 +1,27 @@
+{
+  "name": "NMSCoordinates portal glyphs",
+  "license": "MIT",
+  "copyright": "Copyright (c) 2019 NMSCoordinates",
+  "repository": "https://github.com/Kevin0M16/NMSCoordinates",
+  "revision": "b8f765b03082cf5e130a538896db6d67481f9bae",
+  "source_path": "NMSCoordinates/glyphs",
+  "license_sha256": "2647f11e2210b824f440ea7dc33e38fa101be59dd95e2358c925020bcc367ea5",
+  "glyph_sha256": {
+    "0.png": "7f6ef22da2f92640ad72eeba9810c00be539ff968bd60a43a52fda8dac0a3665",
+    "1.png": "75a31db4700849de3e3e6399f1b783aa67971097ee3d957897c66e069ebd1e72",
+    "2.png": "ff9705a53547d12af6276f863cb0ad58d197682e3c2bd135a2e4100759a21073",
+    "3.png": "f0d6c382ae0f5d06360991753f70ca57e5e1d16c315dafe7436f1e98e27f2ac0",
+    "4.png": "0f5475fa6b4f8c49b4b97b4343df50dbb6ab1b836f383abbcf2ab088deafeee3",
+    "5.png": "3b16b5a520bb77e9346ddae858db33f1811e0e5d77986b3454bcd06ed853edeb",
+    "6.png": "502f7139468c2552bc4d89505e3737dfffba0f5f66a79cae050062313c41994f",
+    "7.png": "f3845c77dc83605cc2e0b8ad8eabbe8e30257f62009b818ded0569984b98d455",
+    "8.png": "c7c931ba5f511d46402244fab176d1bf6f9209f780af004e50aa6041694d2e7e",
+    "9.png": "6b6f0f1e1826b1991096999e83b3ceed372479c09dbb49c7c60824f49a287b01",
+    "a.png": "f48ce1c6c72ae3069663aa64610038985f858d9afbb299719612e9b446e15f45",
+    "b.png": "8e59b9db9a51eb0aae08ffad427c14dad06af797225ad5a8595c1133a1eb1fac",
+    "c.png": "2d0570f4e5b9fce84a46efe62772017659b6d16326cd3859d36fbc1e929acb8c",
+    "d.png": "e16a6e4dcc37a4699c6d774cbb62a9c7596a0f087b171a389004178a3f051b0a",
+    "e.png": "d65c42404fad890ccd4ba78819df27b0cff5ade4dc53d6a078dc5d18b68ba6b3",
+    "f.png": "3de65bcc6e55c1e858b6b9309df55a149b7a76aa8aee9aef4e317d9ed11e5d3d"
+  }
+}

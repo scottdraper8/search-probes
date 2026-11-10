@@ -1,5 +1,6 @@
 use crate::{
     export::{ExportFormat, ExportRequest},
+    portal_glyphs::PortalGlyphs,
     theme::{self, Palette},
 };
 use egui::{self, RichText, Ui};
@@ -7,6 +8,7 @@ use search_probes_model::controls::Controls;
 use search_probes_model::{
     arena::ArenaField,
     binding::{BindingDevice, ControllerButton, InputBinding, KeyboardKey},
+    cache::CachedMatch,
     criteria::{
         CompositionField, Criteria, Field, PlanetFlag, ResourceMode, Section, SelectionSide,
         SystemFlag, WaterFilter, subtype_options_for,
@@ -18,6 +20,7 @@ use search_probes_model::{
         BUDGET_LABELS, BUDGETS, MAX_PRESETS, MAX_RESULTS, Preset, Settings, available_workers,
         recommended_workers, validate_name,
     },
+    target::TargetKind,
     theme::UiTheme,
     vocabulary::RESOURCE_LABELS,
 };
@@ -27,7 +30,7 @@ const CRITERIA_SPLIT_MIN_WIDTH: f32 = 820.0;
 const CRITERIA_THREE_COLUMN_MIN_WIDTH: f32 = 1230.0;
 const MAIN_SPLIT_MIN_WIDTH: f32 = 2460.0;
 const SEARCH_PANEL_SPLIT_MIN_WIDTH: f32 = 800.0;
-const RESULT_CARD_MIN_WIDTH: f32 = 280.0;
+const RESULT_CARD_MIN_WIDTH: f32 = 310.0;
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum CapturedInput {
@@ -145,6 +148,7 @@ pub struct App {
     export_request: Option<ExportRequest>,
     export_status: Option<String>,
     applied_theme: Option<UiTheme>,
+    portal_glyphs: PortalGlyphs,
 }
 
 impl App {
@@ -179,6 +183,7 @@ impl App {
             export_request: None,
             export_status: None,
             applied_theme: None,
+            portal_glyphs: PortalGlyphs::new(ctx),
         }
     }
 
@@ -1090,11 +1095,18 @@ impl App {
                                     ui.label(
                                         RichText::new(format!("{}. {name}", index + 1)).strong(),
                                     );
-                                    ui.small(format!(
-                                        "{} · Galaxy {}",
-                                        result.kind.label(),
-                                        u16::from(coordinates.galaxy) + 1
+                                    let portal_code = result.target().portal_code();
+                                    ui.small(result_subtitle(
+                                        result,
+                                        u16::from(coordinates.galaxy) + 1,
                                     ));
+                                    self.portal_glyphs
+                                    .show(
+                                        ui,
+                                        &portal_code,
+                                        self.palette().on_surface_variant,
+                                    )
+                                    .on_hover_text(format!("Portal code: {portal_code}"));
                                     ui.horizontal_wrapped(|ui| {
                                         if ui
                                             .add_enabled(
@@ -1113,13 +1125,13 @@ impl App {
                                             .button("Copy portal code")
                                             .on_hover_text(format!(
                                                 "{}\nUse a portal in Galaxy {}. {}",
-                                                result.target().portal_code(),
+                                                portal_code,
                                                 u16::from(coordinates.galaxy) + 1,
-                                                if result.kind == search_probes_model::target::TargetKind::System { "Arrives through the first planet’s portal in this system." } else { "Arrives on the target planet." }
+                                                if result.kind == TargetKind::System { "Arrives through the first planet’s portal in this system." } else { "Arrives on the target planet." }
                                             ))
                                             .clicked()
                                         {
-                                            ui.ctx().copy_text(result.target().portal_code());
+                                            ui.ctx().copy_text(portal_code.clone());
                                         }
                                         if ui
                                             .button("Copy galactic coords")
@@ -1258,6 +1270,18 @@ impl App {
                 }
             });
         self.binding_dialog(ui.ctx());
+    }
+}
+
+fn result_subtitle(result: &CachedMatch, galaxy: u16) -> String {
+    let system = result.system_name.as_deref().unwrap_or("name unavailable");
+    let planet = result.planet_name.as_deref().unwrap_or("name unavailable");
+    match result.kind {
+        TargetKind::System => format!("System · Galaxy {galaxy}"),
+        TargetKind::Planet => format!("Planet · System {system} · Galaxy {galaxy}"),
+        TargetKind::Fauna => {
+            format!("Animal · Planet {planet} · System {system} · Galaxy {galaxy}")
+        }
     }
 }
 
@@ -2058,6 +2082,51 @@ fn number(value: u64) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn result(kind: TargetKind) -> CachedMatch {
+        let address =
+            search_probes_model::address::Address::new(search_probes_model::address::Coordinates {
+                x: 0,
+                y: 0,
+                z: 0,
+                galaxy: 0,
+                system: 1,
+                planet: if kind == TargetKind::System { 0 } else { 1 },
+            })
+            .unwrap();
+        CachedMatch {
+            address,
+            kind,
+            system_name: Some("Iousongola".into()),
+            planet_name: (kind != TargetKind::System).then(|| "New Lennon".into()),
+            fauna: (kind == TargetKind::Fauna).then(|| search_probes_model::cache::FaunaMatch {
+                role: 0,
+                name_identity: search_probes_model::fauna::NameIdentity {
+                    species_seed: 1,
+                    genus_seed: 2,
+                },
+                name: Some("Diplo".into()),
+                domain: search_probes_model::fauna::Domain::Land,
+                cave: false,
+            }),
+        }
+    }
+
+    #[test]
+    fn result_subtitles_show_the_destination_hierarchy() {
+        assert_eq!(
+            result_subtitle(&result(TargetKind::System), 1),
+            "System · Galaxy 1"
+        );
+        assert_eq!(
+            result_subtitle(&result(TargetKind::Planet), 2),
+            "Planet · System Iousongola · Galaxy 2"
+        );
+        assert_eq!(
+            result_subtitle(&result(TargetKind::Fauna), 3),
+            "Animal · Planet New Lennon · System Iousongola · Galaxy 3"
+        );
+    }
 
     #[test]
     fn one_input_binding_commits_on_release() {

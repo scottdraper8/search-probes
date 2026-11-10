@@ -48,6 +48,10 @@ the planet's copyable coordinates. NMS does not attach the exact species/genus n
 the remote role record, so the destination mission resolves and displays the generated animal name
 after the target system is loaded. The mission remains active until that exact species is scanned.
 A fauna absence filter has no animal to target, so its result and destination remain planet-level.
+Each result card renders the destination's 12 portal glyphs from the same portal code used by its
+copy action. The glyph artwork comes from the MIT-licensed
+[NMSCoordinates](https://github.com/Kevin0M16/NMSCoordinates) project and is tinted with the active
+theme's secondary text color.
 
 ## Agent instructions
 

@@ -13,6 +13,90 @@
   ],
   "bundled_assets": [
     {
+      "name": "NMSCoordinates portal glyphs",
+      "version": "b8f765b",
+      "license": "MIT",
+      "repository": "https://github.com/Kevin0M16/NMSCoordinates",
+      "revision": "b8f765b03082cf5e130a538896db6d67481f9bae",
+      "notice_directory": "nmscoordinates-portal-glyphs-b8f765b",
+      "artifacts": [
+        {
+          "path": "crates/ui/assets/glyphs/nms-portal/0.png",
+          "sha256": "7f6ef22da2f92640ad72eeba9810c00be539ff968bd60a43a52fda8dac0a3665"
+        },
+        {
+          "path": "crates/ui/assets/glyphs/nms-portal/1.png",
+          "sha256": "75a31db4700849de3e3e6399f1b783aa67971097ee3d957897c66e069ebd1e72"
+        },
+        {
+          "path": "crates/ui/assets/glyphs/nms-portal/2.png",
+          "sha256": "ff9705a53547d12af6276f863cb0ad58d197682e3c2bd135a2e4100759a21073"
+        },
+        {
+          "path": "crates/ui/assets/glyphs/nms-portal/3.png",
+          "sha256": "f0d6c382ae0f5d06360991753f70ca57e5e1d16c315dafe7436f1e98e27f2ac0"
+        },
+        {
+          "path": "crates/ui/assets/glyphs/nms-portal/4.png",
+          "sha256": "0f5475fa6b4f8c49b4b97b4343df50dbb6ab1b836f383abbcf2ab088deafeee3"
+        },
+        {
+          "path": "crates/ui/assets/glyphs/nms-portal/5.png",
+          "sha256": "3b16b5a520bb77e9346ddae858db33f1811e0e5d77986b3454bcd06ed853edeb"
+        },
+        {
+          "path": "crates/ui/assets/glyphs/nms-portal/6.png",
+          "sha256": "502f7139468c2552bc4d89505e3737dfffba0f5f66a79cae050062313c41994f"
+        },
+        {
+          "path": "crates/ui/assets/glyphs/nms-portal/7.png",
+          "sha256": "f3845c77dc83605cc2e0b8ad8eabbe8e30257f62009b818ded0569984b98d455"
+        },
+        {
+          "path": "crates/ui/assets/glyphs/nms-portal/8.png",
+          "sha256": "c7c931ba5f511d46402244fab176d1bf6f9209f780af004e50aa6041694d2e7e"
+        },
+        {
+          "path": "crates/ui/assets/glyphs/nms-portal/9.png",
+          "sha256": "6b6f0f1e1826b1991096999e83b3ceed372479c09dbb49c7c60824f49a287b01"
+        },
+        {
+          "path": "crates/ui/assets/glyphs/nms-portal/a.png",
+          "sha256": "f48ce1c6c72ae3069663aa64610038985f858d9afbb299719612e9b446e15f45"
+        },
+        {
+          "path": "crates/ui/assets/glyphs/nms-portal/b.png",
+          "sha256": "8e59b9db9a51eb0aae08ffad427c14dad06af797225ad5a8595c1133a1eb1fac"
+        },
+        {
+          "path": "crates/ui/assets/glyphs/nms-portal/c.png",
+          "sha256": "2d0570f4e5b9fce84a46efe62772017659b6d16326cd3859d36fbc1e929acb8c"
+        },
+        {
+          "path": "crates/ui/assets/glyphs/nms-portal/d.png",
+          "sha256": "e16a6e4dcc37a4699c6d774cbb62a9c7596a0f087b171a389004178a3f051b0a"
+        },
+        {
+          "path": "crates/ui/assets/glyphs/nms-portal/e.png",
+          "sha256": "d65c42404fad890ccd4ba78819df27b0cff5ade4dc53d6a078dc5d18b68ba6b3"
+        },
+        {
+          "path": "crates/ui/assets/glyphs/nms-portal/f.png",
+          "sha256": "3de65bcc6e55c1e858b6b9309df55a149b7a76aa8aee9aef4e317d9ed11e5d3d"
+        }
+      ],
+      "notices": [
+        {
+          "path": "crates/ui/assets/glyphs/nms-portal/LICENSE.txt",
+          "sha256": "2647f11e2210b824f440ea7dc33e38fa101be59dd95e2358c925020bcc367ea5"
+        },
+        {
+          "path": "crates/ui/assets/glyphs/nms-portal/SOURCE.json",
+          "sha256": "674d4b6cf793ded7b8919ec8168546f3c43c6d3c629c8760e9d4f8b189c2eee4"
+        }
+      ]
+    },
+    {
       "name": "NMS GeoSans",
       "version": "0.2",
       "license": "OFL-1.1",
