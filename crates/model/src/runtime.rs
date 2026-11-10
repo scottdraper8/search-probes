@@ -97,10 +97,7 @@ pub struct State {
 
 impl State {
     pub fn publish_progress(&mut self, progress: Option<Progress>) {
-        if let Some(progress) = progress
-            .as_ref()
-            .filter(|progress| !progress.results.is_empty())
-        {
+        if let Some(progress) = progress.as_ref() {
             self.results = progress.results.clone();
         }
         self.progress = progress;
@@ -122,5 +119,53 @@ impl State {
             error: None,
             destination: None,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{
+        address::Coordinates, session::Phase, settings::SearchOptions, target::TargetKind,
+    };
+
+    fn address() -> Address {
+        Address::new(Coordinates {
+            x: 1,
+            y: 2,
+            z: 3,
+            galaxy: 0,
+            system: 4,
+            planet: 0,
+        })
+        .unwrap()
+    }
+
+    #[test]
+    fn publishing_a_new_empty_search_clears_previous_results() {
+        let origin = address();
+        let mut state = State::new(Settings::default());
+        state.results.push(CachedMatch {
+            address: origin,
+            kind: TargetKind::System,
+            system_name: Some("Old result".into()),
+            planet_name: None,
+            fauna: None,
+        });
+
+        state.publish_progress(Some(Progress {
+            phase: Phase::Running,
+            finish: None,
+            options: SearchOptions::default(),
+            origin,
+            systems: 0,
+            cached_systems: 0,
+            unresolved_arena_planets: 0,
+            unresolved_arena_examples: Vec::new(),
+            results: Vec::new(),
+            error: None,
+        }));
+
+        assert!(state.results.is_empty());
     }
 }

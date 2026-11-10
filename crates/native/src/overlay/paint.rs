@@ -272,9 +272,15 @@ impl Painter {
     ) -> Result<Option<vk::Semaphore>> {
         let mut ui = UI.get().unwrap().lock().map_err(|_| "UI poisoned")?;
         let elapsed = ui.started.elapsed().as_secs_f64();
-        let Some(raw) = input::take(hwnd, self.extent, elapsed) else {
+        let binding = ui.app.settings().interface.hotkey;
+        let capture_device = ui.app.binding_capture_device();
+        let Some(frame) = input::take(hwnd, self.extent, elapsed, binding, capture_device) else {
             return Ok(None);
         };
+        for (controller, button, pressed) in frame.controller {
+            ui.app.controller_input(controller, button, pressed);
+        }
+        let raw = frame.raw;
         let index = index as usize;
         if index >= self.framebuffers.len() {
             return Err("invalid presented image index".into());

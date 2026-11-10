@@ -54,6 +54,7 @@ struct Runtime {
     settings: Settings,
     epoch: Option<Epoch>,
     session: u64,
+    guide_topics: Option<guide_hook::Topics>,
     navigation: Navigation,
     navigation_polled: Option<Instant>,
 }
@@ -105,6 +106,8 @@ pub(crate) fn initialize_at(directory: std::path::PathBuf) -> Result<(), String>
 
 fn attach(image: Image, controls: Arc<Controls>, settings: Settings) -> Result<(), String> {
     let base = image.base();
+    mission_text_hook::set_presets(&settings.presets)
+        .map_err(|error| format!("Cannot name Guide presets: {error}"))?;
     let runtime = Runtime {
         image,
         controls: controls.clone(),
@@ -114,6 +117,7 @@ fn attach(image: Image, controls: Arc<Controls>, settings: Settings) -> Result<(
         settings,
         epoch: None,
         session: lifecycle_hook::session(),
+        guide_topics: None,
         navigation: Navigation::default(),
         navigation_polled: None,
     };
@@ -197,6 +201,9 @@ pub(crate) fn begin_application_transition() -> Result<(), &'static str> {
         .map_err(|_| "application transition state poisoned")?;
     if transition.is_none() {
         let dispatch = RUNTIME.get().map(|runtime| runtime.close()).transpose()?;
+        if let Some(runtime) = RUNTIME.get() {
+            runtime.lock()?.restore_application_sources()?;
+        }
         *transition = Some(LifecycleTransition { dispatch });
     }
     Ok(())
@@ -216,27 +223,33 @@ pub(crate) fn finish_application_transition() -> Result<(), &'static str> {
     Ok(())
 }
 
-/// Drop old session data after the native FSM has left gameplay. Runtime state contains copied
-/// model data and no borrowed NMS pointers; dispatch is already closed at this point.
+/// Retire application-owned sources after the native FSM has left gameplay. Search state contains
+/// only copied model data and survives ordinary loading; a main-menu transition starts a new game
+/// session and resets it. Dispatch is already closed at this point.
 pub(crate) fn retire_application_sources(menu: bool) -> Result<(), &'static str> {
     if let Some(runtime) = RUNTIME.get() {
         let mut runtime = runtime.lock()?;
         if menu {
             runtime.reset_session();
+            runtime.controls.cancel.store(true, Ordering::Release);
         } else {
             runtime.retire_application_sources();
         }
         runtime.epoch = None;
-        runtime.controls.cancel.store(true, Ordering::Release);
         runtime.controls.update(|state| {
             state.generation = state.generation.wrapping_add(1);
-            state.progress = None;
-            state.results.clear();
-            state.cached_systems = 0;
             state.player = None;
             state.destination = None;
-            state.metrics = Metrics::default();
-            state.search_pause = Some(SearchPause::Loading);
+            if menu {
+                state.progress = None;
+                state.search_command = None;
+                state.results.clear();
+                state.cached_systems = 0;
+                state.metrics = Metrics::default();
+                state.search_pause = None;
+            } else {
+                state.search_pause = Some(SearchPause::Loading);
+            }
             if !matches!(
                 state.availability,
                 Availability::Failed | Availability::Unsupported | Availability::Stopped
@@ -259,14 +272,36 @@ impl Runtime {
     }
 
     fn retire_application_sources(&mut self) {
-        self.reset_search();
+        // Scheduler state is copied model data. Do not reset or cancel it here: this is the pause
+        // boundary that preserves an active search through same-session warps and teleports.
         self.navigation.retire_application_sources();
         navigation_hook::reset();
         discovery_hook::reset();
+        self.guide_topics = None;
         self.navigation_polled = None;
     }
 
+    fn restore_application_sources(&mut self) -> Result<(), &'static str> {
+        if let Some(topics) = self.guide_topics.take() {
+            unsafe { topics.restore()? };
+        }
+        Ok(())
+    }
+
+    unsafe fn update_guide(&mut self, application: usize) -> Result<(), &'static str> {
+        if self.guide_topics.is_none() {
+            self.guide_topics = Some(unsafe { guide_hook::Topics::locate(application)? });
+        }
+        unsafe {
+            self.guide_topics
+                .as_ref()
+                .expect("located Guide topics")
+                .show(self.settings.presets.len())
+        }
+    }
+
     fn reset_session(&mut self) {
+        self.reset_search();
         self.retire_application_sources();
         self.navigation = Navigation::default();
         mission_text_hook::clear();
@@ -340,6 +375,10 @@ impl Runtime {
                 state.last_command = state.last_command.max(id);
                 state.error = result.err().map(str::to_owned);
             });
+        }
+        if let Err(error) = unsafe { self.update_guide(snapshot.application) } {
+            self.controls
+                .update(|state| state.error = Some(error.into()));
         }
         let (request, overflow) = guide_hook::take();
         if overflow {
@@ -458,6 +497,9 @@ impl Runtime {
                 self.scheduler
                     .session
                     .start(settings.search.clone(), snapshot.address)?;
+                if self.settings.presets != settings.presets {
+                    mission_text_hook::set_presets(&settings.presets)?;
+                }
                 self.controls.cancel.store(false, Ordering::Release);
                 self.scheduler.reset_statistics();
                 self.controls.reset_search_clock();
@@ -476,6 +518,9 @@ impl Runtime {
                 self.scheduler.session.cancel();
             }
             Action::Configure { settings } => {
+                if self.settings.presets != settings.presets {
+                    mission_text_hook::set_presets(&settings.presets)?;
+                }
                 self.settings = settings;
                 self.controls
                     .update(|state| state.settings = self.settings.clone());

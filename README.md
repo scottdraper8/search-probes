@@ -1,9 +1,11 @@
 # Search Probes
 
 A No Man's Sky mod that searches generated systems, planets and fauna without visiting them.
-It provides an F7 overlay, coordinate copying, in-space interstellar guidance and Galaxy Map
-destinations. The runtime and UI are Rust; parent-repository tooling is not part of the distributed
-mod.
+It provides a configurable overlay (F7 by default), coordinate copying, in-space interstellar
+guidance and Galaxy Map destinations. The runtime and UI are Rust; parent-repository tooling is not
+part of the distributed mod.
+
+Saved presets appear in the in-game Guide under Search Probes; unused preset capacity is hidden.
 
 The native runtime currently targets public NMS 7.14 (Steam build `26540391`) and rejects other
 executable identities. The exact executable fingerprint is maintained in `crates/model/src/supported.rs`.
@@ -51,9 +53,9 @@ tooling/squinch --tranche <task> nms-investigate search cancel --json
 NMS needs a loaded save. Omit `--criteria` to use current settings; `--settings` accepts full settings.
 `configure` saves settings without searching. Commands return JSON results, progress and metrics;
 `--no-wait` returns a queue acknowledgement.
-These commands use the F7 queue without focusing the window or navigating. Inspect status after a
-timeout before retrying. Preserve explicit unknowns. Do not benchmark a degraded host or run huge
-unattended soak searches.
+These commands use the runtime command queue without focusing the window or navigating. Inspect
+status after a timeout before retrying. Preserve explicit unknowns. Do not benchmark a degraded host
+or run huge unattended soak searches.
 
 ### Live UI development
 

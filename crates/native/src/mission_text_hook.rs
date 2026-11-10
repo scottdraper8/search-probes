@@ -1,5 +1,10 @@
 use crate::resident_hook::{HookError, ResidentHook};
-use search_probes_model::{cache::CachedMatch, fauna::Domain, target::TargetKind};
+use search_probes_model::{
+    cache::CachedMatch,
+    fauna::Domain,
+    settings::{MAX_PRESETS, Preset},
+    target::TargetKind,
+};
 use std::sync::{
     Mutex,
     atomic::{AtomicUsize, Ordering},
@@ -19,6 +24,17 @@ const PLANET_OBJECTIVE_ID: &[u8] = b"SQN_SP_NAV_MISSION_OBJ";
 const FAUNA_OBJECTIVE_ID: &[u8] = b"SQN_SP_FAUNA_MISSION_OBJ";
 const FAUNA_TIP_ID: &[u8] = b"SQN_SP_FAUNA_MISSION_OBJ_TIP";
 const FAUNA_STATUS_ID: &[u8] = b"SQN_SP_FAUNA_SCAN";
+const PRESET_IDS: [&[u8]; MAX_PRESETS] = [
+    b"SQN_SP_SLOT1",
+    b"SQN_SP_SLOT2",
+    b"SQN_SP_SLOT3",
+    b"SQN_SP_SLOT4",
+    b"SQN_SP_SLOT5",
+    b"SQN_SP_SLOT6",
+    b"SQN_SP_SLOT7",
+    b"SQN_SP_SLOT8",
+    b"SQN_SP_SLOT9",
+];
 
 type FixedLocalise = unsafe extern "system" fn(usize, *const u8) -> *const u8;
 type StringLocalise = unsafe extern "system" fn(usize, *const u8, *const u8) -> *const u8;
@@ -30,6 +46,7 @@ static SYSTEM_OBJECTIVE: AtomicUsize = AtomicUsize::new(0);
 static PLANET_OBJECTIVE: AtomicUsize = AtomicUsize::new(0);
 static FAUNA_OBJECTIVE: AtomicUsize = AtomicUsize::new(0);
 static FAUNA_TIP: AtomicUsize = AtomicUsize::new(0);
+static PRESET_NAMES: [AtomicUsize; MAX_PRESETS] = [const { AtomicUsize::new(0) }; MAX_PRESETS];
 
 struct Hooks {
     fixed: ResidentHook,
@@ -49,7 +66,12 @@ unsafe fn matches(value: *const u8, expected: &[u8]) -> bool {
 }
 
 unsafe fn replacement(identity: *const u8) -> usize {
-    if unsafe { matches(identity, SYSTEM_OBJECTIVE_ID) } {
+    if let Some(slot) = PRESET_IDS
+        .iter()
+        .position(|expected| unsafe { matches(identity, expected) })
+    {
+        PRESET_NAMES[slot].load(Ordering::Acquire)
+    } else if unsafe { matches(identity, SYSTEM_OBJECTIVE_ID) } {
         SYSTEM_OBJECTIVE.load(Ordering::Acquire)
     } else if unsafe { matches(identity, PLANET_OBJECTIVE_ID) } {
         PLANET_OBJECTIVE.load(Ordering::Acquire)
@@ -172,6 +194,32 @@ pub fn set_destination(result: &CachedMatch) -> Result<(), &'static str> {
     Ok(())
 }
 
+pub fn set_presets(presets: &[Preset]) -> Result<(), &'static str> {
+    if presets.len() > MAX_PRESETS {
+        return Err("too many Guide presets");
+    }
+    if presets
+        .iter()
+        .any(|preset| preset.name.as_bytes().contains(&0))
+    {
+        return Err("Guide preset name contains a null byte");
+    }
+    for (slot, destination) in PRESET_NAMES.iter().enumerate() {
+        if let Some(preset) = presets.get(slot) {
+            publish(destination, preset.name.clone())?;
+        } else {
+            destination.store(0, Ordering::Release);
+        }
+    }
+    Ok(())
+}
+
+fn clear_presets() {
+    for preset in &PRESET_NAMES {
+        preset.store(0, Ordering::Release);
+    }
+}
+
 pub fn clear() {
     SYSTEM_OBJECTIVE.store(0, Ordering::Release);
     PLANET_OBJECTIVE.store(0, Ordering::Release);
@@ -227,6 +275,7 @@ pub unsafe fn disable() -> Result<(), HookError> {
         }
     }
     clear();
+    clear_presets();
     failure.map_or(Ok(()), Err)
 }
 
@@ -274,5 +323,28 @@ mod tests {
             "The target is a surface-dwelling creature"
         );
         clear();
+    }
+
+    #[test]
+    fn saved_preset_names_replace_only_visible_guide_slot_labels() {
+        set_presets(&[Preset {
+            name: "Triple-S fauna".into(),
+            search: Default::default(),
+        }])
+        .unwrap();
+        let mut first = [0; 32];
+        first[..PRESET_IDS[0].len()].copy_from_slice(PRESET_IDS[0]);
+        let mut second = [0; 32];
+        second[..PRESET_IDS[1].len()].copy_from_slice(PRESET_IDS[1]);
+        let name = unsafe { replacement(first.as_ptr()) } as *const u8;
+        assert_eq!(
+            unsafe { std::ffi::CStr::from_ptr(name.cast()) }
+                .to_str()
+                .unwrap(),
+            "Triple-S fauna"
+        );
+        assert_eq!(unsafe { replacement(second.as_ptr()) }, 0);
+        set_presets(&[]).unwrap();
+        assert_eq!(unsafe { replacement(first.as_ptr()) }, 0);
     }
 }

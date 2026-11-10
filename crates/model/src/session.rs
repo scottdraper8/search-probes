@@ -105,6 +105,7 @@ impl Session {
             return Err("cancel the current search before starting another");
         }
         let plan = options.criteria.compile()?;
+        let results = self.retained_results(&plan, origin, options.results);
         let progress = Progress {
             phase: Phase::Running,
             finish: None,
@@ -114,7 +115,7 @@ impl Session {
             cached_systems: 0,
             unresolved_arena_planets: 0,
             unresolved_arena_examples: Vec::new(),
-            results: Vec::new(),
+            results,
             error: None,
         };
         self.search = Some(Search {
@@ -123,6 +124,35 @@ impl Session {
             frontier: Frontier::new(origin),
         });
         Ok(())
+    }
+    fn retained_results(&self, plan: &Plan, origin: Address, limit: usize) -> Vec<CachedMatch> {
+        let Some(previous) = self.search.as_ref().map(|search| &search.progress.results) else {
+            return Vec::new();
+        };
+        previous
+            .iter()
+            .filter(|result| {
+                let address = result.address.system();
+                if address == origin.system()
+                    || address.coordinates().galaxy != origin.coordinates().galaxy
+                {
+                    return false;
+                }
+                let Some(record) = self.cache.get(address) else {
+                    return false;
+                };
+                let evaluation = record.evaluate(plan);
+                (0..record.count()).any(|index| {
+                    evaluation.matches & (1 << index) != 0
+                        && record
+                            .results(address, index, plan)
+                            .iter()
+                            .any(|candidate| candidate.target() == result.target())
+                })
+            })
+            .take(limit)
+            .cloned()
+            .collect()
     }
     fn finish(&mut self, reason: Finish) {
         let Some(search) = self.search.as_mut() else {
@@ -332,5 +362,71 @@ impl Session {
             self.finish(Finish::Budget);
         }
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{address::Coordinates, criteria::PlanetFlag, facts::Facts, target::TargetKind};
+
+    fn address(system: u16) -> Address {
+        Address::new(Coordinates {
+            x: 1,
+            y: 2,
+            z: 3,
+            galaxy: 0,
+            system,
+            planet: 0,
+        })
+        .unwrap()
+    }
+
+    fn record(has_moons: bool) -> SystemRecord {
+        let mut system = Facts::default();
+        system.set_planet_count(1);
+        let mut planets: [Facts; 8] = std::array::from_fn(|_| Facts::default());
+        planets[0].set_planet_flag(PlanetFlag::Rings, true);
+        planets[0].set_planet_flag(PlanetFlag::Moons, has_moons);
+        SystemRecord::new(system, planets).unwrap()
+    }
+
+    fn planet_result(address: Address, name: &str) -> CachedMatch {
+        CachedMatch {
+            address: address.planet(0).unwrap(),
+            kind: TargetKind::Planet,
+            system_name: None,
+            planet_name: Some(name.into()),
+            fauna: None,
+        }
+    }
+
+    #[test]
+    fn starting_search_immediately_keeps_only_prior_results_matching_the_new_plan() {
+        let origin = address(1);
+        let retained_address = address(2);
+        let removed_address = address(3);
+        let uncached_address = address(4);
+        let retained = planet_result(retained_address, "Retained");
+        let removed = planet_result(removed_address, "Removed");
+        let uncached = planet_result(uncached_address, "Uncached");
+        let mut session = Session::default();
+        session.observe(retained_address, record(true)).unwrap();
+        session.observe(removed_address, record(false)).unwrap();
+
+        let mut previous = SearchOptions::default();
+        previous.criteria.planets.insert(PlanetFlag::Rings, true);
+        session.start(previous, origin).unwrap();
+        let progress = &mut session.search.as_mut().unwrap().progress;
+        progress.phase = Phase::Completed;
+        progress.results = vec![retained.clone(), removed, uncached];
+
+        let mut next = SearchOptions::default();
+        next.criteria.planets.insert(PlanetFlag::Rings, true);
+        next.criteria.planets.insert(PlanetFlag::Moons, true);
+        session.start(next, origin).unwrap();
+
+        assert_eq!(session.progress().unwrap().results, vec![retained]);
+        assert_eq!(session.progress().unwrap().systems, 0);
     }
 }

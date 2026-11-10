@@ -136,6 +136,9 @@ pub fn validate(root: &Path, expanded: bool) -> Result<()> {
     let missions: Vec<_> = (0..search_probes_model::settings::MAX_PRESETS)
         .map(search_probes_model::guide::mission)
         .collect::<std::result::Result<_, _>>()?;
+    let topics: Vec<_> = (0..search_probes_model::settings::MAX_PRESETS)
+        .map(search_probes_model::guide::topic)
+        .collect::<std::result::Result<_, _>>()?;
     let mut guide = Vec::new();
     for mission in &missions {
         guide.extend(properties(&table, Some(mission))?);
@@ -162,6 +165,9 @@ pub fn validate(root: &Path, expanded: bool) -> Result<()> {
         return Err("unexpected mission table entries".into());
     }
     if values(&wiki, "Mission") != missions
+        || values(&wiki, "TopicID") != topics
+        || values(&wiki, "PageID") != topics
+        || values(&wiki, "Unlocked") != vec!["true"; topics.len()]
         || values(&guide, "MissionID") != missions
         || !values(&guide, "Name").is_empty()
         || !values(&guide, "Event").is_empty()

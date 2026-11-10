@@ -24,4 +24,6 @@ pub mod fauna;
 
 pub mod arena;
 
+pub mod binding;
+
 pub mod agent_control;
