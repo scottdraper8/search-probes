@@ -1,0 +1,12 @@
+{
+  "name": "NMS GeoSans",
+  "version": "0.2",
+  "license": "OFL-1.1",
+  "copyright": "Copyright (c) 2020 Hector Javier Gonzalez Rivera",
+  "repository": "https://github.com/NMSCD/No-Mans-Sky-Universal-Font",
+  "revision": "5f99c22de433a312b39c09c32c339b521ccd611b",
+  "font_url": "https://raw.githubusercontent.com/NMSCD/No-Mans-Sky-Universal-Font/5f99c22de433a312b39c09c32c339b521ccd611b/assets/font/NMSGeoSans_Kerned/Web-TT/NMSGeoSans_Kerned.ttf",
+  "font_sha256": "fe4a98bcffe3625620a08e08863586869a5fda3fcdfeea8275f5507823d9fa0a",
+  "license_url": "https://raw.githubusercontent.com/NMSCD/No-Mans-Sky-Universal-Font/5f99c22de433a312b39c09c32c339b521ccd611b/LICENSE.txt",
+  "license_sha256": "e77bd97ea16773878878adbf0ac357fe1b355bdf50ca2042580240e0e0eba68c"
+}

@@ -11,6 +11,32 @@
     "Unlicense",
     "Zlib"
   ],
+  "bundled_assets": [
+    {
+      "name": "NMS GeoSans",
+      "version": "0.2",
+      "license": "OFL-1.1",
+      "repository": "https://github.com/NMSCD/No-Mans-Sky-Universal-Font",
+      "revision": "5f99c22de433a312b39c09c32c339b521ccd611b",
+      "notice_directory": "nms-geosans-0.2",
+      "artifacts": [
+        {
+          "path": "crates/ui/assets/fonts/nms-geosans/NMSGeoSans_Kerned.ttf",
+          "sha256": "fe4a98bcffe3625620a08e08863586869a5fda3fcdfeea8275f5507823d9fa0a"
+        }
+      ],
+      "notices": [
+        {
+          "path": "crates/ui/assets/fonts/nms-geosans/OFL-1.1.txt",
+          "sha256": "e77bd97ea16773878878adbf0ac357fe1b355bdf50ca2042580240e0e0eba68c"
+        },
+        {
+          "path": "crates/ui/assets/fonts/nms-geosans/SOURCE.json",
+          "sha256": "27ccc3ce34d490a52ba656a131292291397777745761e5e70545cca2fe645023"
+        }
+      ]
+    }
+  ],
   "extra_notice_files": {
     "epaint_default_fonts@0.36.2": [
       "fonts/Hack-Regular.txt",

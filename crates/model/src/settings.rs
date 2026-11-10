@@ -1,4 +1,4 @@
-use crate::{binding::InputBinding, criteria::Criteria};
+use crate::{binding::InputBinding, criteria::Criteria, theme::UiTheme};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeSet;
 
@@ -80,12 +80,13 @@ pub struct Settings {
 #[serde(deny_unknown_fields)]
 pub struct InterfaceSettings {
     pub hotkey: InputBinding,
+    pub theme: UiTheme,
 }
 
 impl Default for Settings {
     fn default() -> Self {
         Self {
-            schema: 2,
+            schema: 3,
             search: SearchOptions::default(),
             presets: Vec::new(),
             interface: InterfaceSettings::default(),
@@ -97,7 +98,7 @@ impl Default for Settings {
 
 impl Settings {
     pub fn validate(&self) -> Result<(), &'static str> {
-        if self.schema != 2 {
+        if self.schema != 3 {
             return Err("unsupported settings schema");
         }
         self.search.validate()?;
@@ -151,13 +152,14 @@ mod tests {
     use super::*;
 
     #[test]
-    fn default_settings_use_the_current_hotkey_schema() {
+    fn default_settings_use_the_current_interface_schema() {
         let settings = Settings::default();
         let encoded = serde_json::to_value(&settings).expect("settings serialize");
 
-        assert_eq!(encoded["schema"], 2);
+        assert_eq!(encoded["schema"], 3);
         assert_eq!(encoded["interface"]["hotkey"]["device"], "keyboard");
         assert_eq!(encoded["interface"]["hotkey"]["first"], "f7");
+        assert_eq!(encoded["interface"]["theme"], "search_probes_dark");
         assert!(settings.validate().is_ok());
     }
 

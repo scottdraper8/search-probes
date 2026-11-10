@@ -7,6 +7,39 @@ part of the distributed mod.
 
 Saved presets appear in the in-game Guide under Search Probes; unused preset capacity is hidden.
 
+## UI themes
+
+The Theme control sits immediately left of UI Hotkey. Search Probes Dark preserves the original
+overlay palette, Search Probes Light is its light counterpart, and both remain at the top of the
+menu. The remaining themes are alphabetical. The screen-oriented catalog follows the maintained
+[KDE KSyntaxHighlighting themes used by Kate](https://invent.kde.org/frameworks/syntax-highlighting/-/tree/master/data/themes),
+with Material Dark and Light retained from the
+[Material 3 color system](https://m3.material.io/styles/color/the-color-system/). The non-screen
+Printing theme is deliberately omitted. [Tinted Theming/Base16](https://github.com/tinted-theming/home)
+is the interoperability reference for published palette collections; named palettes retain their
+upstream character while their UI roles are normalized where necessary for readable controls.
+The experimental No Man's Sky theme combines the game's dark slate, white, red, cyan and gold UI
+language with [NMS GeoSans 0.2](https://github.com/NMSCD/No-Mans-Sky-Universal-Font), an
+OFL-1.1-licensed corrected typeface from NMSCD. The normal UI fonts remain available as glyph
+fallbacks.
+
+UI code consumes semantic color roles instead of raw colors. The complete color inventory is
+centralized in `crates/ui/src/theme.rs`:
+
+| Role group | Roles |
+| --- | --- |
+| Surfaces | `background`, `surface`, `surface_container`, `surface_container_high` |
+| Surface content | `on_surface`, `on_surface_variant`, `link`, `outline` |
+| Actions | `primary`, `primary_container`, `on_primary_container` |
+| Selection | `selection`, `on_selection` |
+| Status | `error`, `success`, `success_container`, `success_outline`, `warning`, `warning_container`, `warning_outline` |
+
+Every palette is tested against [WCAG 2.2 minimum text contrast](https://www.w3.org/WAI/WCAG22/Understanding/contrast-minimum)
+and [non-text contrast](https://www.w3.org/WAI/WCAG22/Understanding/non-text-contrast). High Contrast
+Dark and Light additionally meet the WCAG enhanced 7:1 target for primary text pairs. The role
+vocabulary follows the [W3C Design Tokens format](https://www.designtokens.org/tr/2025.10/format/)
+and Material's paired `color`/`on-color` convention; it is not tied to either file format.
+
 The native runtime currently targets public NMS 7.14 (Steam build `26540391`) and rejects other
 executable identities. The exact executable fingerprint is maintained in `crates/model/src/supported.rs`.
 
@@ -88,6 +121,7 @@ bindings before changing it after an update.
 
 [PolyForm Strict 1.0.0](LICENSE.txt), matching squinchmods. Preserve dependency/toolchain notices in
 `licenses/`. The root `license-policy.json` defines permitted SPDX licenses, required crate notices
-and the exact toolchain notice inventory. `licenses/sources.json` records supplemental notice
-provenance. Packaging fails when either record is stale, incomplete or inconsistent with the locked
-Windows dependency graph. No Man's Sky and its assets belong to Hello Games.
+and the exact bundled-asset and toolchain notice inventories. `licenses/sources.json` records
+supplemental notice provenance. Packaging fails when these records are stale, incomplete or
+inconsistent with the locked Windows dependency graph and bundled assets. No Man's Sky and its
+assets belong to Hello Games.

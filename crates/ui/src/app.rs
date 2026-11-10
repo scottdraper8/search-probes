@@ -1,5 +1,8 @@
-use crate::export::{ExportFormat, ExportRequest};
-use egui::{self, Color32, RichText, Ui};
+use crate::{
+    export::{ExportFormat, ExportRequest},
+    theme::{self, Palette},
+};
+use egui::{self, RichText, Ui};
 use search_probes_model::controls::Controls;
 use search_probes_model::{
     arena::ArenaField,
@@ -15,6 +18,7 @@ use search_probes_model::{
         BUDGET_LABELS, BUDGETS, MAX_PRESETS, MAX_RESULTS, Preset, Settings, available_workers,
         recommended_workers, validate_name,
     },
+    theme::UiTheme,
     vocabulary::RESOURCE_LABELS,
 };
 use std::sync::Arc;
@@ -140,25 +144,26 @@ pub struct App {
     binding_capture: Option<BindingCapture>,
     export_request: Option<ExportRequest>,
     export_status: Option<String>,
+    applied_theme: Option<UiTheme>,
 }
 
 impl App {
     pub fn new(ctx: &egui::Context, controls: Arc<Controls>) -> Self {
-        ctx.set_theme(egui::Theme::Dark);
-        ctx.style_mut_of(egui::Theme::Dark, |style| {
-            style.spacing.item_spacing = egui::vec2(10.0, 8.0);
-            for (kind, size) in [
-                (egui::TextStyle::Body, 15.0),
-                (egui::TextStyle::Button, 15.0),
-                (egui::TextStyle::Small, 12.0),
-            ] {
-                style
-                    .text_styles
-                    .insert(kind, egui::FontId::proportional(size));
-            }
-            style.visuals.panel_fill = Color32::from_rgb(18, 24, 32);
-            style.visuals.selection.bg_fill = Color32::from_rgb(32, 108, 126);
-        });
+        for egui_theme in [egui::Theme::Dark, egui::Theme::Light] {
+            ctx.style_mut_of(egui_theme, |style| {
+                style.spacing.item_spacing = egui::vec2(10.0, 8.0);
+                for (kind, size) in [
+                    (egui::TextStyle::Body, 15.0),
+                    (egui::TextStyle::Button, 15.0),
+                    (egui::TextStyle::Small, 12.0),
+                ] {
+                    style
+                        .text_styles
+                        .insert(kind, egui::FontId::proportional(size));
+                }
+            });
+        }
+        theme::apply(ctx, UiTheme::default());
         Self {
             state: controls.snapshot(),
             controls,
@@ -173,6 +178,39 @@ impl App {
             binding_capture: None,
             export_request: None,
             export_status: None,
+            applied_theme: None,
+        }
+    }
+
+    fn palette(&self) -> Palette {
+        Palette::for_theme(self.settings.interface.theme)
+    }
+
+    fn theme_control(&mut self, ui: &mut Ui) {
+        let current = self.settings.interface.theme;
+        let mut selected = None;
+        ui.menu_button(format!("Theme  ·  {}", current.label()), |ui| {
+            egui::ScrollArea::vertical()
+                .max_height(480.0)
+                .show(ui, |ui| {
+                    ui.set_min_width(190.0);
+                    for &candidate in UiTheme::ALL {
+                        if ui
+                            .selectable_label(candidate == current, candidate.label())
+                            .clicked()
+                        {
+                            selected = Some(candidate);
+                            ui.close();
+                        }
+                    }
+                });
+        });
+        if let Some(theme) = selected.filter(|theme| *theme != current) {
+            self.settings.interface.theme = theme;
+            self.applied_theme = None;
+            self.send(Action::Configure {
+                settings: self.settings.clone(),
+            });
         }
     }
     fn send(&mut self, action: Action) {
@@ -318,7 +356,7 @@ impl App {
             ui.label("Starting search…");
         }
         if let Err(error) = valid {
-            ui.colored_label(Color32::LIGHT_RED, error);
+            ui.colored_label(self.palette().error, error);
         }
     }
 
@@ -400,6 +438,7 @@ impl App {
             return;
         }
         let binding = self.settings.interface.hotkey;
+        let palette = self.palette();
         let mut window_open = true;
         let mut start_capture = false;
         let mut cancel_capture = false;
@@ -455,8 +494,8 @@ impl App {
                         capture.set_device(selected_device);
                         ui.add_space(12.0);
                         egui::Frame::new()
-                            .fill(Color32::from_rgb(24, 34, 44))
-                            .stroke(egui::Stroke::new(1.0, Color32::from_rgb(55, 115, 132)))
+                            .fill(palette.surface)
+                            .stroke(egui::Stroke::new(1.0, palette.primary))
                             .corner_radius(5.0)
                             .inner_margin(egui::Margin::symmetric(18, 12))
                             .show(ui, |ui| {
@@ -485,16 +524,16 @@ impl App {
                                                 }
                                             })
                                             .size(16.0)
-                                            .color(Color32::from_rgb(145, 180, 190)),
+                                            .color(palette.on_surface_variant),
                                         );
                                     } else {
                                         responsive_row(ui, 46.0, |ui| {
-                                            captured_caps(ui, &capture.candidate)
+                                            captured_caps(ui, &capture.candidate, palette)
                                         });
                                     }
                                     if capture.overflowed {
                                         ui.colored_label(
-                                            Color32::LIGHT_RED,
+                                            palette.error,
                                             RichText::new(
                                                 "Release the inputs and try again with no more than two.",
                                             )
@@ -522,7 +561,7 @@ impl App {
                     } else {
                         ui.label(RichText::new("Current hotkey").size(17.0).strong());
                         ui.add_space(4.0);
-                        responsive_row(ui, 50.0, |ui| binding_caps(ui, binding));
+                        responsive_row(ui, 50.0, |ui| binding_caps(ui, binding, palette));
                         ui.add_space(16.0);
                         responsive_row(ui, 40.0, |ui| {
                             let button_width =
@@ -603,6 +642,7 @@ impl App {
             });
         callout(
             ui,
+            self.palette(),
             CalloutTone::Success,
             "Search completion",
             "The search stops after processing all systems, or finding the number of requested results",
@@ -668,6 +708,7 @@ impl App {
             });
         callout(
             ui,
+            self.palette(),
             CalloutTone::Warning,
             "Performance impact",
             "Higher search intensity and more workers can find results faster, but may make the game less smooth",
@@ -958,7 +999,7 @@ impl App {
             }
         });
         if let Some(status) = &self.export_status {
-            ui.colored_label(Color32::LIGHT_GREEN, status);
+            ui.colored_label(self.palette().success, status);
         }
         if state.availability != Availability::Ready {
             ui.label(match state.availability {
@@ -1018,7 +1059,7 @@ impl App {
                 ));
             }
             if let Some(error) = &progress.error {
-                ui.colored_label(Color32::LIGHT_RED, error);
+                ui.colored_label(self.palette().error, error);
             }
         } else if state.results.is_empty() {
             ui.label("Choose your criteria and start a search.");
@@ -1148,10 +1189,17 @@ impl App {
         }
     }
     pub fn ui(&mut self, ui: &mut Ui) {
+        let selected_theme = self.settings.interface.theme;
+        if self.applied_theme != Some(selected_theme) {
+            theme::apply(ui.ctx(), selected_theme);
+            self.applied_theme = Some(selected_theme);
+            ui.ctx().request_repaint();
+        }
+        let palette = self.palette();
         self.capture_keyboard(ui.ctx());
         egui::Frame::new()
             .inner_margin(16.0)
-            .fill(Color32::from_rgb(18, 24, 32))
+            .fill(palette.background)
             .show(ui, |ui| {
                 ui.horizontal(|ui| {
                     ui.heading(RichText::new("Search Probes").size(28.0));
@@ -1165,10 +1213,11 @@ impl App {
                         {
                             self.binding_window = true;
                         }
+                        self.theme_control(ui);
                     });
                 });
                 if let Some(error) = self.error.as_ref().or(self.state.error.as_ref()) {
-                    ui.colored_label(Color32::LIGHT_RED, error);
+                    ui.colored_label(palette.error, error);
                 }
 
                 egui::Frame::group(ui.style()).show(ui, |ui| {
@@ -1223,20 +1272,20 @@ enum CalloutTone {
     Warning,
 }
 
-fn binding_caps(ui: &mut Ui, binding: InputBinding) {
+fn binding_caps(ui: &mut Ui, binding: InputBinding, palette: Palette) {
     match binding {
         InputBinding::Keyboard { first, second } => {
             if let Some(second) = second {
-                binding_cap_group(ui, &[first.label(), second.label()]);
+                binding_cap_group(ui, &[first.label(), second.label()], palette);
             } else {
-                binding_cap_group(ui, &[first.label()]);
+                binding_cap_group(ui, &[first.label()], palette);
             }
         }
         InputBinding::Controller { first, second } => {
             if let Some(second) = second {
-                binding_cap_group(ui, &[first.label(), second.label()]);
+                binding_cap_group(ui, &[first.label(), second.label()], palette);
             } else {
-                binding_cap_group(ui, &[first.label()]);
+                binding_cap_group(ui, &[first.label()], palette);
             }
         }
     }
@@ -1255,9 +1304,9 @@ fn binding_text(binding: InputBinding) -> String {
     }
 }
 
-fn captured_caps(ui: &mut Ui, inputs: &[CapturedInput]) {
+fn captured_caps(ui: &mut Ui, inputs: &[CapturedInput], palette: Palette) {
     let labels: Vec<_> = inputs.iter().map(|input| input.label()).collect();
-    binding_cap_group(ui, &labels);
+    binding_cap_group(ui, &labels, palette);
 }
 
 fn responsive_row(ui: &mut Ui, height: f32, add_contents: impl FnOnce(&mut Ui)) {
@@ -1274,7 +1323,7 @@ fn responsive_row(ui: &mut Ui, height: f32, add_contents: impl FnOnce(&mut Ui)) 
     add_contents(&mut child);
 }
 
-fn binding_cap_group(ui: &mut Ui, labels: &[&str]) {
+fn binding_cap_group(ui: &mut Ui, labels: &[&str], palette: Palette) {
     let total_width = ui.available_width();
     let gap = ui.spacing().item_spacing.x;
     let cap_width = if labels.len() == 2 {
@@ -1286,7 +1335,7 @@ fn binding_cap_group(ui: &mut Ui, labels: &[&str]) {
         if index > 0 {
             input_separator(ui);
         }
-        input_cap(ui, label, cap_width);
+        input_cap(ui, label, cap_width, palette);
     }
 }
 
@@ -1301,10 +1350,10 @@ fn input_separator(ui: &mut Ui) {
     );
 }
 
-fn input_cap(ui: &mut Ui, label: &str, width: f32) {
+fn input_cap(ui: &mut Ui, label: &str, width: f32, palette: Palette) {
     egui::Frame::new()
-        .fill(Color32::from_rgb(38, 48, 58))
-        .stroke(egui::Stroke::new(1.0, Color32::from_rgb(95, 108, 120)))
+        .fill(palette.surface_container_high)
+        .stroke(egui::Stroke::new(1.0, palette.outline))
         .corner_radius(4.0)
         .inner_margin(egui::Margin::symmetric(12, 7))
         .show(ui, |ui| {
@@ -1424,17 +1473,17 @@ fn keyboard_key(key: egui::Key) -> Option<KeyboardKey> {
     })
 }
 
-fn callout(ui: &mut Ui, tone: CalloutTone, title: &str, message: &str) {
+fn callout(ui: &mut Ui, palette: Palette, tone: CalloutTone, title: &str, message: &str) {
     let (fill, border, title_color) = match tone {
         CalloutTone::Success => (
-            Color32::from_rgb(16, 42, 28),
-            Color32::from_rgb(55, 155, 92),
-            Color32::from_rgb(105, 220, 140),
+            palette.success_container,
+            palette.success_outline,
+            palette.success,
         ),
         CalloutTone::Warning => (
-            Color32::from_rgb(45, 35, 18),
-            Color32::from_rgb(195, 145, 55),
-            Color32::from_rgb(240, 190, 90),
+            palette.warning_container,
+            palette.warning_outline,
+            palette.warning,
         ),
     };
     let width = ui.available_width().min(CALLOUT_MAX_WIDTH);
