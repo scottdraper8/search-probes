@@ -124,14 +124,14 @@ impl ObjectTables {
                     if !decoration {
                         result.ground_grass |= facts.ground_grass;
                     }
-                    if glow & 4 != 0 {
-                        if let Some(models) = flora_models.as_deref_mut() {
-                            let ground_index = source.add(0x4c).cast::<i32>().read_unaligned();
-                            models.extend(facts.flora_models.iter().cloned().map(|mut spawn| {
-                                spawn.source_ground_index = ground_index;
-                                spawn
-                            }));
-                        }
+                    if glow & 4 != 0
+                        && let Some(models) = flora_models.as_deref_mut()
+                    {
+                        let ground_index = source.add(0x4c).cast::<i32>().read_unaligned();
+                        models.extend(facts.flora_models.iter().cloned().map(|mut spawn| {
+                            spawn.source_ground_index = ground_index;
+                            spawn
+                        }));
                     }
                     if glow != 0 {
                         result.glowing_grass |= facts.glowing_grass;

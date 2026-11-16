@@ -5,7 +5,8 @@ It provides a configurable overlay (F7 by default), coordinate copying, in-space
 guidance and Galaxy Map destinations. The runtime and UI are Rust; parent-repository tooling is not
 part of the distributed mod.
 
-Saved presets appear in the in-game Guide under Search Probes; unused preset capacity is hidden.
+Saved presets appear in the in-game Guide under Search Probes. The package carries nine locked
+backing topics, and the native hook unlocks exactly the number of presets the player has saved.
 
 ## UI themes
 

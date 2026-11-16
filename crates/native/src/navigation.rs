@@ -431,7 +431,7 @@ impl Navigation {
             Some(FaunaMatch {
                 role: target.fauna_role.ok_or("fauna destination has no role")?,
                 name_identity: identity,
-                name: Some(name.into()),
+                name: Some(name),
                 domain: target_fauna.domain,
                 cave: target_fauna.cave,
             })

@@ -213,10 +213,10 @@ impl Layout {
                 4 => Some(&mut layout.colour),
                 _ => None,
             };
-            if let Some(target) = target {
-                if target.replace(offset).is_some() {
-                    return Err("duplicate flora vertex element");
-                }
+            if let Some(target) = target
+                && target.replace(offset).is_some()
+            {
+                return Err("duplicate flora vertex element");
             }
         }
         Ok(layout)
@@ -259,16 +259,14 @@ impl<'a> Geometry<'a> {
             let position_size = stream.word(record + 0x40)? as usize;
             if vertex_size.checked_add(index_size) != Some(bytes.len())
                 || position_bytes.len() != position_size
-                || vertex_size % vertices.stride != 0
-                || position_size % positions.stride != 0
+                || !vertex_size.is_multiple_of(vertices.stride)
+                || !position_size.is_multiple_of(positions.stride)
                 || vertex_size / vertices.stride != position_size / positions.stride
-                || index_size
-                    % if vertex_size / vertices.stride <= 65536 {
-                        2
-                    } else {
-                        4
-                    }
-                    != 0
+                || !index_size.is_multiple_of(if vertex_size / vertices.stride <= 65536 {
+                    2
+                } else {
+                    4
+                })
             {
                 return Err("invalid flora mesh stream dimensions");
             }
@@ -304,7 +302,7 @@ impl<'a> Geometry<'a> {
             .streams
             .get(&draw.hash)
             .ok_or("missing flora mesh stream")?;
-        if draw.count % 3 != 0 {
+        if !draw.count.is_multiple_of(3) {
             return Err("flora mesh is not a triangle list");
         }
         let start = draw

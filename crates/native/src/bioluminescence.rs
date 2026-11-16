@@ -355,7 +355,7 @@ fn emission_mask(bytes: &[u8]) -> Result<bool> {
             _ if block[0] != 0 => bcdec_rs::bc7(block, &mut rgba, 16),
             _ => return Err("invalid vegetation mask block"),
         }
-        if rgba.chunks_exact(4).any(|pixel| pixel[2] > 0) {
+        if rgba.as_chunks::<4>().0.iter().any(|pixel| pixel[2] > 0) {
             return Ok(true);
         }
     }

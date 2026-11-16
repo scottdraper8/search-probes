@@ -130,7 +130,7 @@ pub struct InputFrame {
 
 pub fn install(hwnd: usize) -> Result<(), String> {
     let mut input = INPUT.lock().map_err(|_| "overlay input poisoned")?;
-    if !input.procedures.contains_key(&hwnd) {
+    if let std::collections::btree_map::Entry::Vacant(entry) = input.procedures.entry(hwnd) {
         let window = hwnd as HWND;
         unsafe {
             windows_sys::Win32::Foundation::SetLastError(0);
@@ -141,7 +141,7 @@ pub fn install(hwnd: usize) -> Result<(), String> {
             return Err("cannot observe the game window's input".into());
         }
         let unicode = unsafe { IsWindowUnicode(window) } != 0;
-        input.procedures.insert(hwnd, (previous, unicode));
+        entry.insert((previous, unicode));
     }
     WINDOW.store(hwnd, Ordering::Release);
     Ok(())
@@ -781,10 +781,7 @@ unsafe extern "system" fn procedure(
             active && (keyboard || (WM_MOUSEFIRST..=WM_MOUSELAST).contains(&message)),
         )
     });
-    let (previous, consumed) = match processed {
-        Ok(value) => value,
-        Err(_) => (None, false),
-    };
+    let (previous, consumed) = processed.unwrap_or_default();
     if consumed {
         if message == WM_INPUT {
             return unsafe { DefWindowProcW(hwnd, message, wparam, lparam) };

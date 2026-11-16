@@ -86,8 +86,10 @@ impl Snapshot {
         let configuration = configuration_identity(platform::read::<CONFIGURATION_SIZE>(planet)?);
         let solar_resources = platform::read::<16>(root + 0x523750 + 0x6c0)?;
         if solar_resources
-            .chunks_exact(8)
-            .any(|bytes| u64::from_le_bytes(bytes.try_into().expect("resource pointer")) < 0x10000)
+            .as_chunks::<8>()
+            .0
+            .iter()
+            .any(|bytes| u64::from_le_bytes(*bytes) < 0x10000)
         {
             return Err("solar generator resources are not ready");
         }

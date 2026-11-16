@@ -510,8 +510,7 @@ impl Plan {
     }
     pub fn planet_match(&self, facts: &Facts) -> Verdict {
         combine(
-            self.section_verdicts(&self.planet, |rule| self.evaluate_planet(rule, facts))
-                .into_iter(),
+            self.section_verdicts(&self.planet, |rule| self.evaluate_planet(rule, facts)),
             ResourceMode::All,
         )
     }

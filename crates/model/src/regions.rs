@@ -69,7 +69,7 @@ impl Regions {
     fn face(&self) -> Option<Rectangle> {
         let axis = self.face / 2;
         let fixed = self.origin[axis]
-            + if self.face % 2 == 0 {
+            + if self.face.is_multiple_of(2) {
                 -self.radius
             } else {
                 self.radius

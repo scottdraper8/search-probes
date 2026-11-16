@@ -180,14 +180,13 @@ impl<'cache> Generator<'cache> {
             }
             if system_verdict == Verdict::Match
                 && plan.planet_match(&outcome.snapshot.planets[index]) == Verdict::Match
+                && let Some(name) = cached.and_then(|record| record.name(index))
             {
-                if let Some(name) = cached.and_then(|record| record.name(index)) {
-                    outcome.matches.push(Match {
-                        planet: index,
-                        name: name.into(),
-                    });
-                    continue;
-                }
+                outcome.matches.push(Match {
+                    planet: index,
+                    name: name.into(),
+                });
+                continue;
             }
             outcome.work.planets += 1;
             unsafe {
@@ -297,12 +296,12 @@ impl<'cache> Generator<'cache> {
                             captured.grass_terrain[0],
                             captured.screen_filter,
                         );
-                        if let Ok(prepared) = &prepared {
-                            if let Some(candidates) = prepared.fixed_colour() {
-                                facts.restrict_grass_colours(candidates);
-                                if plan.planet_match(facts) == Verdict::NoMatch {
-                                    return Ok(());
-                                }
+                        if let Ok(prepared) = &prepared
+                            && let Some(candidates) = prepared.fixed_colour()
+                        {
+                            facts.restrict_grass_colours(candidates);
+                            if plan.planet_match(facts) == Verdict::NoMatch {
+                                return Ok(());
                             }
                         }
                         Some(prepared)

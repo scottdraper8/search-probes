@@ -38,7 +38,7 @@
           <Property name="Mission" value="SQN_SP_P01" />
           <Property name="MissionButtonText" value="SQN_SP_BUTTON" />
           <Property name="Seen" value="false" />
-          <Property name="Unlocked" value="true" />
+          <Property name="Unlocked" value="false" />
           <Property name="ActionSet" value="GcActionSetType">
             <Property name="ActionSetType" value="OnFootControls" />
           </Property>
@@ -70,7 +70,7 @@
           <Property name="Mission" value="SQN_SP_P02" />
           <Property name="MissionButtonText" value="SQN_SP_BUTTON" />
           <Property name="Seen" value="false" />
-          <Property name="Unlocked" value="true" />
+          <Property name="Unlocked" value="false" />
           <Property name="ActionSet" value="GcActionSetType">
             <Property name="ActionSetType" value="OnFootControls" />
           </Property>
@@ -102,7 +102,7 @@
           <Property name="Mission" value="SQN_SP_P03" />
           <Property name="MissionButtonText" value="SQN_SP_BUTTON" />
           <Property name="Seen" value="false" />
-          <Property name="Unlocked" value="true" />
+          <Property name="Unlocked" value="false" />
           <Property name="ActionSet" value="GcActionSetType">
             <Property name="ActionSetType" value="OnFootControls" />
           </Property>
@@ -134,7 +134,7 @@
           <Property name="Mission" value="SQN_SP_P04" />
           <Property name="MissionButtonText" value="SQN_SP_BUTTON" />
           <Property name="Seen" value="false" />
-          <Property name="Unlocked" value="true" />
+          <Property name="Unlocked" value="false" />
           <Property name="ActionSet" value="GcActionSetType">
             <Property name="ActionSetType" value="OnFootControls" />
           </Property>
@@ -166,7 +166,7 @@
           <Property name="Mission" value="SQN_SP_P05" />
           <Property name="MissionButtonText" value="SQN_SP_BUTTON" />
           <Property name="Seen" value="false" />
-          <Property name="Unlocked" value="true" />
+          <Property name="Unlocked" value="false" />
           <Property name="ActionSet" value="GcActionSetType">
             <Property name="ActionSetType" value="OnFootControls" />
           </Property>
@@ -198,7 +198,7 @@
           <Property name="Mission" value="SQN_SP_P06" />
           <Property name="MissionButtonText" value="SQN_SP_BUTTON" />
           <Property name="Seen" value="false" />
-          <Property name="Unlocked" value="true" />
+          <Property name="Unlocked" value="false" />
           <Property name="ActionSet" value="GcActionSetType">
             <Property name="ActionSetType" value="OnFootControls" />
           </Property>
@@ -230,7 +230,7 @@
           <Property name="Mission" value="SQN_SP_P07" />
           <Property name="MissionButtonText" value="SQN_SP_BUTTON" />
           <Property name="Seen" value="false" />
-          <Property name="Unlocked" value="true" />
+          <Property name="Unlocked" value="false" />
           <Property name="ActionSet" value="GcActionSetType">
             <Property name="ActionSetType" value="OnFootControls" />
           </Property>
@@ -262,7 +262,7 @@
           <Property name="Mission" value="SQN_SP_P08" />
           <Property name="MissionButtonText" value="SQN_SP_BUTTON" />
           <Property name="Seen" value="false" />
-          <Property name="Unlocked" value="true" />
+          <Property name="Unlocked" value="false" />
           <Property name="ActionSet" value="GcActionSetType">
             <Property name="ActionSetType" value="OnFootControls" />
           </Property>
@@ -294,7 +294,7 @@
           <Property name="Mission" value="SQN_SP_P09" />
           <Property name="MissionButtonText" value="SQN_SP_BUTTON" />
           <Property name="Seen" value="false" />
-          <Property name="Unlocked" value="true" />
+          <Property name="Unlocked" value="false" />
           <Property name="ActionSet" value="GcActionSetType">
             <Property name="ActionSetType" value="OnFootControls" />
           </Property>

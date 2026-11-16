@@ -67,10 +67,10 @@ unsafe extern "system" fn detour(communicator: *mut u8, timestep: f32) {
         BUSY.store(false, Ordering::Release);
         return;
     }
-    if let Some(callback) = CALLBACK.get() {
-        if catch_unwind(AssertUnwindSafe(*callback)).is_err() {
-            FAILED.store(2, Ordering::Release);
-        }
+    if let Some(callback) = CALLBACK.get()
+        && catch_unwind(AssertUnwindSafe(*callback)).is_err()
+    {
+        FAILED.store(2, Ordering::Release);
     }
     BUSY.store(false, Ordering::Release);
 }

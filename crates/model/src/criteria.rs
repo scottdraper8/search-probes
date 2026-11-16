@@ -853,13 +853,11 @@ pub fn subtype_options_for(selected: u64) -> Vec<(u64, &'static str)> {
                 _ => ambiguous = true,
             }
         }
-        if !ambiguous {
-            if let Some(label) = label {
-                if let Some((mask, _)) = options.iter_mut().find(|(_, name)| *name == label) {
-                    *mask |= 1 << choice;
-                } else {
-                    options.push((1 << choice, label));
-                }
+        if !ambiguous && let Some(label) = label {
+            if let Some((mask, _)) = options.iter_mut().find(|(_, name)| *name == label) {
+                *mask |= 1 << choice;
+            } else {
+                options.push((1 << choice, label));
             }
         }
     }

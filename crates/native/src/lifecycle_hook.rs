@@ -123,10 +123,10 @@ unsafe extern "system" fn detour(this: *mut u8, key: *const u8, data: *mut u8, r
     }
 
     let transition = TransitionDepth::enter();
-    if transition.0 {
-        if let Err(error) = crate::runtime::begin_application_transition() {
-            crate::runtime::report_startup_failure(error);
-        }
+    if transition.0
+        && let Err(error) = crate::runtime::begin_application_transition()
+    {
+        crate::runtime::report_startup_failure(error);
     }
     STATE.store(ApplicationState::Loading as u8, Ordering::Release);
     EPOCH.fetch_add(1, Ordering::AcqRel);

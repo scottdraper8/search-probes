@@ -149,9 +149,10 @@ fn package(workspace: &Path, output: &Path) -> Result<()> {
             .ok_or("missing Cargo target directory")?,
     )
     .join("x86_64-pc-windows-gnu/release");
-    for (from, to) in [("winmm.dll", "Binaries/winmm.dll")] {
-        copy(&binaries.join(from), &temporary.join(to))?;
-    }
+    copy(
+        &binaries.join("winmm.dll"),
+        &temporary.join("Binaries/winmm.dll"),
+    )?;
     let assets = workspace.join("assets");
     for file in files(&assets)? {
         let relative = file.strip_prefix(&assets)?;

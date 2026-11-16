@@ -303,14 +303,13 @@ impl App {
             if ui
                 .add_enabled(self.selected_preset.is_some(), egui::Button::new("Remove"))
                 .clicked()
+                && let Some(index) = self.selected_preset.take()
             {
-                if let Some(index) = self.selected_preset.take() {
-                    self.settings.presets.remove(index);
-                    self.preset_name.clear();
-                    self.send(Action::Configure {
-                        settings: self.settings.clone(),
-                    });
-                }
+                self.settings.presets.remove(index);
+                self.preset_name.clear();
+                self.send(Action::Configure {
+                    settings: self.settings.clone(),
+                });
             }
         });
     }
@@ -2071,7 +2070,7 @@ fn number(value: u64) -> String {
     let digits = value.to_string();
     let mut output = String::new();
     for (index, digit) in digits.chars().enumerate() {
-        if index > 0 && (digits.len() - index) % 3 == 0 {
+        if index > 0 && (digits.len() - index).is_multiple_of(3) {
             output.push(',');
         }
         output.push(digit);

@@ -136,11 +136,13 @@ impl Painter {
                 &context.instance,
                 context.physical,
                 &context.device,
-                chain.extent,
-                chain.format,
-                chain.colour_space,
-                &painter.views,
-                vk::ImageLayout::PRESENT_SRC_KHR,
+                hdr::Presentation {
+                    extent: chain.extent,
+                    format: chain.format,
+                    colour_space: chain.colour_space,
+                    views: &painter.views,
+                    layout: vk::ImageLayout::PRESENT_SRC_KHR,
+                },
             )?);
         }
         let attachment = [vk::AttachmentDescription::default()

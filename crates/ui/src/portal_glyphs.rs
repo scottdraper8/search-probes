@@ -82,7 +82,7 @@ fn decode(bytes: &[u8]) -> Result<ColorImage, String> {
         return Err("portal glyph must use 8-bit RGBA pixels".to_owned());
     }
     let mut normalized = Vec::with_capacity(info.buffer_size());
-    for pixel in pixels[..info.buffer_size()].chunks_exact(4) {
+    for pixel in pixels[..info.buffer_size()].as_chunks::<4>().0 {
         normalized.extend_from_slice(&[255, 255, 255, pixel[3]]);
     }
     Ok(ColorImage::from_rgba_unmultiplied(

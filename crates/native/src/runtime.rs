@@ -6,7 +6,7 @@ use crate::{
     lifecycle_hook, mission_text_hook,
     navigation::Navigation,
     navigation_hook, platform, query_hooks,
-    scheduler::Scheduler,
+    scheduler::{Scheduler, TickRequest},
     workers::Workers,
 };
 use search_probes_model::{
@@ -215,10 +215,10 @@ pub(crate) fn finish_application_transition() -> Result<(), &'static str> {
         .lock()
         .map_err(|_| "application transition state poisoned")?
         .take();
-    if let Some(transition) = transition {
-        if let Some(dispatch) = transition.dispatch {
-            dispatch.complete()?;
-        }
+    if let Some(transition) = transition
+        && let Some(dispatch) = transition.dispatch
+    {
+        dispatch.complete()?;
     }
     Ok(())
 }
@@ -296,7 +296,7 @@ impl Runtime {
             self.guide_topics
                 .as_ref()
                 .expect("located Guide topics")
-                .show(self.settings.presets.len())
+                .sync(self.settings.presets.len())
         }
     }
 
@@ -387,11 +387,11 @@ impl Runtime {
                     Some("A Guide request is already pending. Launch one preset at a time.".into())
             });
         }
-        if let Some(request) = request.filter(|request| request.epoch == transition) {
-            if let Err(error) = self.start_guide(request.slot, &snapshot) {
-                self.controls
-                    .update(|state| state.error = Some(error.into()));
-            }
+        if let Some(request) = request.filter(|request| request.epoch == transition)
+            && let Err(error) = self.start_guide(request.slot, &snapshot)
+        {
+            self.controls
+                .update(|state| state.error = Some(error.into()));
         }
         if self
             .navigation_polled
@@ -404,22 +404,22 @@ impl Runtime {
             }
         }
         let in_search_galaxy = self.scheduler.session.is_in_search_galaxy(snapshot.address);
-        if in_search_galaxy {
-            if let Err(error) = unsafe {
-                self.scheduler.tick(
-                    &self.pool,
-                    self.image.base(),
-                    snapshot.planet as *const u8,
-                    snapshot.difficulty,
-                    self.settings.workers,
-                    Duration::from_millis(u64::from(self.settings.frame_budget_ms)),
-                    &self.controls.cancel,
-                )
-            } {
-                self.scheduler.session.fail(error);
-                self.controls
-                    .update(|state| state.error = Some(error.into()));
+        if in_search_galaxy
+            && let Err(error) = unsafe {
+                self.scheduler.tick(TickRequest {
+                    pool: &self.pool,
+                    base: self.image.base(),
+                    live: snapshot.planet as *const u8,
+                    difficulty: snapshot.difficulty,
+                    workers: self.settings.workers,
+                    budget: Duration::from_millis(u64::from(self.settings.frame_budget_ms)),
+                    cancel: &self.controls.cancel,
+                })
             }
+        {
+            self.scheduler.session.fail(error);
+            self.controls
+                .update(|state| state.error = Some(error.into()));
         }
         if let Err(error) = unsafe { self.scheduler.name_results(self.image.base()) } {
             self.scheduler.session.fail(error);

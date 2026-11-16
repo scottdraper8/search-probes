@@ -164,25 +164,25 @@ unsafe extern "system" fn building_detour(
             position,
         )
     };
-    if let Some(selection) = SELECTION.get().filter(|selection| selection.event == event) {
-        if building != 0 {
-            let actual = platform::pointer(building + 0x70)
-                .and_then(|planet| unsafe { planet_address(planet) });
-            let matches_target = match (selection.target.kind, actual) {
-                (TargetKind::Planet | TargetKind::Fauna, Ok(actual)) => {
-                    actual == selection.target.address
-                }
-                (TargetKind::System, Ok(actual)) => actual.system() == selection.target.address,
-                (_, Err(_)) => false,
-            };
-            if !matches_target {
-                fail(
-                    "NMS could not place a marker on the selected planet. Abandon Search Probes in the Log before retrying.",
-                );
-                return 0;
+    if let Some(selection) = SELECTION.get().filter(|selection| selection.event == event)
+        && building != 0
+    {
+        let actual =
+            platform::pointer(building + 0x70).and_then(|planet| unsafe { planet_address(planet) });
+        let matches_target = match (selection.target.kind, actual) {
+            (TargetKind::Planet | TargetKind::Fauna, Ok(actual)) => {
+                actual == selection.target.address
             }
-            *PUBLISHED.lock().unwrap_or_else(|error| error.into_inner()) = Some(selection.target);
+            (TargetKind::System, Ok(actual)) => actual.system() == selection.target.address,
+            (_, Err(_)) => false,
+        };
+        if !matches_target {
+            fail(
+                "NMS could not place a marker on the selected planet. Abandon Search Probes in the Log before retrying.",
+            );
+            return 0;
         }
+        *PUBLISHED.lock().unwrap_or_else(|error| error.into_inner()) = Some(selection.target);
     }
     building
 }

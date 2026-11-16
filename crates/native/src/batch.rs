@@ -15,6 +15,17 @@ pub struct Job<'a> {
     pub cached: Option<&'a SystemRecord>,
 }
 
+pub struct Evaluation<'a> {
+    pub object_summaries: &'a crate::object_cache::ObjectTableCache,
+    pub base: usize,
+    pub live: *const u8,
+    pub jobs: &'a [Job<'a>],
+    pub plan: &'a Plan,
+    pub difficulty: usize,
+    pub workers: usize,
+    pub cancel: &'a AtomicBool,
+}
+
 pub struct Completed {
     pub address: Address,
     pub record: SystemRecord,
@@ -29,15 +40,18 @@ pub struct Completed {
 /// The planet generator and query hooks remain active throughout the batch.
 pub unsafe fn evaluate(
     pool: &Workers,
-    object_summaries: &crate::object_cache::ObjectTableCache,
-    base: usize,
-    live: *const u8,
-    jobs: &[Job<'_>],
-    plan: &Plan,
-    difficulty: usize,
-    workers: usize,
-    cancel: &AtomicBool,
+    evaluation: Evaluation<'_>,
 ) -> Result<Vec<Result<Completed, &'static str>>, &'static str> {
+    let Evaluation {
+        object_summaries,
+        base,
+        live,
+        jobs,
+        plan,
+        difficulty,
+        workers,
+        cancel,
+    } = evaluation;
     if jobs.len() > MAX_BATCH
         || live.is_null()
         || !(1..=pool.count()).contains(&workers)
