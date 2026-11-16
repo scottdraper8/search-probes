@@ -5,6 +5,8 @@ use crate::{
     workers::Workers,
 };
 use search_probes_model::{
+    address::Address,
+    criteria::Plan,
     session::{Phase, Session, Work as Pending},
     settings::recommended_workers,
 };
@@ -51,6 +53,25 @@ impl Default for Scheduler {
 }
 
 impl Scheduler {
+    /// Inspect one loaded system without mutating the active search session.
+    ///
+    /// # Safety
+    /// The loaded gameplay image and live configuration graph must remain valid and quiescent for
+    /// the duration of the native query.
+    pub unsafe fn inspect_current(
+        &self,
+        base: usize,
+        live: *const u8,
+        difficulty: usize,
+        address: Address,
+        plan: &Plan,
+    ) -> Result<crate::search::Outcome, &'static str> {
+        let cancel = AtomicBool::new(false);
+        let mut generator =
+            unsafe { crate::search::Generator::new(base, live, &self.object_summaries)? };
+        unsafe { generator.inspect_current(address, plan, difficulty, &cancel) }
+    }
+
     #[cfg(windows)]
     /// # Safety
     /// The loaded gameplay image and fauna naming resources must remain valid for the duration of

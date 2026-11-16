@@ -55,7 +55,8 @@ pub struct ArenaCriteria {
     pub presence: Option<bool>,
     pub choices: BTreeMap<ArenaField, u64>,
 }
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize)]
+#[serde(deny_unknown_fields)]
 pub struct Selection {
     pub presence: Option<bool>,
     pub masks: [u64; ArenaField::ALL.len()],

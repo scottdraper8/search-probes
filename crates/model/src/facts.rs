@@ -2,6 +2,8 @@ use crate::criteria::{
     Field, Plan, PlanetFlag, PlanetSelection, Predicate, Requirements, ResourceMode, Section,
     Stage, SystemFlag, WaterPresence,
 };
+use serde::Serialize;
+use std::collections::BTreeMap;
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, serde::Serialize)]
 pub struct Facts {
@@ -23,11 +25,82 @@ pub struct Facts {
     arena: Option<std::sync::Arc<[crate::arena::Creature]>>,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
 pub enum Verdict {
     Match,
     NoMatch,
     Unknown,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct ObservedValue {
+    pub native: u32,
+    pub labels: Vec<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct FactSnapshot {
+    pub fields: BTreeMap<Field, ObservedValue>,
+    pub planet_flags: BTreeMap<PlanetFlag, bool>,
+    pub system_flags: BTreeMap<SystemFlag, bool>,
+    pub resources: Option<Vec<String>>,
+    pub planet_count: Option<u8>,
+    pub water: Option<WaterPresence>,
+    pub fauna_count: Option<usize>,
+    pub arena_count: Option<usize>,
+}
+
+impl From<&Facts> for FactSnapshot {
+    fn from(facts: &Facts) -> Self {
+        let fields = Field::ALL
+            .iter()
+            .filter_map(|&field| {
+                facts.get(field).map(|native| {
+                    (
+                        field,
+                        ObservedValue {
+                            native,
+                            labels: field
+                                .labels_for_native(native)
+                                .into_iter()
+                                .map(str::to_owned)
+                                .collect(),
+                        },
+                    )
+                })
+            })
+            .collect();
+        let planet_flags = PlanetFlag::ALL
+            .iter()
+            .filter_map(|&flag| facts.planet_flag(flag).map(|value| (flag, value)))
+            .collect();
+        let system_flags = SystemFlag::ALL
+            .iter()
+            .filter_map(|&flag| facts.system_flag(flag).map(|value| (flag, value)))
+            .collect();
+        let resources = facts.resources().map(|bits| {
+            crate::vocabulary::RESOURCE_LABELS
+                .iter()
+                .copied()
+                .enumerate()
+                .filter(|(index, _)| bits & (1 << index) != 0)
+                .map(|(_, label)| label.to_owned())
+                .collect()
+        });
+        Self {
+            fields,
+            planet_flags,
+            system_flags,
+            resources,
+            planet_count: facts.planet_count(),
+            water: facts.water(),
+            fauna_count: facts.fauna().map(<[_]>::len),
+            arena_count: facts.arena().map(<[_]>::len),
+        }
+    }
 }
 
 impl Facts {
@@ -417,23 +490,43 @@ impl Plan {
             {
                 continue;
             }
-            needed.planet_query |= predicate.stage() >= Stage::Query;
-            needed.metadata |= predicate.stage() == Stage::Metadata;
-            needed.hints |= predicate.stage() == Stage::Hints;
-            needed.fauna |= predicate.stage() == Stage::Fauna;
-            needed.weather |= predicate.stage() == Stage::Weather;
-            needed.terrain |= predicate.stage() == Stage::Terrain;
-            needed.screen_filter |= predicate.stage() == Stage::ScreenFilter;
-            needed.objects |= predicate.stage() == Stage::Objects;
-            if let Predicate::Choice(choices) = predicate {
-                needed.objects |= choices.field() == Field::Terrain
-                    && choices.mask() & u64::from(crate::terrain::FLOATING_ISLANDS) != 0;
-                if let Some(index) = choices.field().colour_index() {
-                    needed.colours |= 1 << index;
-                }
+            Self::include_requirements(predicate, &mut needed);
+        }
+        needed
+    }
+
+    pub fn inspection_requirements(&self, facts: &Facts) -> Requirements {
+        let mut needed = Requirements {
+            screen_filter: facts.get(Field::WorldColourFilter).is_none(),
+            ..Requirements::default()
+        };
+        for &predicate in &self.planet {
+            if matches!(predicate, Predicate::Arena(_)) && facts.arena().is_some() {
+                continue;
+            }
+            if self.evaluate_planet(predicate, facts) == Verdict::Unknown {
+                Self::include_requirements(predicate, &mut needed);
             }
         }
         needed
+    }
+
+    fn include_requirements(predicate: Predicate, needed: &mut Requirements) {
+        needed.planet_query |= predicate.stage() >= Stage::Query;
+        needed.metadata |= predicate.stage() == Stage::Metadata;
+        needed.hints |= predicate.stage() == Stage::Hints;
+        needed.fauna |= predicate.stage() == Stage::Fauna;
+        needed.weather |= predicate.stage() == Stage::Weather;
+        needed.terrain |= predicate.stage() == Stage::Terrain;
+        needed.screen_filter |= predicate.stage() == Stage::ScreenFilter;
+        needed.objects |= predicate.stage() == Stage::Objects;
+        if let Predicate::Choice(choices) = predicate {
+            needed.objects |= choices.field() == Field::Terrain
+                && choices.mask() & u64::from(crate::terrain::FLOATING_ISLANDS) != 0;
+            if let Some(index) = choices.field().colour_index() {
+                needed.colours |= 1 << index;
+            }
+        }
     }
     fn section_verdicts(
         &self,
@@ -482,28 +575,59 @@ impl Plan {
         }
         facts.evaluate(predicate)
     }
+    pub fn planet_predicate_verdict(&self, predicate: Predicate, facts: &Facts) -> Verdict {
+        self.evaluate_planet(predicate, facts)
+    }
+    pub fn system_predicate_verdict(
+        &self,
+        predicate: Predicate,
+        facts: &Facts,
+        planets: &[Facts],
+    ) -> Verdict {
+        if let Predicate::Contains(selection, expected) = predicate {
+            let found = if planets.is_empty() {
+                Verdict::Unknown
+            } else {
+                combine(
+                    planets
+                        .iter()
+                        .map(|planet| planet.evaluate_selection(selection)),
+                    ResourceMode::Any,
+                )
+            };
+            match (found, expected) {
+                (Verdict::Match, false) => Verdict::NoMatch,
+                (Verdict::NoMatch, false) => Verdict::Match,
+                _ => found,
+            }
+        } else {
+            facts.evaluate(predicate)
+        }
+    }
+    pub fn planet_section_verdicts(&self, facts: &Facts) -> BTreeMap<Section, Verdict> {
+        Section::ALL
+            .iter()
+            .copied()
+            .zip(self.section_verdicts(&self.planet, |rule| self.evaluate_planet(rule, facts)))
+            .collect()
+    }
+    pub fn system_section_verdicts(
+        &self,
+        facts: &Facts,
+        planets: &[Facts],
+    ) -> BTreeMap<Section, Verdict> {
+        Section::ALL
+            .iter()
+            .copied()
+            .zip(self.section_verdicts(&self.system, |rule| {
+                self.system_predicate_verdict(rule, facts, planets)
+            }))
+            .collect()
+    }
     pub fn system_match(&self, facts: &Facts, planets: &[Facts]) -> Verdict {
         combine(
             self.section_verdicts(&self.system, |rule| {
-                if let Predicate::Contains(selection, expected) = rule {
-                    let found = if planets.is_empty() {
-                        Verdict::Unknown
-                    } else {
-                        combine(
-                            planets
-                                .iter()
-                                .map(|planet| planet.evaluate_selection(selection)),
-                            ResourceMode::Any,
-                        )
-                    };
-                    match (found, expected) {
-                        (Verdict::Match, false) => Verdict::NoMatch,
-                        (Verdict::NoMatch, false) => Verdict::Match,
-                        _ => found,
-                    }
-                } else {
-                    facts.evaluate(rule)
-                }
+                self.system_predicate_verdict(rule, facts, planets)
             }),
             ResourceMode::All,
         )

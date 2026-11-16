@@ -95,6 +95,17 @@ These commands use the runtime command queue without focusing the window or navi
 status after a timeout before retrying. Preserve explicit unknowns. Do not benchmark a degraded host
 or run huge unattended soak searches.
 
+### Runtime capabilities
+
+The native process publishes endpoint schema 2 for protocol `search-probes.agent-control` version
+1. It explicitly advertises `search.control/v1` and `nms.current-world/v1`; clients must negotiate a
+capability instead of assuming that every installed runtime supports every request. Current-world
+inspection runs through the same session-bound command queue and publishes native facts required by
+the active criteria plus core visual context such as the world colour filter. It also publishes
+per-criterion, per-section and overall verdicts. The parent repository owns the generic client,
+retention and presentation workflow. This repository owns only the qualified in-process NMS
+bindings, fact acquisition, classification and stable response model.
+
 ### Live UI development
 
 ```sh

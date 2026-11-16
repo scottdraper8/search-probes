@@ -214,7 +214,8 @@ pub struct FaunaCriteria {
     pub choices: BTreeMap<FaunaField, u64>,
     pub height: HeightRange,
 }
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize)]
+#[serde(deny_unknown_fields)]
 pub struct Selection {
     pub domain: Domain,
     pub presence: Option<bool>,

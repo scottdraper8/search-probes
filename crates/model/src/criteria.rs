@@ -5,7 +5,8 @@ use crate::{
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize)]
+#[serde(rename_all = "snake_case")]
 pub enum Stage {
     System,
     Input,
@@ -141,6 +142,41 @@ impl Field {
         }
     }
 
+    pub fn labels_for_native(self, native_value: u32) -> Vec<&'static str> {
+        if self.colour_index().is_some() {
+            if native_value & GRASS_COLOUR_SET == 0 {
+                return Vec::new();
+            }
+            return self
+                .options()
+                .iter()
+                .copied()
+                .enumerate()
+                .filter_map(|(index, label)| {
+                    (native_value & !GRASS_COLOUR_SET & (1 << index) != 0).then_some(label)
+                })
+                .collect();
+        }
+        if matches!(self, Self::Terrain | Self::UniqueResources) {
+            return self
+                .options()
+                .iter()
+                .copied()
+                .enumerate()
+                .filter_map(|(index, label)| {
+                    self.native_value(index)
+                        .is_some_and(|value| value & native_value & !(1 << 31) != 0)
+                        .then_some(label)
+                })
+                .collect();
+        }
+        self.choice_index(native_value)
+            .and_then(|index| self.options().get(index as usize))
+            .copied()
+            .into_iter()
+            .collect()
+    }
+
     fn native_origin(self) -> u32 {
         u32::from(matches!(self, Self::Subtype | Self::Anomaly))
     }
@@ -219,6 +255,7 @@ impl WaterFilter {
     }
 }
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
 pub enum WaterPresence {
     Dry,
     Shallow,
@@ -418,7 +455,8 @@ pub struct Criteria {
     pub arena: crate::arena::ArenaCriteria,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize)]
+#[serde(deny_unknown_fields)]
 pub struct Choices {
     field: Field,
     mask: u64,
@@ -431,6 +469,9 @@ impl Choices {
     }
     pub fn mask(self) -> u64 {
         self.mask
+    }
+    pub fn mode(self) -> ResourceMode {
+        self.mode
     }
     pub fn accepts(self, native_value: u32) -> bool {
         if self.field == Field::UniqueResources {
@@ -466,7 +507,8 @@ impl Choices {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize)]
+#[serde(tag = "kind", content = "value", rename_all = "snake_case")]
 pub enum PlanetSelection {
     Biome { biomes: u64, subtypes: u64 },
     Size(u64),
@@ -481,7 +523,8 @@ impl PlanetSelection {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize)]
+#[serde(tag = "kind", content = "value", rename_all = "snake_case")]
 pub enum Predicate {
     Choice(Choices),
     Planet(PlanetFlag, bool),
@@ -520,6 +563,113 @@ impl Predicate {
             Self::MinimumPlanets(_) => Stage::System,
             Self::Water(_) => Stage::Query,
             Self::Contains(selection, _) => selection.stage(),
+        }
+    }
+
+    pub fn description(self) -> String {
+        fn selected(mask: u64, labels: impl IntoIterator<Item = (usize, &'static str)>) -> String {
+            labels
+                .into_iter()
+                .filter_map(|(index, label)| (mask & (1u64 << index) != 0).then_some(label))
+                .collect::<Vec<_>>()
+                .join(" | ")
+        }
+        fn expected(label: &str, value: bool) -> String {
+            if value {
+                label.to_owned()
+            } else {
+                format!("Not {label}")
+            }
+        }
+        match self {
+            Self::Choice(choices) => format!(
+                "{}: {}",
+                choices.field.label(),
+                selected(
+                    choices.mask,
+                    choices.field.options().iter().copied().enumerate()
+                )
+            ),
+            Self::Planet(flag, value) => expected(flag.label(), value),
+            Self::System(flag, value) => expected(flag.label(), value),
+            Self::Resources(resources) => format!(
+                "Resources ({}): {}",
+                match resources.mode {
+                    ResourceMode::All => "all",
+                    ResourceMode::Any => "any",
+                },
+                selected(
+                    u64::from(resources.selected),
+                    crate::vocabulary::RESOURCE_LABELS
+                        .iter()
+                        .copied()
+                        .enumerate()
+                )
+            ),
+            Self::MinimumPlanets(minimum) => format!("At least {minimum} planets"),
+            Self::Water(rule) => format!("Water: {}", rule.label()),
+            Self::Contains(selection, value) => {
+                let detail = match selection {
+                    PlanetSelection::Biome { biomes, subtypes } => format!(
+                        "biome [{}], subtype [{}]",
+                        selected(biomes, Field::Biome.options().iter().copied().enumerate()),
+                        selected(
+                            subtypes,
+                            Field::Subtype.options().iter().copied().enumerate()
+                        )
+                    ),
+                    PlanetSelection::Size(mask) => format!(
+                        "size [{}]",
+                        selected(mask, Field::Size.options().iter().copied().enumerate())
+                    ),
+                    PlanetSelection::Water(rule) => format!("water [{}]", rule.label()),
+                };
+                if value {
+                    format!("System contains a planet with {detail}")
+                } else {
+                    format!("System contains no planet with {detail}")
+                }
+            }
+            Self::Fauna(selection) => {
+                let mut details = Vec::new();
+                if let Some(presence) = selection.presence {
+                    details.push(expected(selection.domain.presence_label(), presence));
+                }
+                for (index, field) in crate::fauna::FaunaField::ALL.iter().copied().enumerate() {
+                    let mask = selection.masks[index];
+                    if mask != 0 {
+                        details.push(format!(
+                            "{}: {}",
+                            field.label(),
+                            selected(mask, field.options(selection.domain))
+                        ));
+                    }
+                }
+                if let Some(minimum) = selection.height.minimum_cm {
+                    details.push(format!("Minimum height: {minimum} cm"));
+                }
+                if let Some(maximum) = selection.height.maximum_cm {
+                    details.push(format!("Maximum height: {maximum} cm"));
+                }
+                format!("{}: {}", selection.domain.label(), details.join("; "))
+            }
+            Self::Arena(selection) => {
+                let mut details = Vec::new();
+                if let Some(presence) = selection.presence {
+                    details.push(expected("Has Arena-eligible fauna", presence));
+                }
+                for (index, field) in crate::arena::ArenaField::ALL.iter().copied().enumerate() {
+                    let mask = selection.masks[index];
+                    if mask != 0 {
+                        details.push(format!(
+                            "{}: {}",
+                            field.label(),
+                            selected(mask, field.options())
+                        ));
+                    }
+                }
+                format!("Arena: {}", details.join("; "))
+            }
         }
     }
 }

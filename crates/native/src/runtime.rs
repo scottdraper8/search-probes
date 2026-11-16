@@ -11,7 +11,7 @@ use crate::{
 };
 use search_probes_model::{
     controls::Controls,
-    runtime::{Action, Availability, Command, Metrics, SearchPause, State},
+    runtime::{Action, Availability, Command, CurrentWorld, Metrics, SearchPause, State},
     session::Phase,
     settings::{Settings, available_workers},
     storage,
@@ -240,6 +240,7 @@ pub(crate) fn retire_application_sources(menu: bool) -> Result<(), &'static str>
             state.generation = state.generation.wrapping_add(1);
             state.player = None;
             state.destination = None;
+            state.current_world = None;
             if menu {
                 state.progress = None;
                 state.search_command = None;
@@ -339,6 +340,7 @@ impl Runtime {
                     };
                     state.player = None;
                     state.destination = None;
+                    state.current_world = None;
                     state.search_pause = Some(SearchPause::Loading);
                 });
                 return;
@@ -357,6 +359,7 @@ impl Runtime {
                     state.search_command = None;
                     state.results.clear();
                     state.search_pause = None;
+                    state.current_world = None;
                 });
             }
             if self
@@ -431,6 +434,9 @@ impl Runtime {
         let object_tables = self.scheduler.object_statistics();
         let progress = self.scheduler.session.progress().cloned();
         self.controls.update(|state| {
+            if state.player != Some(snapshot.address) {
+                state.current_world = None;
+            }
             state.availability = Availability::Ready;
             state.player = Some(snapshot.address);
             state.publish_progress(progress);
@@ -479,6 +485,7 @@ impl Runtime {
             state.availability = Availability::Ready;
             state.search_pause = None;
             state.metrics = Metrics::default();
+            state.current_world = None;
             state.publish_progress(self.scheduler.session.progress().cloned());
         });
         Ok(())
@@ -510,6 +517,7 @@ impl Runtime {
                     state.availability = Availability::Ready;
                     state.search_pause = None;
                     state.metrics = Metrics::default();
+                    state.current_world = None;
                     state.publish_progress(self.scheduler.session.progress().cloned());
                 });
             }
@@ -522,8 +530,36 @@ impl Runtime {
                     mission_text_hook::set_presets(&settings.presets)?;
                 }
                 self.settings = settings;
+                self.controls.update(|state| {
+                    state.settings = self.settings.clone();
+                    state.current_world = None;
+                });
+            }
+            Action::InspectCurrent {} => {
+                let criteria = self.settings.search.criteria.clone();
+                let plan = criteria.compile()?;
+                let outcome = unsafe {
+                    self.scheduler.inspect_current(
+                        self.image.base(),
+                        snapshot.planet as *const u8,
+                        snapshot.difficulty,
+                        snapshot.address,
+                        &plan,
+                    )
+                }?;
+                if outcome.cancelled {
+                    return Err("current-world inspection was cancelled");
+                }
+                let world = CurrentWorld::capture(
+                    command.id,
+                    snapshot.address,
+                    criteria,
+                    &plan,
+                    &outcome.snapshot.system,
+                    &outcome.snapshot.planets[..outcome.snapshot.count],
+                )?;
                 self.controls
-                    .update(|state| state.settings = self.settings.clone());
+                    .update(|state| state.current_world = Some(world));
             }
             Action::Navigate { target } => {
                 let displayed = self

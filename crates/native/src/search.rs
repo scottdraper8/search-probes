@@ -52,6 +52,12 @@ pub struct Outcome {
     pub cancelled: bool,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Operation {
+    Search,
+    Inspect(Option<usize>),
+}
+
 impl Outcome {
     pub fn into_record(
         self,
@@ -112,6 +118,45 @@ impl<'cache> Generator<'cache> {
         cancel: &AtomicBool,
         cached: Option<&SystemRecord>,
     ) -> Result<Outcome, &'static str> {
+        unsafe { self.execute(address, plan, difficulty, cancel, cached, Operation::Search) }
+    }
+
+    /// Inspect the loaded address without search pruning or cache reuse.
+    ///
+    /// # Safety
+    /// The game-resource lifetime and quiescence contract from construction remains in force.
+    pub unsafe fn inspect_current(
+        &mut self,
+        address: Address,
+        plan: &Plan,
+        difficulty: usize,
+        cancel: &AtomicBool,
+    ) -> Result<Outcome, &'static str> {
+        let target = match address.coordinates().planet {
+            0 => None,
+            value => Some(usize::from(value - 1)),
+        };
+        unsafe {
+            self.execute(
+                address.system(),
+                plan,
+                difficulty,
+                cancel,
+                None,
+                Operation::Inspect(target),
+            )
+        }
+    }
+
+    unsafe fn execute(
+        &mut self,
+        address: Address,
+        plan: &Plan,
+        difficulty: usize,
+        cancel: &AtomicBool,
+        cached: Option<&SystemRecord>,
+        operation: Operation,
+    ) -> Result<Outcome, &'static str> {
         if difficulty > 3 {
             return Err("invalid combat difficulty");
         }
@@ -126,6 +171,11 @@ impl<'cache> Generator<'cache> {
             },
             cancelled: false,
         };
+        if let Operation::Inspect(Some(index)) = operation
+            && index >= outcome.snapshot.count
+        {
+            return Err("current planet is outside the generated system");
+        }
         if let Some(cached) = cached {
             if cached.count() != outcome.snapshot.count {
                 return Err("cached system count changed");
@@ -144,6 +194,7 @@ impl<'cache> Generator<'cache> {
             &outcome.snapshot.system,
             &outcome.snapshot.planets[..outcome.snapshot.count],
         ) == Verdict::NoMatch
+            && operation == Operation::Search
         {
             return Ok(outcome);
         }
@@ -164,29 +215,33 @@ impl<'cache> Generator<'cache> {
                 outcome.cancelled = true;
                 break;
             }
+            let inspect_target =
+                matches!(operation, Operation::Inspect(Some(target)) if target == index);
             let system_verdict = plan.system_match(
                 &outcome.snapshot.system,
                 &outcome.snapshot.planets[..outcome.snapshot.count],
             );
-            if system_verdict == Verdict::NoMatch
-                || (system_verdict == Verdict::Match && plan.planet.is_empty())
-            {
-                break;
-            }
-            if system_verdict == Verdict::Match
-                && plan.planet_match(&outcome.snapshot.planets[index]) == Verdict::NoMatch
-            {
-                continue;
-            }
-            if system_verdict == Verdict::Match
-                && plan.planet_match(&outcome.snapshot.planets[index]) == Verdict::Match
-                && let Some(name) = cached.and_then(|record| record.name(index))
-            {
-                outcome.matches.push(Match {
-                    planet: index,
-                    name: name.into(),
-                });
-                continue;
+            if operation == Operation::Search {
+                if system_verdict == Verdict::NoMatch
+                    || (system_verdict == Verdict::Match && plan.planet.is_empty())
+                {
+                    break;
+                }
+                if system_verdict == Verdict::Match
+                    && plan.planet_match(&outcome.snapshot.planets[index]) == Verdict::NoMatch
+                {
+                    continue;
+                }
+                if system_verdict == Verdict::Match
+                    && plan.planet_match(&outcome.snapshot.planets[index]) == Verdict::Match
+                    && let Some(name) = cached.and_then(|record| record.name(index))
+                {
+                    outcome.matches.push(Match {
+                        planet: index,
+                        name: name.into(),
+                    });
+                    continue;
+                }
             }
             outcome.work.planets += 1;
             unsafe {
@@ -206,19 +261,33 @@ impl<'cache> Generator<'cache> {
                         apply_capture(facts, &details, difficulty)?;
                         outcome.work.metadata_captures += 1;
                     }
-                    if plan.planet.is_empty() || plan.planet_match(facts) == Verdict::NoMatch {
+                    if matches!(operation, Operation::Inspect(_)) && !inspect_target {
                         return Ok(());
                     }
-                    let needed = plan.missing_planet_requirements(facts);
+                    if !inspect_target
+                        && (plan.planet.is_empty()
+                            || plan.planet_match(facts) == Verdict::NoMatch)
+                    {
+                        return Ok(());
+                    }
+                    let needed = if inspect_target {
+                        plan.inspection_requirements(facts)
+                    } else {
+                        plan.missing_planet_requirements(facts)
+                    };
                     if needed.hints {
                         let hints = crate::resource_hints::capture(live)?;
                         facts.set(Field::UniqueResources, hints.unique_resources);
                         facts.set_planet_flag(PlanetFlag::VileBrood, hints.vile_brood);
-                        if plan.planet_match(facts) == Verdict::NoMatch {
+                        if !inspect_target && plan.planet_match(facts) == Verdict::NoMatch {
                             return Ok(());
                         }
                     }
-                    let needed = plan.missing_planet_requirements(facts);
+                    let needed = if inspect_target {
+                        plan.inspection_requirements(facts)
+                    } else {
+                        plan.missing_planet_requirements(facts)
+                    };
                     if needed.fauna {
                         if plan.targets_animals() && facts.fauna().is_none() {
                             if self.fauna.is_none() {
@@ -246,9 +315,15 @@ impl<'cache> Generator<'cache> {
                             facts.set_arena(self.arena.as_ref().unwrap().capture_inputs(&inputs)?);
                             arena_inputs = Some(inputs);
                         }
-                        if plan.planet_match(facts) == Verdict::NoMatch { return Ok(()); }
+                        if !inspect_target && plan.planet_match(facts) == Verdict::NoMatch {
+                            return Ok(());
+                        }
                     }
-                    let needed = plan.missing_planet_requirements(facts);
+                    let needed = if inspect_target {
+                        plan.inspection_requirements(facts)
+                    } else {
+                        plan.missing_planet_requirements(facts)
+                    };
                     let metadata = if needed.metadata {
                         capture::METADATA
                     } else {
@@ -267,24 +342,34 @@ impl<'cache> Generator<'cache> {
                         }
                         apply_capture(facts, &details, difficulty)?;
                         outcome.work.metadata_captures += 1;
-                        if plan.planet_match(facts) == Verdict::NoMatch {
+                        if !inspect_target && plan.planet_match(facts) == Verdict::NoMatch {
                             return Ok(());
                         }
                     }
-                    let needed = plan.missing_planet_requirements(facts);
+                    let needed = if inspect_target {
+                        plan.inspection_requirements(facts)
+                    } else {
+                        plan.missing_planet_requirements(facts)
+                    };
                     if needed.terrain {
                         let layers = crate::terrain::features(live)?;
                         facts.observe_terrain_layers(layers);
-                        if plan.planet_match(facts) == Verdict::NoMatch { return Ok(()); }
+                        if !inspect_target && plan.planet_match(facts) == Verdict::NoMatch {
+                            return Ok(());
+                        }
                     }
-                    let needed = plan.missing_planet_requirements(facts);
+                    let needed = if inspect_target {
+                        plan.inspection_requirements(facts)
+                    } else {
+                        plan.missing_planet_requirements(facts)
+                    };
                     let palette_colours = needed.colours & !3;
                     if palette_colours != 0 {
                         let details =
                             capture::capture(live, generator, u32::from(palette_colours) << 8)?;
                         colour_appearance::apply(facts, &details)?;
                         outcome.work.colour_captures += 1;
-                        if plan.planet_match(facts) == Verdict::NoMatch {
+                        if !inspect_target && plan.planet_match(facts) == Verdict::NoMatch {
                             return Ok(());
                         }
                     }
@@ -300,7 +385,7 @@ impl<'cache> Generator<'cache> {
                             && let Some(candidates) = prepared.fixed_colour()
                         {
                             facts.restrict_grass_colours(candidates);
-                            if plan.planet_match(facts) == Verdict::NoMatch {
+                            if !inspect_target && plan.planet_match(facts) == Verdict::NoMatch {
                                 return Ok(());
                             }
                         }
@@ -329,7 +414,7 @@ impl<'cache> Generator<'cache> {
                         if need_glow & 2 != 0 { facts.set_planet_flag(PlanetFlag::GlowingFlora, flags.glowing_flora); }
                         facts.set_planet_flag(PlanetFlag::TitanWorms, flags.titan_worms);
                         outcome.work.object_scans += 1;
-                        if plan.planet_match(facts) == Verdict::NoMatch {
+                        if !inspect_target && plan.planet_match(facts) == Verdict::NoMatch {
                             return Ok(());
                         }
                         if let Some(grass) = grass {
@@ -340,7 +425,9 @@ impl<'cache> Generator<'cache> {
                             };
                             facts.set(Field::Grass, colours);
                         }
-                        if plan.planet_match(facts)==Verdict::NoMatch {return Ok(());}
+                        if !inspect_target && plan.planet_match(facts) == Verdict::NoMatch {
+                            return Ok(());
+                        }
                         if flora_needed {
                             let filter=capture::capture(live,generator,capture::SCREEN_FILTER)?.screen_filter;
                             let context=crate::flora_appearance::Context {
@@ -377,8 +464,12 @@ impl<'cache> Generator<'cache> {
                         Verdict::Unknown => {
                             return Err("selected planet criterion has no acquired value");
                         }
-                        Verdict::NoMatch => return Ok(()),
+                        Verdict::NoMatch if !inspect_target => return Ok(()),
+                        Verdict::NoMatch => {}
                         Verdict::Match => {}
+                    }
+                    if inspect_target {
+                        return Ok(());
                     }
                     let name = capture::capture(live, generator, capture::NAME)?.name;
                     let len = name
