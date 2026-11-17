@@ -55,10 +55,9 @@ fields! {
     StormFrequency => ("Storm frequency",STORM_FREQUENCIES,Query),
     Grass => ("Grass colour",GRASS_COLOURS,Objects),
     FloraColour => ("Non-grass flora colour",GRASS_COLOURS,Objects),
-    Cloud => ("Cloud colour",GRASS_COLOURS,Colour),
-    SkyFog => ("Sky fog colour",GRASS_COLOURS,Colour),
-    SkyHeightFog => ("Height fog colour",GRASS_COLOURS,Colour),
-    Horizon => ("Horizon colour",GRASS_COLOURS,Colour),
+    SkyFog => ("Sky fog tint",GRASS_COLOURS,Colour),
+    SkyHeightFog => ("Height fog tint",GRASS_COLOURS,Colour),
+    Horizon => ("Horizon tint",GRASS_COLOURS,Colour),
     Sky => ("Daytime sky colour",GRASS_COLOURS,Colour),
     NightSky => ("Night sky colour",GRASS_COLOURS,Colour),
     WaterColour => ("Water colour",GRASS_COLOURS,Colour),
@@ -86,20 +85,17 @@ impl Field {
     }
 
     pub fn colour_index(self) -> Option<usize> {
-        [
-            Self::Grass,
-            Self::FloraColour,
-            Self::Cloud,
-            Self::SkyFog,
-            Self::SkyHeightFog,
-            Self::Horizon,
-            Self::Sky,
-            Self::NightSky,
-            Self::WaterColour,
-        ]
-        .iter()
-        .position(|field| *field == self)
-        .map(|index| if index >= 2 { index + 1 } else { index })
+        match self {
+            Self::Grass => Some(0),
+            Self::FloraColour => Some(1),
+            Self::SkyFog => Some(4),
+            Self::SkyHeightFog => Some(5),
+            Self::Horizon => Some(6),
+            Self::Sky => Some(7),
+            Self::NightSky => Some(8),
+            Self::WaterColour => Some(9),
+            _ => None,
+        }
     }
 
     pub fn native_value(self, choice: usize) -> Option<u32> {

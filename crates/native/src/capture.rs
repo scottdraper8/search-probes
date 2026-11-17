@@ -3,7 +3,7 @@ pub const METADATA: u32 = 2;
 pub const NAME: u32 = 4;
 pub const SCREEN_FILTER: u32 = 8;
 pub const INDEX: u32 = 16;
-pub const COLOUR_COUNT: usize = 10;
+pub const COLOUR_COUNT: usize = 13;
 pub const COLOURS: u32 = ((1 << COLOUR_COUNT) - 1) << 8;
 pub const ALL: u32 = 31 | COLOURS;
 
@@ -20,6 +20,9 @@ pub enum Colour {
     Sky,
     SkyNight,
     Water,
+    SkySolar,
+    SkyUpper,
+    Sun,
 }
 
 #[repr(C)]
@@ -55,6 +58,7 @@ pub struct Facts {
     pub screen_filter: i32,
     pub name: [u8; 128],
     pub colours: [[f64; 4]; COLOUR_COUNT],
+    pub sky_gradient_speed: [f64; 3],
     pub grass_terrain: [[f64; 4]; 2],
 }
 
@@ -68,6 +72,7 @@ impl Default for Facts {
             screen_filter: -1,
             name: [0; 128],
             colours: [[0.; 4]; COLOUR_COUNT],
+            sky_gradient_speed: [0.; 3],
             grass_terrain: [[0.; 4]; 2],
         }
     }
@@ -239,11 +244,23 @@ pub unsafe fn capture(
                 (
                     0x518,
                     0x1e34,
-                    &[(3, 0), (4, 0x20), (5, 0x30), (6, 0x40), (7, 0x70)][..],
+                    &[
+                        (3, 0),
+                        (4, 0x20),
+                        (5, 0x30),
+                        (6, 0x40),
+                        (7, 0x70),
+                        (10, 0x90),
+                        (11, 0xa0),
+                        (12, 0xb0),
+                    ][..],
                 ),
                 (0x528, 0x1e3c, &[(8, 0x70)][..]),
             ] {
-                if !fields.iter().any(|(i, _)| wanted & colour(*i) != 0) {
+                if !fields
+                    .iter()
+                    .any(|(i, _)| wanted & colour(*i) != 0 || (*i >= 10 && wanted & colour(7) != 0))
+                {
                     continue;
                 }
                 let table = pointer(read(generator, table_offset))?;
@@ -253,9 +270,12 @@ pub unsafe fn capture(
                 }
                 let row = record(header, read(planet, index_offset), 0xe0)?;
                 for &(i, offset) in fields {
-                    if wanted & colour(i) != 0 {
+                    if wanted & colour(i) != 0 || (i >= 10 && wanted & colour(7) != 0) {
                         facts.colours[i] = read::<[f32; 4]>(row, offset).map(f64::from);
                     }
+                }
+                if wanted & colour(7) != 0 && fields.iter().any(|&(i, _)| i == 7) {
+                    facts.sky_gradient_speed = read::<[f32; 3]>(row, 0x80).map(f64::from);
                 }
             }
         }

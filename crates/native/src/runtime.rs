@@ -451,6 +451,7 @@ impl Runtime {
             state.metrics = Metrics {
                 generated_systems: work.systems,
                 generated_planets: work.planets,
+                generated_fauna: work.fauna,
                 metadata_captures: work.metadata_captures,
                 colour_captures: work.colour_captures,
                 object_scans: work.object_scans,

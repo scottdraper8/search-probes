@@ -20,6 +20,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 pub struct Work {
     pub systems: u64,
     pub planets: u64,
+    pub fauna: u64,
     pub metadata_captures: u64,
     pub colour_captures: u64,
     pub object_scans: u64,
@@ -30,6 +31,7 @@ impl std::ops::AddAssign for Work {
     fn add_assign(&mut self, rhs: Self) {
         self.systems = self.systems.saturating_add(rhs.systems);
         self.planets = self.planets.saturating_add(rhs.planets);
+        self.fauna = self.fauna.saturating_add(rhs.fauna);
         self.metadata_captures = self.metadata_captures.saturating_add(rhs.metadata_captures);
         self.colour_captures = self.colour_captures.saturating_add(rhs.colour_captures);
         self.object_scans = self.object_scans.saturating_add(rhs.object_scans);
@@ -298,6 +300,10 @@ impl<'cache> Generator<'cache> {
                                 live,
                                 address.planet(index)?,
                             )?;
+                            outcome.work.fauna = outcome
+                                .work
+                                .fauna
+                                .saturating_add(observed.species.len() as u64);
                             facts.set_planet_flag(PlanetFlag::PlayerAttackingFauna, observed.player_attacking);
                             facts.set_planet_flag(PlanetFlag::Sandworms, observed.sandworms);
                             facts.set_fauna(observed.species);

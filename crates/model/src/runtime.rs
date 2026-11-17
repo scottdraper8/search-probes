@@ -68,6 +68,7 @@ pub enum SearchPause {
 pub struct Metrics {
     pub generated_systems: u64,
     pub generated_planets: u64,
+    pub generated_fauna: u64,
     pub metadata_captures: u64,
     pub colour_captures: u64,
     pub object_scans: u64,

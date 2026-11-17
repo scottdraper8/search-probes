@@ -956,7 +956,6 @@ impl App {
                         ui,
                         criteria,
                         &[
-                            Field::Cloud,
                             Field::Sky,
                             Field::SkyHeightFog,
                             Field::Horizon,
@@ -1049,12 +1048,26 @@ impl App {
                 && progress.phase == Phase::Running
                 && state.search_pause.is_none()
             {
-                ui.small(format!(
-                    "Average {:.0} generated systems/s · {} served from cache",
-                    state.metrics.generated_systems as f64 * 1000.0
-                        / state.metrics.elapsed_ms as f64,
-                    number(progress.cached_systems)
-                ));
+                let per_second = |count| count as f64 * 1000.0 / state.metrics.elapsed_ms as f64;
+                let mut rates = vec![format!(
+                    "{:.0} generated systems/s",
+                    per_second(state.metrics.generated_systems)
+                )];
+                if let Ok(plan) = progress.options.criteria.compile() {
+                    if !plan.planet.is_empty() {
+                        rates.push(format!(
+                            "{:.0} generated planets/s",
+                            per_second(state.metrics.generated_planets)
+                        ));
+                    }
+                    if plan.targets_animals() {
+                        rates.push(format!(
+                            "{:.0} generated fauna/s",
+                            per_second(state.metrics.generated_fauna)
+                        ));
+                    }
+                }
+                ui.small(format!("Average {}", rates.join(" · ")));
             }
             if progress.unresolved_arena_planets > 0 {
                 ui.small(format!(
@@ -1599,24 +1612,27 @@ fn filter_row(ui: &mut Ui, label: &str, control_width: f32, add_control: impl Fn
         )
     } else if label == Field::WaterColour.label() {
         Some(
-            "The water's own colour in clear daylight. Reflections, foam and nearby lights can change its appearance.",
+            "Derived from the generated water's scattering and transmittance in clear daylight. Reflections, depth, foam and nearby lights can change its appearance.",
         )
     } else if label == Field::NightSky.label() {
         Some(
             "Clear nighttime sky colour. Stars, nearby planets, storms and lights can change what you see.",
         )
-    } else if [
-        Field::Cloud,
-        Field::Sky,
-        Field::Horizon,
-        Field::SkyFog,
-        Field::SkyHeightFog,
-    ]
-    .iter()
-    .any(|field| label == field.label())
-    {
+    } else if label == Field::Sky.label() {
         Some(
-            "Typical colour in clear daylight. Looking toward the sun, sunset, storms and nearby lights can change what you see.",
+            "Representative clear-day upper sky, evaluated midway through the game's upper-to-main sky gradient and away from the sun and horizon. The visible result still varies across the dome and with fog, weather and exposure.",
+        )
+    } else if label == Field::Horizon.label() {
+        Some(
+            "Generated atmospheric horizon tint. The visible lower sky also blends with the base sky, fog, sun direction and exposure.",
+        )
+    } else if label == Field::SkyFog.label() {
+        Some(
+            "General atmospheric fog tint in clear daylight. Distance, height fog, weather and exposure affect the visible result.",
+        )
+    } else if label == Field::SkyHeightFog.label() {
+        Some(
+            "Altitude-dependent atmospheric fog tint. It is blended with the general fog, sky and horizon rather than rendered as a separate band.",
         )
     } else {
         None
