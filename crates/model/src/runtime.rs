@@ -4,7 +4,7 @@ use crate::{
     criteria::{Criteria, Plan, Predicate, ResourceMode, Section, Stage},
     facts::{FactSnapshot, Facts, Verdict},
     session::Progress,
-    settings::Settings,
+    settings::{Settings, validate_frame_budget},
     target::Target,
 };
 use serde::{Deserialize, Serialize};
@@ -25,7 +25,9 @@ pub struct Command {
 pub enum Action {
     Start { settings: Settings },
     Cancel {},
+    SetSearchPaused { paused: bool },
     Configure { settings: Settings },
+    ConfigureIntensity { frame_budget_ms: u8 },
     InspectCurrent {},
     Navigate { target: Target },
 }
@@ -38,6 +40,9 @@ impl Command {
         match &self.action {
             Action::Start { settings, .. } => settings.validate(),
             Action::Configure { settings } => settings.validate(),
+            Action::ConfigureIntensity { frame_budget_ms } => {
+                validate_frame_budget(*frame_budget_ms)
+            }
             Action::Navigate { target } => target.validate(),
             _ => Ok(()),
         }
@@ -61,6 +66,7 @@ pub enum Availability {
 pub enum SearchPause {
     Loading,
     OtherGalaxy,
+    User,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -330,5 +336,27 @@ mod tests {
         }));
 
         assert!(state.results.is_empty());
+    }
+
+    #[test]
+    fn live_intensity_commands_enforce_the_frame_budget_bounds() {
+        let valid = Command {
+            generation: 7,
+            id: 1,
+            action: Action::ConfigureIntensity {
+                frame_budget_ms: 16,
+            },
+        };
+        let invalid = Command {
+            generation: 7,
+            id: 2,
+            action: Action::ConfigureIntensity { frame_budget_ms: 0 },
+        };
+
+        assert_eq!(valid.validate(7), Ok(()));
+        assert_eq!(
+            invalid.validate(7),
+            Err("frame budget must be between 1 and 16 milliseconds")
+        );
     }
 }

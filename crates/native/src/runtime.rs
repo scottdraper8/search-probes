@@ -407,7 +407,9 @@ impl Runtime {
             }
         }
         let in_search_galaxy = self.scheduler.session.is_in_search_galaxy(snapshot.address);
+        let user_paused = self.scheduler.session.is_paused();
         if in_search_galaxy
+            && !user_paused
             && let Err(error) = unsafe {
                 self.scheduler.tick(TickRequest {
                     pool: &self.pool,
@@ -440,12 +442,21 @@ impl Runtime {
             state.availability = Availability::Ready;
             state.player = Some(snapshot.address);
             state.publish_progress(progress);
-            state.search_pause = (!in_search_galaxy
-                && state
-                    .progress
-                    .as_ref()
-                    .is_some_and(|progress| progress.phase == Phase::Running))
-            .then_some(SearchPause::OtherGalaxy);
+            state.search_pause = if state
+                .progress
+                .as_ref()
+                .is_some_and(|progress| progress.phase == Phase::Running)
+            {
+                if user_paused {
+                    Some(SearchPause::User)
+                } else if !in_search_galaxy {
+                    Some(SearchPause::OtherGalaxy)
+                } else {
+                    None
+                }
+            } else {
+                None
+            };
             state.cached_systems = self.scheduler.session.cache_len();
             state.destination = self.navigation.destination();
             state.metrics = Metrics {
@@ -526,6 +537,9 @@ impl Runtime {
                 self.controls.cancel.store(true, Ordering::Release);
                 self.scheduler.session.cancel();
             }
+            Action::SetSearchPaused { paused } => {
+                self.scheduler.session.set_paused(paused)?;
+            }
             Action::Configure { settings } => {
                 if self.settings.presets != settings.presets {
                     mission_text_hook::set_presets(&settings.presets)?;
@@ -535,6 +549,11 @@ impl Runtime {
                     state.settings = self.settings.clone();
                     state.current_world = None;
                 });
+            }
+            Action::ConfigureIntensity { frame_budget_ms } => {
+                self.settings.frame_budget_ms = frame_budget_ms;
+                self.controls
+                    .update(|state| state.settings.frame_budget_ms = frame_budget_ms);
             }
             Action::InspectCurrent {} => {
                 let criteria = self.settings.search.criteria.clone();

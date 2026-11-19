@@ -128,6 +128,11 @@ impl Controls {
                     Action::Start { settings, .. } | Action::Configure { settings } => {
                         storage::save_settings(directory, settings)
                     }
+                    Action::ConfigureIntensity { frame_budget_ms } => {
+                        let mut settings = storage::load_settings(directory)?;
+                        settings.frame_budget_ms = *frame_budget_ms;
+                        storage::save_settings(directory, &settings)
+                    }
                     _ => Ok(()),
                 });
         let mut queue = self.commands.lock().unwrap_or_else(|e| e.into_inner());
@@ -178,5 +183,53 @@ impl Controls {
                 state.search_pause = None;
             }
         });
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::atomic::{AtomicU64, Ordering};
+
+    static DIRECTORY_ID: AtomicU64 = AtomicU64::new(0);
+
+    fn test_directory() -> std::path::PathBuf {
+        std::env::temp_dir().join(format!(
+            "search-probes-controls-{}-{}",
+            std::process::id(),
+            DIRECTORY_ID.fetch_add(1, Ordering::Relaxed)
+        ))
+    }
+
+    #[test]
+    fn preparing_live_intensity_preserves_every_other_saved_setting() {
+        let directory = test_directory();
+        let mut settings = crate::settings::Settings::default();
+        settings.search.results = 17;
+        settings.workers = Some(3);
+        storage::save_settings(&directory, &settings).expect("save initial settings");
+        let controls = Controls::new(State::new(settings.clone()));
+
+        controls
+            .submit(
+                1,
+                Action::ConfigureIntensity {
+                    frame_budget_ms: 16,
+                },
+            )
+            .expect("submit intensity change");
+        controls.prepare(&directory);
+
+        assert!(matches!(
+            controls.pop().map(|command| command.action),
+            Some(Action::ConfigureIntensity {
+                frame_budget_ms: 16
+            })
+        ));
+        let saved = storage::load_settings(&directory).expect("load updated settings");
+        settings.frame_budget_ms = 16;
+        assert_eq!(saved, settings);
+
+        std::fs::remove_dir_all(directory).expect("remove test settings");
     }
 }

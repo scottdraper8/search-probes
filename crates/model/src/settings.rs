@@ -16,6 +16,13 @@ pub const MAX_PRESETS: usize = 9;
 pub const MAX_SETTINGS_BYTES: usize = 1_048_576;
 pub const MAX_WORKERS: usize = 16;
 
+pub fn validate_frame_budget(frame_budget_ms: u8) -> Result<(), &'static str> {
+    if !(1..=16).contains(&frame_budget_ms) {
+        return Err("frame budget must be between 1 and 16 milliseconds");
+    }
+    Ok(())
+}
+
 pub fn available_workers() -> usize {
     std::thread::available_parallelism()
         .map(usize::from)
@@ -120,10 +127,7 @@ impl Settings {
         {
             return Err("worker count must be automatic or between 1 and 16");
         }
-        if !(1..=16).contains(&self.frame_budget_ms) {
-            return Err("frame budget must be between 1 and 16 milliseconds");
-        }
-        Ok(())
+        validate_frame_budget(self.frame_budget_ms)
     }
 }
 

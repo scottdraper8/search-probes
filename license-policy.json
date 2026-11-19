@@ -119,6 +119,30 @@
           "sha256": "27ccc3ce34d490a52ba656a131292291397777745761e5e70545cca2fe645023"
         }
       ]
+    },
+    {
+      "name": "Better Flight WinMM proxy export inventory",
+      "version": "a888eef",
+      "license": "MIT",
+      "repository": "https://github.com/YoruDev-Ryland/No-Mans-Sky-BetterFlight",
+      "revision": "a888eef10099e0f0c29ca65aae65750315073af2",
+      "notice_directory": "better-flight-winmm-a888eef",
+      "artifacts": [
+        {
+          "path": "crates/bootstrap/winmm.exports",
+          "sha256": "39c81ae3534135a3471ff14399753cad7af52342356c0ee83e0f9bdb59b5ab47"
+        }
+      ],
+      "notices": [
+        {
+          "path": "crates/bootstrap/LICENSE-BETTER-FLIGHT.txt",
+          "sha256": "b4ce13b4f077407879d9011c6f69fc98a526fc89eac165aab3786998c73ba4a9"
+        },
+        {
+          "path": "crates/bootstrap/SOURCE-BETTER-FLIGHT.json",
+          "sha256": "a8bda00ba50b633f86afbffa4ce601a823af7b262f96de943103a6f51cddd4ca"
+        }
+      ]
     }
   ],
   "extra_notice_files": {

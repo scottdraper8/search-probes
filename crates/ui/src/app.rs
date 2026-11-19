@@ -327,11 +327,16 @@ impl App {
         ui.separator();
         let state = &self.state;
         let ready = state.availability == Availability::Ready;
-        let active = self.pending_search.is_some()
-            || state
-                .progress
-                .as_ref()
-                .is_some_and(|progress| progress.phase == Phase::Running);
+        let running = state
+            .progress
+            .as_ref()
+            .is_some_and(|progress| progress.phase == Phase::Running);
+        let active = self.pending_search.is_some() || running;
+        let user_paused = state.search_pause == Some(SearchPause::User);
+        let automatically_paused = matches!(
+            state.search_pause,
+            Some(SearchPause::Loading | SearchPause::OtherGalaxy)
+        );
         let valid = self.settings.validate();
         ui.horizontal_wrapped(|ui| {
             if ui
@@ -344,6 +349,18 @@ impl App {
             {
                 self.send(Action::Start {
                     settings: self.settings.clone(),
+                });
+            }
+            if ui
+                .add_enabled(
+                    ready && running && !automatically_paused,
+                    egui::Button::new(if user_paused { "Resume" } else { "Pause" })
+                        .min_size(egui::vec2(80.0, 32.0)),
+                )
+                .clicked()
+            {
+                self.send(Action::SetSearchPaused {
+                    paused: !user_paused,
                 });
             }
             if ui
@@ -653,6 +670,7 @@ impl App {
         );
     }
     fn search_performance(&mut self, ui: &mut Ui) {
+        let previous_intensity = self.settings.frame_budget_ms;
         ui.heading(RichText::new("Performance").size(16.0).strong());
         let input_width = filter_control_width(ui);
         let intensity_levels = [
@@ -710,6 +728,11 @@ impl App {
                     });
                 ui.end_row();
             });
+        if self.settings.frame_budget_ms != previous_intensity {
+            self.send(Action::ConfigureIntensity {
+                frame_budget_ms: self.settings.frame_budget_ms,
+            });
+        }
         callout(
             ui,
             self.palette(),
@@ -957,10 +980,7 @@ impl App {
                         criteria,
                         &[
                             Field::Sky,
-                            Field::SkyHeightFog,
                             Field::Horizon,
-                            Field::NightSky,
-                            Field::SkyFog,
                             Field::WaterColour,
                             Field::WorldColourFilter,
                         ],
@@ -1038,6 +1058,7 @@ impl App {
                     Some(SearchPause::OtherGalaxy) => {
                         "Search paused: return to its starting galaxy to resume."
                     }
+                    Some(SearchPause::User) => "Search paused.",
                     None => "Searching…",
                 },
                 Phase::Completed => "Search complete",
@@ -1201,7 +1222,11 @@ impl App {
             self.loaded_generation = Some(state.generation);
         }
         if self.published_settings.as_ref() != Some(&state.settings) {
-            self.settings = state.settings.clone();
+            if let Some(previous) = self.published_settings.as_ref() {
+                reconcile_settings(&mut self.settings, previous, &state.settings);
+            } else {
+                self.settings = state.settings.clone();
+            }
             self.published_settings = Some(state.settings.clone());
             self.selected_preset = None;
         }
@@ -1282,6 +1307,27 @@ impl App {
                 }
             });
         self.binding_dialog(ui.ctx());
+    }
+}
+
+fn reconcile_settings(draft: &mut Settings, previous: &Settings, published: &Settings) {
+    if draft.schema == previous.schema {
+        draft.schema = published.schema;
+    }
+    if draft.search == previous.search {
+        draft.search = published.search.clone();
+    }
+    if draft.presets == previous.presets {
+        draft.presets = published.presets.clone();
+    }
+    if draft.interface == previous.interface {
+        draft.interface = published.interface.clone();
+    }
+    if draft.workers == previous.workers {
+        draft.workers = published.workers;
+    }
+    if draft.frame_budget_ms == previous.frame_budget_ms {
+        draft.frame_budget_ms = published.frame_budget_ms;
     }
 }
 
@@ -1614,10 +1660,6 @@ fn filter_row(ui: &mut Ui, label: &str, control_width: f32, add_control: impl Fn
         Some(
             "Derived from the generated water's scattering and transmittance in clear daylight. Reflections, depth, foam and nearby lights can change its appearance.",
         )
-    } else if label == Field::NightSky.label() {
-        Some(
-            "Clear nighttime sky colour. Stars, nearby planets, storms and lights can change what you see.",
-        )
     } else if label == Field::Sky.label() {
         Some(
             "Representative clear-day upper sky, evaluated midway through the game's upper-to-main sky gradient and away from the sun and horizon. The visible result still varies across the dome and with fog, weather and exposure.",
@@ -1625,14 +1667,6 @@ fn filter_row(ui: &mut Ui, label: &str, control_width: f32, add_control: impl Fn
     } else if label == Field::Horizon.label() {
         Some(
             "Generated atmospheric horizon tint. The visible lower sky also blends with the base sky, fog, sun direction and exposure.",
-        )
-    } else if label == Field::SkyFog.label() {
-        Some(
-            "General atmospheric fog tint in clear daylight. Distance, height fog, weather and exposure affect the visible result.",
-        )
-    } else if label == Field::SkyHeightFog.label() {
-        Some(
-            "Altitude-dependent atmospheric fog tint. It is blended with the general fog, sky and horizon rather than rendered as a separate band.",
         )
     } else {
         None
@@ -2239,5 +2273,20 @@ mod tests {
         assert_eq!(capture.controller, None);
         assert!(capture.held.is_empty());
         assert!(capture.candidate.is_empty());
+    }
+
+    #[test]
+    fn published_intensity_changes_do_not_replace_draft_search_edits() {
+        let previous = Settings::default();
+        let mut draft = previous.clone();
+        draft.search.results = 23;
+        draft.frame_budget_ms = 16;
+        let mut published = previous.clone();
+        published.frame_budget_ms = 16;
+
+        reconcile_settings(&mut draft, &previous, &published);
+
+        assert_eq!(draft.search.results, 23);
+        assert_eq!(draft.frame_budget_ms, 16);
     }
 }

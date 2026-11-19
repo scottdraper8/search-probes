@@ -124,14 +124,23 @@ Use Rust 1.98.1, locked dependencies and the parent tooling's `runtime/windows.C
 From this mod directory:
 
 ```sh
-cargo build --locked --release --target x86_64-pc-windows-gnu -p search-probes-bootstrap
+cargo build --locked --release --target x86_64-pc-windows-gnu -p search-probes-bootstrap -p search-probes-runtime
 cargo run --locked -p search-probes-package -- package <tranche>/SearchProbes
-cargo run --locked -p search-probes-package -- verify <tranche>/SearchProbes
+cargo run --locked -p search-probes-package -- verify <tranche>/SearchProbes.zip
 ```
 
 The packager honors `CARGO_TARGET_DIR`. With NMS closed, install one consistent package in NMS and
-Amethyst, preserving deployment symlinks and checking hashes. The executable guard lives in `crates/model/src/supported.rs`; review native
-bindings before changing it after an update.
+Amethyst, preserving deployment symlinks and checking hashes. The distributable contains runtime
+files only: its integrity manifest is stored in the ZIP comment, and required third-party notices
+are consolidated into one Search Probes-named file. The executable guard lives in
+`crates/model/src/supported.rs`; review native bindings before changing it after an update.
+
+`Binaries/winmm.dll` is a complete ordinal-preserving WinMM proxy, not a two-function bootstrap.
+Windows resolves WinMM imports from every module loaded at process startup, so the proxy exports the
+maintained Windows/Wine union in `crates/bootstrap/winmm.exports` and forwards it to the system
+WinMM library. Only the Search Probes timer hooks are intercepted; they defer loading
+`Binaries/SearchProbes/SearchProbes.dll` until the game reaches its first Vulkan lookup. The build
+script validates the export inventory and generates both the forwarding stubs and linker definition.
 
 ## License
 

@@ -44,6 +44,7 @@ struct Search {
     progress: Progress,
     plan: Plan,
     frontier: Frontier,
+    paused: bool,
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -122,7 +123,22 @@ impl Session {
             progress,
             plan,
             frontier: Frontier::new(origin),
+            paused: false,
         });
+        Ok(())
+    }
+    pub fn is_paused(&self) -> bool {
+        self.search
+            .as_ref()
+            .is_some_and(|search| search.progress.phase == Phase::Running && search.paused)
+    }
+    pub fn set_paused(&mut self, paused: bool) -> Result<(), &'static str> {
+        let search = self
+            .search
+            .as_mut()
+            .filter(|search| search.progress.phase == Phase::Running)
+            .ok_or("search is not running")?;
+        search.paused = paused;
         Ok(())
     }
     fn retained_results(&self, plan: &Plan, origin: Address, limit: usize) -> Vec<CachedMatch> {
@@ -175,7 +191,7 @@ impl Session {
         self.finish(Finish::Failed);
     }
     pub fn next(&mut self, limit: usize) -> Result<Work, &'static str> {
-        if limit == 0 {
+        if limit == 0 || self.is_paused() {
             return Ok(Work::Idle);
         }
         for _ in 0..limit.min(256) {
@@ -428,5 +444,22 @@ mod tests {
 
         assert_eq!(session.progress().unwrap().results, vec![retained]);
         assert_eq!(session.progress().unwrap().systems, 0);
+    }
+
+    #[test]
+    fn manual_pause_retains_and_resumes_the_active_frontier() {
+        let mut session = Session::default();
+        session
+            .start(SearchOptions::default(), address(1))
+            .expect("start search");
+
+        session.set_paused(true).expect("pause active search");
+        assert!(session.is_paused());
+        assert_eq!(session.next(256).expect("paused work"), Work::Idle);
+        assert_eq!(session.progress().unwrap().systems, 0);
+
+        session.set_paused(false).expect("resume active search");
+        assert!(!session.is_paused());
+        assert_ne!(session.next(256).expect("resumed work"), Work::Idle);
     }
 }

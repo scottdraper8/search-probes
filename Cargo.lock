@@ -803,7 +803,7 @@ checksum = "94143f37725109f92c262ed2cf5e59bce7498c01bcc1502d7b9afe439a4e9f49"
 name = "search-probes-bootstrap"
 version = "0.2.0"
 dependencies = [
- "search-probes-native",
+ "search-probes-model",
  "windows-sys",
 ]
 
@@ -845,6 +845,13 @@ dependencies = [
  "sha2",
  "spdx",
  "zip",
+]
+
+[[package]]
+name = "search-probes-runtime"
+version = "0.2.0"
+dependencies = [
+ "search-probes-native",
 ]
 
 [[package]]

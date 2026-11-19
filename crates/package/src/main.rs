@@ -7,12 +7,14 @@ use std::{
     collections::BTreeMap,
     error::Error,
     fs,
-    io::Read,
+    io::{Read, Write},
     path::{Path, PathBuf},
     process::Command,
 };
 
 type Result<T> = std::result::Result<T, Box<dyn Error>>;
+
+const THIRD_PARTY_NOTICES: &str = "Binaries/SearchProbes/SearchProbesThirdPartyNotices.txt";
 
 fn hash(path: &Path) -> Result<String> {
     let mut file = fs::File::open(path)?;
@@ -69,7 +71,6 @@ fn copy(source: &Path, destination: &Path) -> Result<()> {
 fn manifest(root: &Path) -> Result<BTreeMap<String, Value>> {
     files(root)?
         .into_iter()
-        .filter(|path| *path != root.join("manifest.json"))
         .map(|path| {
             let relative = path
                 .strip_prefix(root)?
@@ -84,12 +85,25 @@ fn manifest(root: &Path) -> Result<BTreeMap<String, Value>> {
         .collect()
 }
 
-fn archive(root: &Path, path: &Path) -> Result<()> {
+fn package_manifest(files: BTreeMap<String, Value>) -> Value {
+    json!({
+        "format": 1,
+        "product": "Search Probes",
+        "version": env!("CARGO_PKG_VERSION"),
+        "game_version": supported::GAME_VERSION,
+        "steam_build": supported::STEAM_BUILD,
+        "nms_executable_sha256": supported::EXECUTABLE_SHA256,
+        "files": files,
+    })
+}
+
+fn archive(root: &Path, path: &Path, manifest: &Value) -> Result<()> {
     let file = fs::OpenOptions::new()
         .write(true)
         .create_new(true)
         .open(path)?;
     let mut archive = zip::ZipWriter::new(file);
+    archive.set_raw_comment(serde_json::to_vec(manifest)?.into())?;
     let options = zip::write::SimpleFileOptions::default()
         .compression_method(zip::CompressionMethod::Deflated)
         .unix_permissions(0o644);
@@ -107,14 +121,74 @@ fn archive(root: &Path, path: &Path) -> Result<()> {
     Ok(())
 }
 
-fn verify(root: &Path) -> Result<()> {
-    let saved: Value = serde_json::from_slice(&fs::read(root.join("manifest.json"))?)?;
+fn archive_manifest(archive: &mut zip::ZipArchive<fs::File>) -> Result<BTreeMap<String, Value>> {
+    let mut result = BTreeMap::new();
+    for index in 0..archive.len() {
+        let mut file = archive.by_index(index)?;
+        let name = file.name()?.replace('\\', "/");
+        if !file.is_file() {
+            return Err(format!("non-file ZIP entry: {name}").into());
+        }
+        if name.starts_with('/') || name.split('/').any(|part| part.is_empty() || part == "..") {
+            return Err(format!("unsafe ZIP entry: {name}").into());
+        }
+        let bytes = file.size();
+        let mut digest = Sha256::new();
+        let mut buffer = [0u8; 65536];
+        loop {
+            let count = file.read(&mut buffer)?;
+            if count == 0 {
+                break;
+            }
+            digest.update(&buffer[..count]);
+        }
+        let sha256: String = digest
+            .finalize()
+            .iter()
+            .map(|byte| format!("{byte:02x}"))
+            .collect();
+        if result
+            .insert(name.clone(), json!({"bytes": bytes, "sha256": sha256}))
+            .is_some()
+        {
+            return Err(format!("duplicate ZIP entry: {name}").into());
+        }
+    }
+    Ok(result)
+}
+
+fn verify(path: &Path) -> Result<()> {
+    let mut archive = zip::ZipArchive::new(fs::File::open(path)?)?;
+    let saved: Value = serde_json::from_slice(archive.comment())?;
+    let actual = archive_manifest(&mut archive)?;
     if saved["format"] != 1
         || saved["product"] != "Search Probes"
-        || saved["files"] != serde_json::to_value(manifest(root)?)?
+        || saved["game_version"] != supported::GAME_VERSION
+        || saved["steam_build"] != supported::STEAM_BUILD
+        || saved["nms_executable_sha256"] != supported::EXECUTABLE_SHA256
+        || saved["files"] != serde_json::to_value(actual)?
     {
         return Err("package contents differ from the manifest".into());
     }
+    Ok(())
+}
+
+fn consolidate_notices(source: &Path, destination: &Path) -> Result<()> {
+    let mut output = fs::File::create(destination)?;
+    writeln!(
+        output,
+        "Search Probes third-party notices\nGenerated from the validated release dependency and asset inventory."
+    )?;
+    for path in files(source)? {
+        let relative = path
+            .strip_prefix(source)?
+            .to_str()
+            .ok_or("non-UTF8 notice path")?
+            .replace('\\', "/");
+        writeln!(output, "\n\n===== {relative} =====\n")?;
+        output.write_all(&fs::read(path)?)?;
+    }
+    output.sync_all()?;
     Ok(())
 }
 
@@ -153,6 +227,10 @@ fn package(workspace: &Path, output: &Path) -> Result<()> {
         &binaries.join("winmm.dll"),
         &temporary.join("Binaries/winmm.dll"),
     )?;
+    copy(
+        &binaries.join("search_probes.dll"),
+        &temporary.join("Binaries/SearchProbes/SearchProbes.dll"),
+    )?;
     let assets = workspace.join("assets");
     for file in files(&assets)? {
         let relative = file.strip_prefix(&assets)?;
@@ -168,34 +246,14 @@ fn package(workspace: &Path, output: &Path) -> Result<()> {
         }
     }
     assets::validate(&temporary.join("GAMEDATA/MODS/SearchProbes"), true)?;
-    let installation = json!({
-        "schema": 1,
-        "product": "Search Probes",
-        "version": env!("CARGO_PKG_VERSION"),
-        "files": manifest(&temporary)?,
-    });
-    fs::create_dir_all(temporary.join("Binaries/SearchProbes"))?;
-    fs::write(
-        temporary.join("Binaries/SearchProbes/installation.json"),
-        serde_json::to_vec_pretty(&installation)?,
-    )?;
-    copy(
-        &workspace.join("README.md"),
-        &temporary.join("README-SEARCH-PROBES.md"),
-    )?;
-    copy(
-        &workspace.join("LICENSE.txt"),
-        &temporary.join("LICENSE.txt"),
-    )?;
-    licensing::collect(workspace, &temporary.join("THIRD-PARTY"))?;
-    let manifest = json!({"format":1,"product":"Search Probes","version":env!("CARGO_PKG_VERSION"),"game_version":supported::GAME_VERSION,"steam_build":supported::STEAM_BUILD,"nms_executable_sha256":supported::EXECUTABLE_SHA256,"files":manifest(&temporary)?});
-    fs::write(
-        temporary.join("manifest.json"),
-        serde_json::to_vec_pretty(&manifest)?,
-    )?;
-    verify(&temporary)?;
+    let notices = temporary.join(".SearchProbesThirdPartyNotices");
+    licensing::collect(workspace, &notices)?;
+    consolidate_notices(&notices, &temporary.join(THIRD_PARTY_NOTICES))?;
+    fs::remove_dir_all(notices)?;
+    let manifest = package_manifest(manifest(&temporary)?);
     fs::rename(&temporary, output)?;
-    archive(output, &zip)?;
+    archive(output, &zip, &manifest)?;
+    verify(&zip)?;
     println!(
         "{}\n{}\nZIP SHA-256: {}",
         output.display(),
@@ -214,7 +272,9 @@ fn archive_path(output: &Path) -> PathBuf {
 fn run() -> Result<()> {
     let args: Vec<_> = std::env::args_os().skip(1).collect();
     if args.len() != 2 {
-        return Err("usage: search-probes-package package|verify DIRECTORY".into());
+        return Err(
+            "usage: search-probes-package package OUTPUT-DIRECTORY | verify PACKAGE.zip".into(),
+        );
     }
     let path = Path::new(&args[1]);
     match args[0].to_str() {

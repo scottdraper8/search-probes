@@ -329,18 +329,28 @@ fn selected_registry_packages(data: &Value) -> Result<Vec<&Value>> {
     let nodes = data["resolve"]["nodes"]
         .as_array()
         .ok_or("missing dependency graph")?;
+    let root_names = ["search-probes-bootstrap", "search-probes-runtime"];
     let roots: Vec<_> = packages
         .iter()
-        .filter(|package| package["name"] == "search-probes-bootstrap")
+        .filter(|package| {
+            package["name"]
+                .as_str()
+                .is_some_and(|name| root_names.contains(&name))
+        })
         .map(|package| {
             package["id"]
                 .as_str()
-                .ok_or("invalid bootstrap package id")
+                .ok_or("invalid runtime package id")
                 .map(str::to_owned)
         })
         .collect::<std::result::Result<_, _>>()?;
-    if roots.len() != 1 {
-        return Err(format!("expected one bootstrap package, found {}", roots.len()).into());
+    if roots.len() != root_names.len() {
+        return Err(format!(
+            "expected {} runtime packages, found {}",
+            root_names.len(),
+            roots.len()
+        )
+        .into());
     }
 
     let mut pending = roots;

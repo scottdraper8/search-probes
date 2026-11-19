@@ -134,7 +134,7 @@ impl AgentControl {
         }
         if matches!(
             request.action,
-            Action::Start { .. } | Action::InspectCurrent {}
+            Action::Start { .. } | Action::SetSearchPaused { .. } | Action::InspectCurrent {}
         ) && controls.snapshot().availability != Availability::Ready
         {
             return Err("The loaded game is not ready for this request".into());

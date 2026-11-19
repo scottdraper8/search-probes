@@ -55,11 +55,8 @@ fields! {
     StormFrequency => ("Storm frequency",STORM_FREQUENCIES,Query),
     Grass => ("Grass colour",GRASS_COLOURS,Objects),
     FloraColour => ("Non-grass flora colour",GRASS_COLOURS,Objects),
-    SkyFog => ("Sky fog tint",GRASS_COLOURS,Colour),
-    SkyHeightFog => ("Height fog tint",GRASS_COLOURS,Colour),
     Horizon => ("Horizon tint",GRASS_COLOURS,Colour),
     Sky => ("Daytime sky colour",GRASS_COLOURS,Colour),
-    NightSky => ("Night sky colour",GRASS_COLOURS,Colour),
     WaterColour => ("Water colour",GRASS_COLOURS,Colour),
     WorldColourFilter => ("World colour filter",WORLD_FILTERS,ScreenFilter),
     UniqueResources => ("Unique resources",UNIQUE_RESOURCES,Hints),
@@ -77,8 +74,8 @@ impl Field {
                 Self::Biome => !(8..=11).contains(index),
                 Self::Subtype => *index < 29,
                 Self::Flora | Self::Fauna => *index != 1,
-                Self::Sky | Self::Horizon | Self::SkyFog => *index != 9,
-                Self::SkyHeightFog => !matches!(index, 6 | 8 | 9),
+                Self::Sky | Self::Horizon => matches!(index, 0..=8 | 10),
+                Self::WaterColour => matches!(index, 0 | 1 | 3..=7),
 
                 _ => true,
             })
@@ -88,12 +85,9 @@ impl Field {
         match self {
             Self::Grass => Some(0),
             Self::FloraColour => Some(1),
-            Self::SkyFog => Some(4),
-            Self::SkyHeightFog => Some(5),
-            Self::Horizon => Some(6),
-            Self::Sky => Some(7),
-            Self::NightSky => Some(8),
-            Self::WaterColour => Some(9),
+            Self::Horizon => Some(4),
+            Self::Sky => Some(5),
+            Self::WaterColour => Some(6),
             _ => None,
         }
     }
@@ -874,8 +868,6 @@ impl Criteria {
                         | Field::Fauna
                         | Field::StormFrequency
                         | Field::WaterColour
-                        | Field::SkyHeightFog
-                        | Field::NightSky
                 )
             {
                 let allowed = if field == Field::Subtype {
@@ -1008,4 +1000,32 @@ pub fn subtype_options_for(selected: u64) -> Vec<(u64, &'static str)> {
         }
     }
     options
+}
+
+#[cfg(test)]
+mod tests {
+    use super::Field;
+
+    fn available_labels(field: Field) -> Vec<&'static str> {
+        field.available_options().map(|(_, label)| label).collect()
+    }
+
+    #[test]
+    fn atmospheric_colour_options_match_authored_game_tables() {
+        let chromatic_and_light_neutrals = vec![
+            "Red", "Orange", "Yellow", "Green", "Cyan", "Blue", "Purple", "Magenta", "Grey",
+            "White",
+        ];
+        assert_eq!(
+            available_labels(Field::Horizon),
+            chromatic_and_light_neutrals
+        );
+        assert_eq!(available_labels(Field::Sky), chromatic_and_light_neutrals);
+        assert_eq!(
+            available_labels(Field::WaterColour),
+            vec![
+                "Red", "Orange", "Green", "Cyan", "Blue", "Purple", "Magenta"
+            ]
+        );
+    }
 }

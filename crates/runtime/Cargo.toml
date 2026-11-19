@@ -1,0 +1,13 @@
+[package]
+name = "search-probes-runtime"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[lib]
+name = "search_probes"
+crate-type = ["cdylib"]
+
+[target.'cfg(windows)'.dependencies]
+search-probes-native = { path = "../native" }
