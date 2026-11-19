@@ -18,6 +18,7 @@ mod discovery_hook;
 mod dispatch_gate;
 pub mod fauna;
 pub mod fauna_model_scalars;
+mod fauna_models;
 mod flora_appearance;
 mod flora_geometry;
 mod game_assets;

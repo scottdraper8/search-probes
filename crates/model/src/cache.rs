@@ -2,6 +2,7 @@ use crate::{
     address::Address,
     criteria::Plan,
     facts::{Facts, Verdict},
+    fauna::{Domain, NameIdentity},
     target::{Target, TargetKind},
 };
 use std::collections::{BTreeMap, VecDeque};
@@ -21,12 +22,22 @@ pub struct SystemRecord {
 
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[serde(deny_unknown_fields)]
+pub struct FaunaMatch {
+    pub role: u8,
+    pub name_identity: NameIdentity,
+    pub name: Option<Box<str>>,
+    pub domain: Domain,
+    pub cave: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct CachedMatch {
     pub address: Address,
     pub kind: TargetKind,
-    pub name: Option<Box<str>>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub fauna_role: Option<u8>,
+    pub system_name: Option<Box<str>>,
+    pub planet_name: Option<Box<str>>,
+    pub fauna: Option<FaunaMatch>,
 }
 
 impl CachedMatch {
@@ -34,8 +45,33 @@ impl CachedMatch {
         Target {
             address: self.address,
             kind: self.kind,
-            fauna_role: self.fauna_role,
+            fauna_role: self.fauna.as_ref().map(|fauna| fauna.role),
         }
+    }
+
+    pub fn title(&self) -> Option<&str> {
+        match self.kind {
+            TargetKind::System => self.system_name.as_deref(),
+            TargetKind::Planet => self.planet_name.as_deref(),
+            TargetKind::Fauna => self.fauna.as_ref()?.name.as_deref(),
+        }
+    }
+
+    pub fn destination_names_complete(&self) -> bool {
+        self.system_name
+            .as_deref()
+            .is_some_and(|name| !name.is_empty())
+            && (self.kind == TargetKind::System
+                || self
+                    .planet_name
+                    .as_deref()
+                    .is_some_and(|name| !name.is_empty()))
+            && (self.kind != TargetKind::Fauna
+                || self
+                    .fauna
+                    .as_ref()
+                    .and_then(|fauna| fauna.name.as_deref())
+                    .is_some_and(|name| !name.is_empty()))
     }
 }
 
@@ -64,6 +100,9 @@ impl SystemRecord {
     }
     pub fn name(&self, index: usize) -> Option<&str> {
         self.names.get(index)?.as_deref()
+    }
+    pub fn system_name(&self) -> Option<&str> {
+        self.system_name.as_deref()
     }
     pub fn set_system_name(&mut self, name: &str) -> Result<(), &'static str> {
         if name.is_empty() || name.len() > MAX_NAME_BYTES {
@@ -166,8 +205,9 @@ impl SystemRecord {
             vec![CachedMatch {
                 address: address.system(),
                 kind: TargetKind::System,
-                name: self.system_name.clone(),
-                fauna_role: None,
+                system_name: self.system_name.clone(),
+                planet_name: None,
+                fauna: None,
             }]
         } else if let Some(facts) = self.planets.get(index) {
             let address = address.planet(index).expect("bounded result planet");
@@ -178,19 +218,24 @@ impl SystemRecord {
                     .map(|animal| CachedMatch {
                         address,
                         kind: TargetKind::Fauna,
-                        // A generated role identifies the target but does not contain the
-                        // species/genus identity from which NMS derives its exact name. That
-                        // identity is captured from the spawned creature at the destination.
-                        name: None,
-                        fauna_role: Some(animal.role),
+                        system_name: self.system_name.clone(),
+                        planet_name: self.names[index].clone(),
+                        fauna: Some(FaunaMatch {
+                            role: animal.role,
+                            name_identity: animal.name_identity,
+                            name: None,
+                            domain: animal.domain,
+                            cave: animal.cave,
+                        }),
                     })
                     .collect();
             }
             vec![CachedMatch {
                 address,
                 kind: TargetKind::Planet,
-                name: self.names[index].clone(),
-                fauna_role: None,
+                system_name: self.system_name.clone(),
+                planet_name: self.names[index].clone(),
+                fauna: None,
             }]
         } else {
             Vec::new()
@@ -285,7 +330,7 @@ mod tests {
         address::Coordinates,
         arena::{ArenaField, Creature, RankEvidence, Ranks, Selection as ArenaSelection},
         criteria::{Predicate, Requirements, ResourceMode, Section},
-        fauna::{Domain, Family, FaunaField, HeightRange, Selection, Species},
+        fauna::{Domain, Family, FaunaField, HeightRange, NameIdentity, Selection, Species},
     };
 
     fn address() -> Address {
@@ -331,6 +376,10 @@ mod tests {
     fn species(role: u8) -> Species {
         Species {
             role,
+            name_identity: NameIdentity {
+                species_seed: u64::from(role) + 1,
+                genus_seed: u64::from(role) + 2,
+            },
             family: Family::Cats,
             domain: Domain::Land,
             activity: 2,
@@ -342,7 +391,7 @@ mod tests {
     }
 
     #[test]
-    fn positive_fauna_result_targets_the_matching_animal_without_inventing_a_name() {
+    fn positive_fauna_result_retains_exact_identity_and_destination_context() {
         let mut masks = [0; FaunaField::ALL.len()];
         masks[FaunaField::Family as usize] = 1 << Family::Cats as usize;
         let selection = Selection {
@@ -354,6 +403,10 @@ mod tests {
         };
         let results = record(vec![Species {
             role: 5,
+            name_identity: NameIdentity {
+                species_seed: 101,
+                genus_seed: 202,
+            },
             family: Family::Cats,
             domain: Domain::Land,
             activity: 2,
@@ -366,8 +419,18 @@ mod tests {
 
         assert_eq!(results.len(), 1);
         assert_eq!(results[0].kind, TargetKind::Fauna);
-        assert_eq!(results[0].fauna_role, Some(5));
-        assert_eq!(results[0].name, None);
+        assert_eq!(results[0].fauna.as_ref().unwrap().role, 5);
+        assert_eq!(results[0].fauna.as_ref().unwrap().name, None);
+        assert_eq!(
+            results[0]
+                .fauna
+                .as_ref()
+                .unwrap()
+                .name_identity
+                .species_seed,
+            101
+        );
+        assert_eq!(results[0].planet_name.as_deref(), Some("Test Planet"));
         assert_eq!(results[0].address, address().planet(0).unwrap());
     }
 
@@ -384,8 +447,8 @@ mod tests {
 
         assert_eq!(results.len(), 1);
         assert_eq!(results[0].kind, TargetKind::Planet);
-        assert_eq!(results[0].fauna_role, None);
-        assert_eq!(results[0].name.as_deref(), Some("Test Planet"));
+        assert_eq!(results[0].fauna, None);
+        assert_eq!(results[0].planet_name.as_deref(), Some("Test Planet"));
     }
 
     #[test]
@@ -417,8 +480,8 @@ mod tests {
 
         assert_eq!(results.len(), 1);
         assert_eq!(results[0].kind, TargetKind::Fauna);
-        assert_eq!(results[0].fauna_role, Some(5));
-        assert_eq!(results[0].name, None);
+        assert_eq!(results[0].fauna.as_ref().unwrap().role, 5);
+        assert_eq!(results[0].fauna.as_ref().unwrap().name, None);
     }
 
     #[test]

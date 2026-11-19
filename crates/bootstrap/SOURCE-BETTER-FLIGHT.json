@@ -1,0 +1,16 @@
+{
+  "name": "Better Flight WinMM proxy export inventory",
+  "repository": "https://github.com/YoruDev-Ryland/No-Mans-Sky-BetterFlight",
+  "revision": "a888eef10099e0f0c29ca65aae65750315073af2",
+  "source_paths": [
+    "native/gen_winmm_exports.py",
+    "native/reference/winmm_windows_10-22H2.exports",
+    "native/reference/winmm_windows_11-24H2.exports",
+    "native/reference/winmm_windows_11-26H1.exports",
+    "native/reference/winmm_wine_proton11.exports",
+    "native/src/betterflight.c",
+    "native/src/winmm.def",
+    "native/src/winmm_exports.inc"
+  ],
+  "license": "MIT"
+}

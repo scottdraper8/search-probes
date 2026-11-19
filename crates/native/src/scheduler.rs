@@ -5,6 +5,8 @@ use crate::{
     workers::Workers,
 };
 use search_probes_model::{
+    address::Address,
+    criteria::Plan,
     session::{Phase, Session, Work as Pending},
     settings::recommended_workers,
 };
@@ -12,6 +14,16 @@ use std::{
     sync::atomic::{AtomicBool, Ordering},
     time::{Duration, Instant},
 };
+
+pub struct TickRequest<'a> {
+    pub pool: &'a Workers,
+    pub base: usize,
+    pub live: *const u8,
+    pub difficulty: usize,
+    pub workers: Option<usize>,
+    pub budget: Duration,
+    pub cancel: &'a AtomicBool,
+}
 
 #[derive(Debug, Default, Clone, Copy)]
 pub struct Statistics {
@@ -41,12 +53,43 @@ impl Default for Scheduler {
 }
 
 impl Scheduler {
+    /// Inspect one loaded system without mutating the active search session.
+    ///
+    /// # Safety
+    /// The loaded gameplay image and live configuration graph must remain valid and quiescent for
+    /// the duration of the native query.
+    pub unsafe fn inspect_current(
+        &self,
+        base: usize,
+        live: *const u8,
+        difficulty: usize,
+        address: Address,
+        plan: &Plan,
+    ) -> Result<crate::search::Outcome, &'static str> {
+        let cancel = AtomicBool::new(false);
+        let mut generator =
+            unsafe { crate::search::Generator::new(base, live, &self.object_summaries)? };
+        unsafe { generator.inspect_current(address, plan, difficulty, &cancel) }
+    }
+
     #[cfg(windows)]
-    pub unsafe fn name_system_results(&mut self, base: usize) -> Result<(), &'static str> {
+    /// # Safety
+    /// The loaded gameplay image and fauna naming resources must remain valid for the duration of
+    /// this call.
+    pub unsafe fn name_results(&mut self, base: usize) -> Result<(), &'static str> {
         for address in self.session.unnamed_system_results() {
             let name = unsafe { crate::system_name::generate(base, address) }?;
             self.session.name_system(address, &name)?;
             self.statistics.work.names += 1;
+        }
+        let identities = self.session.unnamed_fauna_results();
+        if !identities.is_empty() {
+            let context = unsafe { crate::fauna::Context::from_verified_image(base) }?;
+            for identity in identities {
+                let name = unsafe { context.name(identity.species_seed, identity.genus_seed) }?;
+                self.session.name_fauna(identity, &name)?;
+                self.statistics.work.names += 1;
+            }
         }
         Ok(())
     }
@@ -77,16 +120,16 @@ impl Scheduler {
     /// # Safety
     /// The gameplay callback must wait for the batch and preserve shared native configuration and
     /// resource lifetimes throughout it.
-    pub unsafe fn tick(
-        &mut self,
-        pool: &Workers,
-        base: usize,
-        live: *const u8,
-        difficulty: usize,
-        workers: Option<usize>,
-        budget: Duration,
-        cancel: &AtomicBool,
-    ) -> Result<(), &'static str> {
+    pub unsafe fn tick(&mut self, request: TickRequest<'_>) -> Result<(), &'static str> {
+        let TickRequest {
+            pool,
+            base,
+            live,
+            difficulty,
+            workers,
+            budget,
+            cancel,
+        } = request;
         if cancel.load(Ordering::Acquire) {
             self.session.cancel();
             return Ok(());
@@ -123,14 +166,16 @@ impl Scheduler {
                 let completed = unsafe {
                     batch::evaluate(
                         pool,
-                        &self.object_summaries,
-                        base,
-                        live,
-                        &jobs,
-                        plan,
-                        difficulty,
-                        workers,
-                        cancel,
+                        batch::Evaluation {
+                            object_summaries: &self.object_summaries,
+                            base,
+                            live,
+                            jobs: &jobs,
+                            plan,
+                            difficulty,
+                            workers,
+                            cancel,
+                        },
                     )
                 }?;
                 let mut native_systems = 0;

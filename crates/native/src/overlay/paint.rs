@@ -1,4 +1,4 @@
-use super::{Chain, Device, hdr, input};
+use super::{Chain, Device, export, hdr, input};
 use ash::vk;
 use egui_ash_renderer::{Options, RenderMode, Renderer, allocator::DefaultAllocator};
 use search_probes_model::controls::Controls;
@@ -136,11 +136,13 @@ impl Painter {
                 &context.instance,
                 context.physical,
                 &context.device,
-                chain.extent,
-                chain.format,
-                chain.colour_space,
-                &painter.views,
-                vk::ImageLayout::PRESENT_SRC_KHR,
+                hdr::Presentation {
+                    extent: chain.extent,
+                    format: chain.format,
+                    colour_space: chain.colour_space,
+                    views: &painter.views,
+                    layout: vk::ImageLayout::PRESENT_SRC_KHR,
+                },
             )?);
         }
         let attachment = [vk::AttachmentDescription::default()
@@ -272,9 +274,15 @@ impl Painter {
     ) -> Result<Option<vk::Semaphore>> {
         let mut ui = UI.get().unwrap().lock().map_err(|_| "UI poisoned")?;
         let elapsed = ui.started.elapsed().as_secs_f64();
-        let Some(raw) = input::take(hwnd, self.extent, elapsed) else {
+        let binding = ui.app.settings().interface.hotkey;
+        let capture_device = ui.app.binding_capture_device();
+        let Some(frame) = input::take(hwnd, self.extent, elapsed, binding, capture_device) else {
             return Ok(None);
         };
+        for (controller, button, pressed) in frame.controller {
+            ui.app.controller_input(controller, button, pressed);
+        }
+        let raw = frame.raw;
         let index = index as usize;
         if index >= self.framebuffers.len() {
             return Err("invalid presented image index".into());
@@ -317,6 +325,11 @@ impl Painter {
                 .show(root.ctx(), |ui_root| ui.app.ui(ui_root));
         });
         input::output(hwnd, &output.platform_output);
+        if let Some(request) = ui.app.take_export_request() {
+            let result = export::save(hwnd, &request);
+            ui.app.finish_export(result);
+            context.request_repaint();
+        }
         let mut texture_error = None;
         for (id, deltas) in output.textures_delta.set.drain() {
             for delta in deltas {

@@ -2,8 +2,10 @@ use crate::criteria::{
     Field, Plan, PlanetFlag, PlanetSelection, Predicate, Requirements, ResourceMode, Section,
     Stage, SystemFlag, WaterPresence,
 };
+use serde::Serialize;
+use std::collections::BTreeMap;
 
-#[derive(Debug, Clone, Default, PartialEq, Eq, serde::Serialize)]
+#[derive(Debug, Clone, Default, PartialEq, serde::Serialize)]
 pub struct Facts {
     values: [u32; Field::ALL.len()],
     known_values: u64,
@@ -11,6 +13,12 @@ pub struct Facts {
     terrain_layers: Option<u32>,
     flora_colours_observed: u32,
     flora_colours_known: u32,
+    #[serde(skip)]
+    colour_evidence: BTreeMap<Field, crate::appearance::GeneratedColourAppearance>,
+    #[serde(skip)]
+    colour_components: BTreeMap<Field, BTreeMap<ColourComponent, ColourComponentObservation>>,
+    #[serde(skip)]
+    sky_reference: Option<SkyReferenceObservation>,
     planet_flags: u32,
     known_planet_flags: u32,
     system_flags: u16,
@@ -23,11 +31,205 @@ pub struct Facts {
     arena: Option<std::sync::Arc<[crate::arena::Creature]>>,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
 pub enum Verdict {
     Match,
     NoMatch,
     Unknown,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct ObservedValue {
+    pub native: u32,
+    pub labels: Vec<String>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ColourProvenance {
+    GeneratedReferenceAppearance,
+    GrassMaterialAppearance,
+    FloraModelAppearance,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ColourComponent {
+    SkyColour,
+    SkySolarColour,
+    SkyUpperColour,
+    SunColour,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct ColourComponentObservation {
+    pub classification: u32,
+    pub appearance: crate::appearance::GeneratedColourAppearance,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct SkyReferenceObservation {
+    pub gradient_progress: f64,
+    pub gradient_speed: [f64; 3],
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct ColourObservation {
+    pub classification: u32,
+    pub labels: Vec<String>,
+    pub evaluated_labels: Vec<String>,
+    pub complete: bool,
+    pub provenance: ColourProvenance,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub appearance: Option<crate::appearance::GeneratedColourAppearance>,
+    #[serde(skip_serializing_if = "BTreeMap::is_empty")]
+    pub components: BTreeMap<ColourComponent, ColourComponentObservation>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub sky_reference: Option<SkyReferenceObservation>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct FactSnapshot {
+    pub fields: BTreeMap<Field, ObservedValue>,
+    pub colour_observations: BTreeMap<Field, ColourObservation>,
+    pub planet_flags: BTreeMap<PlanetFlag, bool>,
+    pub system_flags: BTreeMap<SystemFlag, bool>,
+    pub resources: Option<Vec<String>>,
+    pub planet_count: Option<u8>,
+    pub water: Option<WaterPresence>,
+    pub fauna_count: Option<usize>,
+    pub arena_count: Option<usize>,
+}
+
+impl From<&Facts> for FactSnapshot {
+    fn from(facts: &Facts) -> Self {
+        let fields = Field::ALL
+            .iter()
+            .filter_map(|&field| {
+                facts.get(field).map(|native| {
+                    (
+                        field,
+                        ObservedValue {
+                            native,
+                            labels: field
+                                .labels_for_native(native)
+                                .into_iter()
+                                .map(str::to_owned)
+                                .collect(),
+                        },
+                    )
+                })
+            })
+            .collect();
+        let colour_observations = Field::ALL
+            .iter()
+            .copied()
+            .filter_map(|field| {
+                field.colour_index()?;
+                let (classification, known, complete, provenance) = match field {
+                    Field::FloraColour => {
+                        let classification = facts.get(field).unwrap_or(
+                            crate::vocabulary::GRASS_COLOUR_SET | facts.flora_colours_observed,
+                        );
+                        if classification == crate::vocabulary::GRASS_COLOUR_SET
+                            && facts.flora_colours_known == 0
+                        {
+                            return None;
+                        }
+                        (
+                            classification,
+                            if facts.get(field).is_some() {
+                                (1 << field.options().len()) - 1
+                            } else {
+                                facts.flora_colours_known
+                            },
+                            facts.get(field).is_some(),
+                            ColourProvenance::FloraModelAppearance,
+                        )
+                    }
+                    Field::Grass => (
+                        facts.get(field)?,
+                        (1 << field.options().len()) - 1,
+                        true,
+                        ColourProvenance::GrassMaterialAppearance,
+                    ),
+                    _ => (
+                        facts.get(field)?,
+                        (1 << field.options().len()) - 1,
+                        true,
+                        ColourProvenance::GeneratedReferenceAppearance,
+                    ),
+                };
+                let labels = field
+                    .labels_for_native(classification)
+                    .into_iter()
+                    .map(str::to_owned)
+                    .collect();
+                let evaluated_labels = field
+                    .options()
+                    .iter()
+                    .copied()
+                    .enumerate()
+                    .filter_map(|(index, label)| {
+                        (known & (1 << index) != 0).then_some(label.into())
+                    })
+                    .collect();
+                Some((
+                    field,
+                    ColourObservation {
+                        classification,
+                        labels,
+                        evaluated_labels,
+                        complete,
+                        provenance,
+                        appearance: facts.colour_evidence.get(&field).copied(),
+                        components: facts
+                            .colour_components
+                            .get(&field)
+                            .cloned()
+                            .unwrap_or_default(),
+                        sky_reference: (field == Field::Sky)
+                            .then_some(facts.sky_reference)
+                            .flatten(),
+                    },
+                ))
+            })
+            .collect();
+        let planet_flags = PlanetFlag::ALL
+            .iter()
+            .filter_map(|&flag| facts.planet_flag(flag).map(|value| (flag, value)))
+            .collect();
+        let system_flags = SystemFlag::ALL
+            .iter()
+            .filter_map(|&flag| facts.system_flag(flag).map(|value| (flag, value)))
+            .collect();
+        let resources = facts.resources().map(|bits| {
+            crate::vocabulary::RESOURCE_LABELS
+                .iter()
+                .copied()
+                .enumerate()
+                .filter(|(index, _)| bits & (1 << index) != 0)
+                .map(|(_, label)| label.to_owned())
+                .collect()
+        });
+        Self {
+            fields,
+            colour_observations,
+            planet_flags,
+            system_flags,
+            resources,
+            planet_count: facts.planet_count(),
+            water: facts.water(),
+            fauna_count: facts.fauna().map(<[_]>::len),
+            arena_count: facts.arena().map(<[_]>::len),
+        }
+    }
 }
 
 impl Facts {
@@ -58,6 +260,27 @@ impl Facts {
         let colours = colours & !crate::vocabulary::GRASS_COLOUR_SET;
         self.flora_colours_observed |= colours;
         self.flora_colours_known |= (known & !crate::vocabulary::GRASS_COLOUR_SET) | colours;
+    }
+    pub fn set_colour_evidence(
+        &mut self,
+        field: Field,
+        evidence: crate::appearance::GeneratedColourAppearance,
+    ) {
+        self.colour_evidence.insert(field, evidence);
+    }
+    pub fn set_colour_component(
+        &mut self,
+        field: Field,
+        component: ColourComponent,
+        observation: ColourComponentObservation,
+    ) {
+        self.colour_components
+            .entry(field)
+            .or_default()
+            .insert(component, observation);
+    }
+    pub fn set_sky_reference(&mut self, observation: SkyReferenceObservation) {
+        self.sky_reference = Some(observation);
     }
     pub fn set_extreme_storm_profile(&mut self, value: bool) {
         self.extreme_storm_profile = Some(value);
@@ -161,6 +384,20 @@ impl Facts {
             self.water = Some(water);
         }
         self.observe_flora_colours(new.flora_colours_observed, new.flora_colours_known);
+        self.colour_evidence.extend(
+            new.colour_evidence
+                .iter()
+                .map(|(&field, &value)| (field, value)),
+        );
+        for (&field, components) in &new.colour_components {
+            self.colour_components
+                .entry(field)
+                .or_default()
+                .extend(components);
+        }
+        if let Some(reference) = new.sky_reference {
+            self.sky_reference = Some(reference);
+        }
         if let Some(features) = new.terrain_layers {
             self.observe_terrain_layers(features);
         }
@@ -417,23 +654,43 @@ impl Plan {
             {
                 continue;
             }
-            needed.planet_query |= predicate.stage() >= Stage::Query;
-            needed.metadata |= predicate.stage() == Stage::Metadata;
-            needed.hints |= predicate.stage() == Stage::Hints;
-            needed.fauna |= predicate.stage() == Stage::Fauna;
-            needed.weather |= predicate.stage() == Stage::Weather;
-            needed.terrain |= predicate.stage() == Stage::Terrain;
-            needed.screen_filter |= predicate.stage() == Stage::ScreenFilter;
-            needed.objects |= predicate.stage() == Stage::Objects;
-            if let Predicate::Choice(choices) = predicate {
-                needed.objects |= choices.field() == Field::Terrain
-                    && choices.mask() & u64::from(crate::terrain::FLOATING_ISLANDS) != 0;
-                if let Some(index) = choices.field().colour_index() {
-                    needed.colours |= 1 << index;
-                }
+            Self::include_requirements(predicate, &mut needed);
+        }
+        needed
+    }
+
+    pub fn inspection_requirements(&self, facts: &Facts) -> Requirements {
+        let mut needed = Requirements {
+            screen_filter: facts.get(Field::WorldColourFilter).is_none(),
+            ..Requirements::default()
+        };
+        for &predicate in &self.planet {
+            if matches!(predicate, Predicate::Arena(_)) && facts.arena().is_some() {
+                continue;
+            }
+            if self.evaluate_planet(predicate, facts) == Verdict::Unknown {
+                Self::include_requirements(predicate, &mut needed);
             }
         }
         needed
+    }
+
+    fn include_requirements(predicate: Predicate, needed: &mut Requirements) {
+        needed.planet_query |= predicate.stage() >= Stage::Query;
+        needed.metadata |= predicate.stage() == Stage::Metadata;
+        needed.hints |= predicate.stage() == Stage::Hints;
+        needed.fauna |= predicate.stage() == Stage::Fauna;
+        needed.weather |= predicate.stage() == Stage::Weather;
+        needed.terrain |= predicate.stage() == Stage::Terrain;
+        needed.screen_filter |= predicate.stage() == Stage::ScreenFilter;
+        needed.objects |= predicate.stage() == Stage::Objects;
+        if let Predicate::Choice(choices) = predicate {
+            needed.objects |= choices.field() == Field::Terrain
+                && choices.mask() & u64::from(crate::terrain::FLOATING_ISLANDS) != 0;
+            if let Some(index) = choices.field().colour_index() {
+                needed.colours |= 1 << index;
+            }
+        }
     }
     fn section_verdicts(
         &self,
@@ -482,36 +739,66 @@ impl Plan {
         }
         facts.evaluate(predicate)
     }
+    pub fn planet_predicate_verdict(&self, predicate: Predicate, facts: &Facts) -> Verdict {
+        self.evaluate_planet(predicate, facts)
+    }
+    pub fn system_predicate_verdict(
+        &self,
+        predicate: Predicate,
+        facts: &Facts,
+        planets: &[Facts],
+    ) -> Verdict {
+        if let Predicate::Contains(selection, expected) = predicate {
+            let found = if planets.is_empty() {
+                Verdict::Unknown
+            } else {
+                combine(
+                    planets
+                        .iter()
+                        .map(|planet| planet.evaluate_selection(selection)),
+                    ResourceMode::Any,
+                )
+            };
+            match (found, expected) {
+                (Verdict::Match, false) => Verdict::NoMatch,
+                (Verdict::NoMatch, false) => Verdict::Match,
+                _ => found,
+            }
+        } else {
+            facts.evaluate(predicate)
+        }
+    }
+    pub fn planet_section_verdicts(&self, facts: &Facts) -> BTreeMap<Section, Verdict> {
+        Section::ALL
+            .iter()
+            .copied()
+            .zip(self.section_verdicts(&self.planet, |rule| self.evaluate_planet(rule, facts)))
+            .collect()
+    }
+    pub fn system_section_verdicts(
+        &self,
+        facts: &Facts,
+        planets: &[Facts],
+    ) -> BTreeMap<Section, Verdict> {
+        Section::ALL
+            .iter()
+            .copied()
+            .zip(self.section_verdicts(&self.system, |rule| {
+                self.system_predicate_verdict(rule, facts, planets)
+            }))
+            .collect()
+    }
     pub fn system_match(&self, facts: &Facts, planets: &[Facts]) -> Verdict {
         combine(
             self.section_verdicts(&self.system, |rule| {
-                if let Predicate::Contains(selection, expected) = rule {
-                    let found = if planets.is_empty() {
-                        Verdict::Unknown
-                    } else {
-                        combine(
-                            planets
-                                .iter()
-                                .map(|planet| planet.evaluate_selection(selection)),
-                            ResourceMode::Any,
-                        )
-                    };
-                    match (found, expected) {
-                        (Verdict::Match, false) => Verdict::NoMatch,
-                        (Verdict::NoMatch, false) => Verdict::Match,
-                        _ => found,
-                    }
-                } else {
-                    facts.evaluate(rule)
-                }
+                self.system_predicate_verdict(rule, facts, planets)
             }),
             ResourceMode::All,
         )
     }
     pub fn planet_match(&self, facts: &Facts) -> Verdict {
         combine(
-            self.section_verdicts(&self.planet, |rule| self.evaluate_planet(rule, facts))
-                .into_iter(),
+            self.section_verdicts(&self.planet, |rule| self.evaluate_planet(rule, facts)),
             ResourceMode::All,
         )
     }
@@ -535,16 +822,33 @@ impl Plan {
 }
 
 pub fn hue(rgb: [f64; 3]) -> Result<u32, &'static str> {
+    let (maximum, range) = colour_range(rgb)?;
+    if maximum == 0.0 || range / maximum < 0.12 {
+        return Ok(8);
+    }
+    Ok(hue_sector(rgb, maximum, range))
+}
+
+pub fn chromatic_hue(rgb: [f64; 3]) -> Result<u32, &'static str> {
+    let (maximum, range) = colour_range(rgb)?;
+    if range <= f64::EPSILON {
+        return Ok(8);
+    }
+    Ok(hue_sector(rgb, maximum, range))
+}
+
+fn colour_range(rgb: [f64; 3]) -> Result<(f64, f64), &'static str> {
     if !rgb.iter().all(|value| value.is_finite() && *value >= 0.0) {
         return Err("invalid colour components");
     }
     let [red, green, blue] = rgb;
     let maximum = red.max(green).max(blue);
     let minimum = red.min(green).min(blue);
-    let range = maximum - minimum;
-    if maximum == 0.0 || range / maximum < 0.12 {
-        return Ok(8);
-    }
+    Ok((maximum, maximum - minimum))
+}
+
+fn hue_sector(rgb: [f64; 3], maximum: f64, range: f64) -> u32 {
+    let [red, green, blue] = rgb;
     let rc = (maximum - red) / range;
     let gc = (maximum - green) / range;
     let bc = (maximum - blue) / range;
@@ -556,7 +860,7 @@ pub fn hue(rgb: [f64; 3]) -> Result<u32, &'static str> {
         4.0 + gc - rc
     };
     let degrees = (h / 6.0).rem_euclid(1.0) * 360.0;
-    Ok(if !(15.0..345.0).contains(&degrees) {
+    if !(15.0..345.0).contains(&degrees) {
         0
     } else if degrees < 45.0 {
         1
@@ -572,5 +876,5 @@ pub fn hue(rgb: [f64; 3]) -> Result<u32, &'static str> {
         6
     } else {
         7
-    })
+    }
 }

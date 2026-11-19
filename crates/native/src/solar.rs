@@ -31,7 +31,7 @@ impl SolarContext {
         unsafe {
             let initialize = std::mem::transmute::<usize, Initialize>(checked(
                 base,
-                0x14167fff0,
+                0x14167ff60,
                 &[
                     0x48, 0x89, 0x5c, 0x24, 0x10, 0x48, 0x89, 0x6c, 0x24, 0x18, 0x48, 0x89, 0x74,
                     0x24, 0x20, 0x48, 0x89, 0x4c, 0x24, 0x08, 0x57, 0x41, 0x54, 0x41, 0x55, 0x41,
@@ -40,7 +40,7 @@ impl SolarContext {
             )?);
             let release = std::mem::transmute::<usize, ReleaseResource>(checked(
                 base,
-                0x1404bcb40,
+                0x1404bd070,
                 &[
                     0x40, 0x53, 0x56, 0x57, 0x48, 0x83, 0xec, 0x20, 0x48, 0x8d, 0x99, 0xf8, 0x00,
                     0x00, 0x00, 0x48,
@@ -48,13 +48,13 @@ impl SolarContext {
             )?);
             let deallocate = std::mem::transmute::<usize, Deallocate>(checked(
                 base,
-                0x142c910e0,
+                0x142c916c0,
                 &[0x48, 0x85, 0xd2, 0x0f, 0x84, 0xb5, 0x01, 0x00, 0x00],
             )?);
             let mut result = Self {
                 storage: Box::new(Storage([0; 0x6e0])),
-                resource_cache: (base + 0x756ac80) as *mut u8,
-                allocator: (base + 0x50e30e0) as *mut u8,
+                resource_cache: (base + 0x756bd70) as *mut u8,
+                allocator: (base + 0x50e4310) as *mut u8,
                 release,
                 deallocate,
                 _gameplay: PhantomData,

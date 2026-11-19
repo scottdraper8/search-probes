@@ -130,17 +130,29 @@ pub struct Hdr {
     encoding: u32,
     presentation_layout: vk::ImageLayout,
 }
+
+pub struct Presentation<'a> {
+    pub extent: vk::Extent2D,
+    pub format: vk::Format,
+    pub colour_space: vk::ColorSpaceKHR,
+    pub views: &'a [vk::ImageView],
+    pub layout: vk::ImageLayout,
+}
+
 impl Hdr {
     pub fn new(
         instance: &ash::Instance,
         physical: vk::PhysicalDevice,
         device: &ash::Device,
-        extent: vk::Extent2D,
-        format: vk::Format,
-        colour_space: vk::ColorSpaceKHR,
-        views: &[vk::ImageView],
-        presentation_layout: vk::ImageLayout,
+        presentation: Presentation<'_>,
     ) -> Result<Self> {
+        let Presentation {
+            extent,
+            format,
+            colour_space,
+            views,
+            layout: presentation_layout,
+        } = presentation;
         let features =
             unsafe { instance.get_physical_device_format_properties(physical, UI_FORMAT) }
                 .optimal_tiling_features;
@@ -298,8 +310,10 @@ impl Hdr {
                 include_bytes!(concat!(env!("OUT_DIR"), "/hdr.fragment.spv")).as_slice(),
             ] {
                 let words: Vec<_> = bytes
-                    .chunks_exact(4)
-                    .map(|c| u32::from_le_bytes(c.try_into().unwrap()))
+                    .as_chunks::<4>()
+                    .0
+                    .iter()
+                    .map(|c| u32::from_le_bytes(*c))
                     .collect();
                 hdr.modules.push(
                     device

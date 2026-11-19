@@ -1,24 +1,57 @@
 use crate::resident_hook::{HookError, ResidentHook};
-use search_probes_model::fauna::Domain;
+use search_probes_model::{
+    cache::CachedMatch,
+    fauna::Domain,
+    settings::{MAX_PRESETS, Preset},
+    target::TargetKind,
+};
 use std::sync::{
     Mutex,
     atomic::{AtomicUsize, Ordering},
 };
 
-const LOCALISE_RVA: usize = 0x2c45990;
-const PREFIX: [u8; 15] = [
+const FIXED_LOCALISE_RVA: usize = 0x2c45da0;
+const FIXED_PREFIX: [u8; 17] = [
+    0x48, 0x89, 0x74, 0x24, 0x10, 0x57, 0x48, 0x83, 0xec, 0x20, 0x48, 0x8b, 0x05, 0x77, 0x9c, 0x98,
+    0x00,
+];
+const STRING_LOCALISE_RVA: usize = 0x2c45f70;
+const STRING_PREFIX: [u8; 15] = [
     0x48, 0x89, 0x6c, 0x24, 0x10, 0x48, 0x89, 0x74, 0x24, 0x18, 0x57, 0x48, 0x83, 0xec, 0x40,
 ];
-const OBJECTIVE_ID: &[u8] = b"SQN_SP_FAUNA_MISSION_OBJ";
-const TIP_ID: &[u8] = b"SQN_SP_FAUNA_MISSION_OBJ_TIP";
-const STATUS_ID: &[u8] = b"SQN_SP_FAUNA_SCAN";
+const SYSTEM_OBJECTIVE_ID: &[u8] = b"SQN_SP_SYSTEM_MISSION_OBJ";
+const PLANET_OBJECTIVE_ID: &[u8] = b"SQN_SP_NAV_MISSION_OBJ";
+const FAUNA_OBJECTIVE_ID: &[u8] = b"SQN_SP_FAUNA_MISSION_OBJ";
+const FAUNA_TIP_ID: &[u8] = b"SQN_SP_FAUNA_MISSION_OBJ_TIP";
+const FAUNA_STATUS_ID: &[u8] = b"SQN_SP_FAUNA_SCAN";
+const PRESET_IDS: [&[u8]; MAX_PRESETS] = [
+    b"SQN_SP_SLOT1",
+    b"SQN_SP_SLOT2",
+    b"SQN_SP_SLOT3",
+    b"SQN_SP_SLOT4",
+    b"SQN_SP_SLOT5",
+    b"SQN_SP_SLOT6",
+    b"SQN_SP_SLOT7",
+    b"SQN_SP_SLOT8",
+    b"SQN_SP_SLOT9",
+];
 
-type Localise = unsafe extern "system" fn(usize, *const u8, *const u8) -> *const u8;
+type FixedLocalise = unsafe extern "system" fn(usize, *const u8) -> *const u8;
+type StringLocalise = unsafe extern "system" fn(usize, *const u8, *const u8) -> *const u8;
 
-static ORIGINAL: AtomicUsize = AtomicUsize::new(0);
-static HOOK: Mutex<Option<ResidentHook>> = Mutex::new(None);
-static OBJECTIVE: AtomicUsize = AtomicUsize::new(0);
-static TIP: AtomicUsize = AtomicUsize::new(0);
+static FIXED_ORIGINAL: AtomicUsize = AtomicUsize::new(0);
+static STRING_ORIGINAL: AtomicUsize = AtomicUsize::new(0);
+static HOOKS: Mutex<Option<Hooks>> = Mutex::new(None);
+static SYSTEM_OBJECTIVE: AtomicUsize = AtomicUsize::new(0);
+static PLANET_OBJECTIVE: AtomicUsize = AtomicUsize::new(0);
+static FAUNA_OBJECTIVE: AtomicUsize = AtomicUsize::new(0);
+static FAUNA_TIP: AtomicUsize = AtomicUsize::new(0);
+static PRESET_NAMES: [AtomicUsize; MAX_PRESETS] = [const { AtomicUsize::new(0) }; MAX_PRESETS];
+
+struct Hooks {
+    fixed: ResidentHook,
+    string: ResidentHook,
+}
 
 unsafe fn matches(value: *const u8, expected: &[u8]) -> bool {
     if value.is_null() {
@@ -32,24 +65,50 @@ unsafe fn matches(value: *const u8, expected: &[u8]) -> bool {
     unsafe { value.add(expected.len()).read() == 0 }
 }
 
-unsafe extern "system" fn detour(
+unsafe fn replacement(identity: *const u8) -> usize {
+    if let Some(slot) = PRESET_IDS
+        .iter()
+        .position(|expected| unsafe { matches(identity, expected) })
+    {
+        PRESET_NAMES[slot].load(Ordering::Acquire)
+    } else if unsafe { matches(identity, SYSTEM_OBJECTIVE_ID) } {
+        SYSTEM_OBJECTIVE.load(Ordering::Acquire)
+    } else if unsafe { matches(identity, PLANET_OBJECTIVE_ID) } {
+        PLANET_OBJECTIVE.load(Ordering::Acquire)
+    } else if unsafe { matches(identity, FAUNA_OBJECTIVE_ID) }
+        || unsafe { matches(identity, FAUNA_STATUS_ID) }
+    {
+        FAUNA_OBJECTIVE.load(Ordering::Acquire)
+    } else if unsafe { matches(identity, FAUNA_TIP_ID) } {
+        FAUNA_TIP.load(Ordering::Acquire)
+    } else {
+        0
+    }
+}
+
+unsafe extern "system" fn fixed_detour(language: usize, identity: *const u8) -> *const u8 {
+    let replacement = unsafe { replacement(identity) };
+    if replacement != 0 {
+        return replacement as *const u8;
+    }
+    let original = unsafe {
+        std::mem::transmute::<usize, FixedLocalise>(FIXED_ORIGINAL.load(Ordering::Acquire))
+    };
+    unsafe { original(language, identity) }
+}
+
+unsafe extern "system" fn string_detour(
     language: usize,
     identity: *const u8,
     fallback: *const u8,
 ) -> *const u8 {
-    let replacement =
-        if unsafe { matches(identity, OBJECTIVE_ID) } || unsafe { matches(identity, STATUS_ID) } {
-            OBJECTIVE.load(Ordering::Acquire)
-        } else if unsafe { matches(identity, TIP_ID) } {
-            TIP.load(Ordering::Acquire)
-        } else {
-            0
-        };
+    let replacement = unsafe { replacement(identity) };
     if replacement != 0 {
         return replacement as *const u8;
     }
-    let original =
-        unsafe { std::mem::transmute::<usize, Localise>(ORIGINAL.load(Ordering::Acquire)) };
+    let original = unsafe {
+        std::mem::transmute::<usize, StringLocalise>(STRING_ORIGINAL.load(Ordering::Acquire))
+    };
     unsafe { original(language, identity, fallback) }
 }
 
@@ -67,55 +126,152 @@ fn publish(destination: &AtomicUsize, text: String) -> Result<(), &'static str> 
     Ok(())
 }
 
-pub fn set_fauna(name: Option<&str>, domain: Domain, cave: bool) -> Result<(), &'static str> {
-    let habitat = match (domain, cave) {
-        (Domain::Land, true) => "The target is an underground-dwelling creature.",
-        (Domain::Land, false) => "The target is a surface-dwelling creature.",
-        (Domain::Aquatic, _) => "The target is an aquatic creature.",
-        (Domain::Airborne, _) => "The target is an airborne creature.",
-    };
+fn required<'a>(name: Option<&'a str>, kind: &'static str) -> Result<&'a str, &'static str> {
+    name.filter(|name| !name.is_empty()).ok_or(kind)
+}
+
+pub fn set_system(name: &str) -> Result<(), &'static str> {
+    if name.is_empty() {
+        return Err("destination has no system name");
+    }
+    publish(&SYSTEM_OBJECTIVE, format!("Enter {name}"))
+}
+
+pub fn set_planet(name: &str) -> Result<(), &'static str> {
+    if name.is_empty() {
+        return Err("destination has no planet name");
+    }
+    publish(&PLANET_OBJECTIVE, format!("Land on {name}"))
+}
+
+pub fn set_fauna(name: &str, domain: Domain, cave: bool) -> Result<(), &'static str> {
+    if name.is_empty() {
+        return Err("destination has no fauna name");
+    }
+    let habitat = format!("The target is a {} creature", domain.dwelling(cave));
     publish(
-        &OBJECTIVE,
-        name.map_or_else(
-            || "Use the Analysis Visor to scan the target animal".to_owned(),
-            |name| format!("Use the Analysis Visor to scan {name}"),
-        ),
+        &FAUNA_OBJECTIVE,
+        format!("Use the Analysis Visor to scan {name}"),
     )?;
-    publish(&TIP, habitat.into())
+    publish(&FAUNA_TIP, habitat)
+}
+
+pub fn set_destination(result: &CachedMatch) -> Result<(), &'static str> {
+    let system = required(
+        result.system_name.as_deref(),
+        "destination has no system name",
+    )?;
+    let planet = (result.kind != TargetKind::System)
+        .then(|| {
+            required(
+                result.planet_name.as_deref(),
+                "destination has no planet name",
+            )
+        })
+        .transpose()?;
+    let fauna = if result.kind == TargetKind::Fauna {
+        let fauna = result.fauna.as_ref().ok_or("destination has no fauna")?;
+        Some((
+            required(fauna.name.as_deref(), "destination has no fauna name")?,
+            fauna.domain,
+            fauna.cave,
+        ))
+    } else {
+        None
+    };
+    set_system(system)?;
+    if let Some(planet) = planet {
+        set_planet(planet)?;
+    }
+    if let Some((name, domain, cave)) = fauna {
+        set_fauna(name, domain, cave)?;
+    }
+    Ok(())
+}
+
+pub fn set_presets(presets: &[Preset]) -> Result<(), &'static str> {
+    if presets.len() > MAX_PRESETS {
+        return Err("too many Guide presets");
+    }
+    if presets
+        .iter()
+        .any(|preset| preset.name.as_bytes().contains(&0))
+    {
+        return Err("Guide preset name contains a null byte");
+    }
+    for (slot, destination) in PRESET_NAMES.iter().enumerate() {
+        if let Some(preset) = presets.get(slot) {
+            publish(destination, preset.name.clone())?;
+        } else {
+            destination.store(0, Ordering::Release);
+        }
+    }
+    Ok(())
+}
+
+fn clear_presets() {
+    for preset in &PRESET_NAMES {
+        preset.store(0, Ordering::Release);
+    }
 }
 
 pub fn clear() {
-    OBJECTIVE.store(0, Ordering::Release);
-    TIP.store(0, Ordering::Release);
+    SYSTEM_OBJECTIVE.store(0, Ordering::Release);
+    PLANET_OBJECTIVE.store(0, Ordering::Release);
+    FAUNA_OBJECTIVE.store(0, Ordering::Release);
+    FAUNA_TIP.store(0, Ordering::Release);
 }
 
 /// # Safety
 /// The verified NMS image and the localization manager remain loaded while this hook is enabled.
 pub unsafe fn enable(base: usize) -> Result<(), HookError> {
-    let mut hook = HOOK.lock().map_err(|_| HookError::StatePoisoned)?;
-    if hook.is_none() {
-        let prepared = unsafe {
-            ResidentHook::prepare(base + LOCALISE_RVA, detour as *const () as usize, &PREFIX)?
+    let mut hooks = HOOKS.lock().map_err(|_| HookError::StatePoisoned)?;
+    if hooks.is_none() {
+        let fixed = unsafe {
+            ResidentHook::prepare(
+                base + FIXED_LOCALISE_RVA,
+                fixed_detour as *const () as usize,
+                &FIXED_PREFIX,
+            )?
         };
-        ORIGINAL.store(prepared.trampoline(), Ordering::Release);
-        *hook = Some(prepared);
+        let string = unsafe {
+            ResidentHook::prepare(
+                base + STRING_LOCALISE_RVA,
+                string_detour as *const () as usize,
+                &STRING_PREFIX,
+            )?
+        };
+        FIXED_ORIGINAL.store(fixed.trampoline(), Ordering::Release);
+        STRING_ORIGINAL.store(string.trampoline(), Ordering::Release);
+        *hooks = Some(Hooks { fixed, string });
     }
-    unsafe {
-        hook.as_mut()
-            .expect("prepared mission localization hook")
-            .set_enabled(true)
+    let hooks = hooks.as_mut().expect("prepared mission localization hooks");
+    unsafe { hooks.fixed.set_enabled(true)? };
+    if let Err(error) = unsafe { hooks.string.set_enabled(true) } {
+        let _ = unsafe { hooks.fixed.set_enabled(false) };
+        return Err(error);
     }
+    Ok(())
 }
 
 /// # Safety
 /// All localization calls must have left the patched entry point before it is restored.
 pub unsafe fn disable() -> Result<(), HookError> {
-    let mut hook = HOOK.lock().map_err(|_| HookError::StatePoisoned)?;
-    if let Some(hook) = hook.as_mut() {
-        unsafe { hook.set_enabled(false)? };
+    let mut hooks = HOOKS.lock().map_err(|_| HookError::StatePoisoned)?;
+    let mut failure = None;
+    if let Some(hooks) = hooks.as_mut() {
+        if let Err(error) = unsafe { hooks.string.set_enabled(false) } {
+            failure = Some(error);
+        }
+        if let Err(error) = unsafe { hooks.fixed.set_enabled(false) }
+            && failure.is_none()
+        {
+            failure = Some(error);
+        }
     }
     clear();
-    Ok(())
+    clear_presets();
+    failure.map_or(Ok(()), Err)
 }
 
 #[cfg(test)]
@@ -124,9 +280,31 @@ mod tests {
 
     #[test]
     fn objective_and_habitat_text_are_null_terminated() {
-        set_fauna(Some("I. Festerluwelus"), Domain::Land, false).unwrap();
-        let objective = OBJECTIVE.load(Ordering::Acquire) as *const u8;
-        let tip = TIP.load(Ordering::Acquire) as *const u8;
+        set_system("Yihytaka XII").unwrap();
+        set_planet("Giumfi Major").unwrap();
+        set_fauna("I. Festerluwelus", Domain::Land, false).unwrap();
+        let system = SYSTEM_OBJECTIVE.load(Ordering::Acquire) as *const u8;
+        let planet = PLANET_OBJECTIVE.load(Ordering::Acquire) as *const u8;
+        let objective = FAUNA_OBJECTIVE.load(Ordering::Acquire) as *const u8;
+        let tip = FAUNA_TIP.load(Ordering::Acquire) as *const u8;
+        let mut fixed_planet_identity = [0; 32];
+        fixed_planet_identity[..PLANET_OBJECTIVE_ID.len()].copy_from_slice(PLANET_OBJECTIVE_ID);
+        assert_eq!(
+            unsafe { replacement(fixed_planet_identity.as_ptr()) },
+            planet as usize
+        );
+        assert_eq!(
+            unsafe { std::ffi::CStr::from_ptr(system.cast()) }
+                .to_str()
+                .unwrap(),
+            "Enter Yihytaka XII"
+        );
+        assert_eq!(
+            unsafe { std::ffi::CStr::from_ptr(planet.cast()) }
+                .to_str()
+                .unwrap(),
+            "Land on Giumfi Major"
+        );
         assert_eq!(
             unsafe { std::ffi::CStr::from_ptr(objective.cast()) }
                 .to_str()
@@ -137,8 +315,31 @@ mod tests {
             unsafe { std::ffi::CStr::from_ptr(tip.cast()) }
                 .to_str()
                 .unwrap(),
-            "The target is a surface-dwelling creature."
+            "The target is a surface-dwelling creature"
         );
         clear();
+    }
+
+    #[test]
+    fn saved_preset_names_replace_only_visible_guide_slot_labels() {
+        set_presets(&[Preset {
+            name: "Triple-S fauna".into(),
+            search: Default::default(),
+        }])
+        .unwrap();
+        let mut first = [0; 32];
+        first[..PRESET_IDS[0].len()].copy_from_slice(PRESET_IDS[0]);
+        let mut second = [0; 32];
+        second[..PRESET_IDS[1].len()].copy_from_slice(PRESET_IDS[1]);
+        let name = unsafe { replacement(first.as_ptr()) } as *const u8;
+        assert_eq!(
+            unsafe { std::ffi::CStr::from_ptr(name.cast()) }
+                .to_str()
+                .unwrap(),
+            "Triple-S fauna"
+        );
+        assert_eq!(unsafe { replacement(second.as_ptr()) }, 0);
+        set_presets(&[]).unwrap();
+        assert_eq!(unsafe { replacement(first.as_ptr()) }, 0);
     }
 }

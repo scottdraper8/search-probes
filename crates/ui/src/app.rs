@@ -1,7 +1,14 @@
-use egui::{self, Color32, RichText, Ui};
+use crate::{
+    export::{ExportFormat, ExportRequest},
+    portal_glyphs::PortalGlyphs,
+    theme::{self, Palette},
+};
+use egui::{self, RichText, Ui};
 use search_probes_model::controls::Controls;
 use search_probes_model::{
     arena::ArenaField,
+    binding::{BindingDevice, ControllerButton, InputBinding, KeyboardKey},
+    cache::CachedMatch,
     criteria::{
         CompositionField, Criteria, Field, PlanetFlag, ResourceMode, Section, SelectionSide,
         SystemFlag, WaterFilter, subtype_options_for,
@@ -13,6 +20,8 @@ use search_probes_model::{
         BUDGET_LABELS, BUDGETS, MAX_PRESETS, MAX_RESULTS, Preset, Settings, available_workers,
         recommended_workers, validate_name,
     },
+    target::TargetKind,
+    theme::UiTheme,
     vocabulary::RESOURCE_LABELS,
 };
 use std::sync::Arc;
@@ -21,7 +30,108 @@ const CRITERIA_SPLIT_MIN_WIDTH: f32 = 820.0;
 const CRITERIA_THREE_COLUMN_MIN_WIDTH: f32 = 1230.0;
 const MAIN_SPLIT_MIN_WIDTH: f32 = 2460.0;
 const SEARCH_PANEL_SPLIT_MIN_WIDTH: f32 = 800.0;
-const RESULT_CARD_MIN_WIDTH: f32 = 280.0;
+const RESULT_CARD_MIN_WIDTH: f32 = 310.0;
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum CapturedInput {
+    Keyboard(KeyboardKey),
+    Controller(ControllerButton),
+}
+
+impl CapturedInput {
+    fn device(self) -> BindingDevice {
+        match self {
+            Self::Keyboard(_) => BindingDevice::Keyboard,
+            Self::Controller(_) => BindingDevice::Controller,
+        }
+    }
+
+    fn label(self) -> &'static str {
+        match self {
+            Self::Keyboard(key) => key.label(),
+            Self::Controller(button) => button.label(),
+        }
+    }
+}
+
+struct BindingCapture {
+    device: BindingDevice,
+    controller: Option<u8>,
+    held: Vec<CapturedInput>,
+    candidate: Vec<CapturedInput>,
+    overflowed: bool,
+}
+
+impl BindingCapture {
+    fn new(device: BindingDevice) -> Self {
+        Self {
+            device,
+            controller: None,
+            held: Vec::new(),
+            candidate: Vec::new(),
+            overflowed: false,
+        }
+    }
+
+    fn set_device(&mut self, device: BindingDevice) {
+        if self.device != device {
+            *self = Self::new(device);
+        }
+    }
+
+    fn input(&mut self, input: CapturedInput, pressed: bool) -> Option<InputBinding> {
+        if input.device() != self.device {
+            return None;
+        }
+        if pressed {
+            if self.held.contains(&input) {
+                return None;
+            }
+            self.held.push(input);
+            if self.candidate.len() < 2 {
+                self.candidate.push(input);
+            } else {
+                self.overflowed = true;
+            }
+        } else {
+            self.held.retain(|held| *held != input);
+        }
+        if !self.held.is_empty() || self.candidate.is_empty() {
+            return None;
+        }
+        if self.overflowed {
+            self.candidate.clear();
+            self.overflowed = false;
+            self.controller = None;
+            return None;
+        }
+        let first = self.candidate[0];
+        let second = self.candidate.get(1).copied();
+        match (first, second) {
+            (CapturedInput::Keyboard(first), None) => Some(InputBinding::Keyboard {
+                first,
+                second: None,
+            }),
+            (CapturedInput::Keyboard(first), Some(CapturedInput::Keyboard(second))) => {
+                Some(InputBinding::Keyboard {
+                    first,
+                    second: Some(second),
+                })
+            }
+            (CapturedInput::Controller(first), None) => Some(InputBinding::Controller {
+                first,
+                second: None,
+            }),
+            (CapturedInput::Controller(first), Some(CapturedInput::Controller(second))) => {
+                Some(InputBinding::Controller {
+                    first,
+                    second: Some(second),
+                })
+            }
+            _ => None,
+        }
+    }
+}
 
 pub struct App {
     controls: Arc<Controls>,
@@ -33,25 +143,31 @@ pub struct App {
     error: Option<String>,
     published_settings: Option<Settings>,
     pending_search: Option<u64>,
+    binding_window: bool,
+    binding_capture: Option<BindingCapture>,
+    export_request: Option<ExportRequest>,
+    export_status: Option<String>,
+    applied_theme: Option<UiTheme>,
+    portal_glyphs: PortalGlyphs,
 }
 
 impl App {
     pub fn new(ctx: &egui::Context, controls: Arc<Controls>) -> Self {
-        ctx.set_theme(egui::Theme::Dark);
-        ctx.style_mut_of(egui::Theme::Dark, |style| {
-            style.spacing.item_spacing = egui::vec2(10.0, 8.0);
-            for (kind, size) in [
-                (egui::TextStyle::Body, 15.0),
-                (egui::TextStyle::Button, 15.0),
-                (egui::TextStyle::Small, 12.0),
-            ] {
-                style
-                    .text_styles
-                    .insert(kind, egui::FontId::proportional(size));
-            }
-            style.visuals.panel_fill = Color32::from_rgb(18, 24, 32);
-            style.visuals.selection.bg_fill = Color32::from_rgb(32, 108, 126);
-        });
+        for egui_theme in [egui::Theme::Dark, egui::Theme::Light] {
+            ctx.style_mut_of(egui_theme, |style| {
+                style.spacing.item_spacing = egui::vec2(10.0, 8.0);
+                for (kind, size) in [
+                    (egui::TextStyle::Body, 15.0),
+                    (egui::TextStyle::Button, 15.0),
+                    (egui::TextStyle::Small, 12.0),
+                ] {
+                    style
+                        .text_styles
+                        .insert(kind, egui::FontId::proportional(size));
+                }
+            });
+        }
+        theme::apply(ctx, UiTheme::default());
         Self {
             state: controls.snapshot(),
             controls,
@@ -62,6 +178,44 @@ impl App {
             error: None,
             published_settings: None,
             pending_search: None,
+            binding_window: false,
+            binding_capture: None,
+            export_request: None,
+            export_status: None,
+            applied_theme: None,
+            portal_glyphs: PortalGlyphs::new(ctx),
+        }
+    }
+
+    fn palette(&self) -> Palette {
+        Palette::for_theme(self.settings.interface.theme)
+    }
+
+    fn theme_control(&mut self, ui: &mut Ui) {
+        let current = self.settings.interface.theme;
+        let mut selected = None;
+        ui.menu_button(format!("Theme  ·  {}", current.label()), |ui| {
+            egui::ScrollArea::vertical()
+                .max_height(480.0)
+                .show(ui, |ui| {
+                    ui.set_min_width(190.0);
+                    for &candidate in UiTheme::ALL {
+                        if ui
+                            .selectable_label(candidate == current, candidate.label())
+                            .clicked()
+                        {
+                            selected = Some(candidate);
+                            ui.close();
+                        }
+                    }
+                });
+        });
+        if let Some(theme) = selected.filter(|theme| *theme != current) {
+            self.settings.interface.theme = theme;
+            self.applied_theme = None;
+            self.send(Action::Configure {
+                settings: self.settings.clone(),
+            });
         }
     }
     fn send(&mut self, action: Action) {
@@ -149,14 +303,13 @@ impl App {
             if ui
                 .add_enabled(self.selected_preset.is_some(), egui::Button::new("Remove"))
                 .clicked()
+                && let Some(index) = self.selected_preset.take()
             {
-                if let Some(index) = self.selected_preset.take() {
-                    self.settings.presets.remove(index);
-                    self.preset_name.clear();
-                    self.send(Action::Configure {
-                        settings: self.settings.clone(),
-                    });
-                }
+                self.settings.presets.remove(index);
+                self.preset_name.clear();
+                self.send(Action::Configure {
+                    settings: self.settings.clone(),
+                });
             }
         });
     }
@@ -174,11 +327,16 @@ impl App {
         ui.separator();
         let state = &self.state;
         let ready = state.availability == Availability::Ready;
-        let active = self.pending_search.is_some()
-            || state
-                .progress
-                .as_ref()
-                .is_some_and(|progress| progress.phase == Phase::Running);
+        let running = state
+            .progress
+            .as_ref()
+            .is_some_and(|progress| progress.phase == Phase::Running);
+        let active = self.pending_search.is_some() || running;
+        let user_paused = state.search_pause == Some(SearchPause::User);
+        let automatically_paused = matches!(
+            state.search_pause,
+            Some(SearchPause::Loading | SearchPause::OtherGalaxy)
+        );
         let valid = self.settings.validate();
         ui.horizontal_wrapped(|ui| {
             if ui
@@ -195,6 +353,18 @@ impl App {
             }
             if ui
                 .add_enabled(
+                    ready && running && !automatically_paused,
+                    egui::Button::new(if user_paused { "Resume" } else { "Pause" })
+                        .min_size(egui::vec2(80.0, 32.0)),
+                )
+                .clicked()
+            {
+                self.send(Action::SetSearchPaused {
+                    paused: !user_paused,
+                });
+            }
+            if ui
+                .add_enabled(
                     active,
                     egui::Button::new("Cancel").min_size(egui::vec2(80.0, 32.0)),
                 )
@@ -207,7 +377,256 @@ impl App {
             ui.label("Starting search…");
         }
         if let Err(error) = valid {
-            ui.colored_label(Color32::LIGHT_RED, error);
+            ui.colored_label(self.palette().error, error);
+        }
+    }
+
+    fn apply_binding(&mut self, binding: InputBinding) {
+        self.settings.interface.hotkey = binding;
+        self.binding_capture = None;
+        self.send(Action::Configure {
+            settings: self.settings.clone(),
+        });
+    }
+
+    fn capture_keyboard(&mut self, ctx: &egui::Context) {
+        if self
+            .binding_capture
+            .as_ref()
+            .is_none_or(|capture| capture.device != BindingDevice::Keyboard)
+        {
+            return;
+        }
+        let events = ctx.input(|input| input.raw.events.clone());
+        let mut completed = None;
+        for event in events {
+            let egui::Event::Key {
+                key,
+                physical_key,
+                pressed,
+                repeat,
+                ..
+            } = event
+            else {
+                continue;
+            };
+            if repeat {
+                continue;
+            }
+            let Some(key) = keyboard_key(physical_key.unwrap_or(key)) else {
+                continue;
+            };
+            if let Some(binding) = self
+                .binding_capture
+                .as_mut()
+                .and_then(|capture| capture.input(CapturedInput::Keyboard(key), pressed))
+            {
+                completed = Some(binding);
+            }
+        }
+        if let Some(binding) = completed {
+            self.apply_binding(binding);
+        }
+    }
+
+    /// Supplies controller button transitions to an active binding capture.
+    /// Identity keeps a captured chord on one device, but is not stored in the binding.
+    pub fn controller_input(&mut self, controller: u8, button: ControllerButton, pressed: bool) {
+        let completed = self.binding_capture.as_mut().and_then(|capture| {
+            if capture.device != BindingDevice::Controller {
+                return None;
+            }
+            if capture.controller.is_none() && pressed {
+                capture.controller = Some(controller);
+            }
+            if capture.controller != Some(controller) {
+                return None;
+            }
+            capture.input(CapturedInput::Controller(button), pressed)
+        });
+        if let Some(binding) = completed {
+            self.apply_binding(binding);
+        }
+    }
+
+    /// The device whose runtime input is currently routed into the hotkey recorder.
+    pub fn binding_capture_device(&self) -> Option<BindingDevice> {
+        self.binding_capture.as_ref().map(|capture| capture.device)
+    }
+
+    fn binding_dialog(&mut self, ctx: &egui::Context) {
+        if !self.binding_window {
+            return;
+        }
+        let binding = self.settings.interface.hotkey;
+        let palette = self.palette();
+        let mut window_open = true;
+        let mut start_capture = false;
+        let mut cancel_capture = false;
+        let mut reset = false;
+        egui::Window::new("UI Hotkey")
+            .id(egui::Id::new("ui_hotkey_dialog"))
+            .anchor(egui::Align2::CENTER_CENTER, egui::Vec2::ZERO)
+            .collapsible(false)
+            .resizable(false)
+            .default_width(540.0)
+            .min_width(360.0)
+            .max_width(620.0)
+            .open(&mut window_open)
+            .show(ctx, |ui| {
+                ui.vertical_centered(|ui| {
+                    ui.heading(
+                        RichText::new("Toggle the Search Probes overlay")
+                            .size(24.0)
+                            .strong(),
+                    );
+                    ui.add_space(14.0);
+                    if let Some(capture) = self.binding_capture.as_mut() {
+                        ui.label(RichText::new("Input type").size(17.0).strong());
+                        let mut selected_device = capture.device;
+                        responsive_row(ui, 38.0, |ui| {
+                            let button_width =
+                                (ui.available_width() - ui.spacing().item_spacing.x) / 2.0;
+                            if ui
+                                .add_sized(
+                                    [button_width, 34.0],
+                                    egui::Button::selectable(
+                                        selected_device == BindingDevice::Keyboard,
+                                        "Keyboard",
+                                    ),
+                                )
+                                .clicked()
+                            {
+                                selected_device = BindingDevice::Keyboard;
+                            }
+                            if ui
+                                .add_sized(
+                                    [button_width, 34.0],
+                                    egui::Button::selectable(
+                                        selected_device == BindingDevice::Controller,
+                                        "Controller",
+                                    ),
+                                )
+                                .clicked()
+                            {
+                                selected_device = BindingDevice::Controller;
+                            }
+                        });
+                        capture.set_device(selected_device);
+                        ui.add_space(12.0);
+                        egui::Frame::new()
+                            .fill(palette.surface)
+                            .stroke(egui::Stroke::new(1.0, palette.primary))
+                            .corner_radius(5.0)
+                            .inner_margin(egui::Margin::symmetric(18, 12))
+                            .show(ui, |ui| {
+                                ui.vertical_centered(|ui| {
+                                    ui.label(
+                                        RichText::new(match capture.device {
+                                            BindingDevice::Keyboard => {
+                                                "Press one or two keys together"
+                                            }
+                                            BindingDevice::Controller => {
+                                                "Press one or two controller inputs together"
+                                            }
+                                        })
+                                        .size(17.0)
+                                        .strong(),
+                                    );
+                                    ui.add_space(8.0);
+                                    if capture.candidate.is_empty() {
+                                        ui.label(
+                                            RichText::new(match capture.device {
+                                                BindingDevice::Keyboard => {
+                                                    "Waiting for keyboard input…"
+                                                }
+                                                BindingDevice::Controller => {
+                                                    "Waiting for any controller…"
+                                                }
+                                            })
+                                            .size(16.0)
+                                            .color(palette.on_surface_variant),
+                                        );
+                                    } else {
+                                        responsive_row(ui, 46.0, |ui| {
+                                            captured_caps(ui, &capture.candidate, palette)
+                                        });
+                                    }
+                                    if capture.overflowed {
+                                        ui.colored_label(
+                                            palette.error,
+                                            RichText::new(
+                                                "Release the inputs and try again with no more than two.",
+                                            )
+                                            .size(15.0),
+                                        );
+                                    } else {
+                                        ui.label(
+                                            RichText::new("Release all inputs to save.")
+                                                .size(15.0),
+                                        );
+                                    }
+                                });
+                            });
+                        ui.add_space(10.0);
+                        responsive_row(ui, 38.0, |ui| {
+                            let width = ui.available_width();
+                            ui.add_space(width * 0.25);
+                            if ui
+                                .add_sized([width * 0.5, 34.0], egui::Button::new("Cancel"))
+                                .clicked()
+                            {
+                                cancel_capture = true;
+                            }
+                        });
+                    } else {
+                        ui.label(RichText::new("Current hotkey").size(17.0).strong());
+                        ui.add_space(4.0);
+                        responsive_row(ui, 50.0, |ui| binding_caps(ui, binding, palette));
+                        ui.add_space(16.0);
+                        responsive_row(ui, 40.0, |ui| {
+                            let button_width =
+                                (ui.available_width() - ui.spacing().item_spacing.x) / 2.0;
+                            if ui
+                                .add_sized([button_width, 36.0], egui::Button::new("Change"))
+                                .clicked()
+                            {
+                                start_capture = true;
+                            }
+                            if ui
+                                .add_enabled(
+                                    binding != InputBinding::default(),
+                                    egui::Button::new("Reset to F7")
+                                        .min_size(egui::vec2(button_width, 36.0)),
+                                )
+                                .clicked()
+                            {
+                                reset = true;
+                            }
+                        });
+                        ui.add_space(10.0);
+                        ui.separator();
+                        let (footer, _) = ui.allocate_exact_size(
+                            egui::vec2(ui.available_width(), 34.0),
+                            egui::Sense::hover(),
+                        );
+                        ui.painter().text(
+                            footer.center(),
+                            egui::Align2::CENTER_CENTER,
+                            "Use up to two keyboard keys or controller inputs",
+                            egui::FontId::proportional(16.0),
+                            ui.visuals().text_color(),
+                        );
+                    }
+                });
+            });
+        self.binding_window = window_open;
+        if !window_open || cancel_capture {
+            self.binding_capture = None;
+        } else if start_capture {
+            self.binding_capture = Some(BindingCapture::new(binding.device()));
+        } else if reset {
+            self.apply_binding(InputBinding::default());
         }
     }
     fn search_scope(&mut self, ui: &mut Ui) {
@@ -244,12 +663,14 @@ impl App {
             });
         callout(
             ui,
+            self.palette(),
             CalloutTone::Success,
             "Search completion",
-            "The search stops running after whichever comes first - processing all systems, or finding the number of requested results.",
+            "The search stops after processing all systems, or finding the number of requested results",
         );
     }
     fn search_performance(&mut self, ui: &mut Ui) {
+        let previous_intensity = self.settings.frame_budget_ms;
         ui.heading(RichText::new("Performance").size(16.0).strong());
         let input_width = filter_control_width(ui);
         let intensity_levels = [
@@ -307,11 +728,17 @@ impl App {
                     });
                 ui.end_row();
             });
+        if self.settings.frame_budget_ms != previous_intensity {
+            self.send(Action::ConfigureIntensity {
+                frame_budget_ms: self.settings.frame_budget_ms,
+            });
+        }
         callout(
             ui,
+            self.palette(),
             CalloutTone::Warning,
             "Performance impact",
-            "Higher search intensity and more workers can find results faster, but may make the game less smooth.",
+            "Higher search intensity and more workers can find results faster, but may make the game less smooth",
         );
     }
     fn criteria(&mut self, ui: &mut Ui, input_width: f32) {
@@ -552,12 +979,8 @@ impl App {
                         ui,
                         criteria,
                         &[
-                            Field::Cloud,
                             Field::Sky,
-                            Field::SkyHeightFog,
                             Field::Horizon,
-                            Field::NightSky,
-                            Field::SkyFog,
                             Field::WaterColour,
                             Field::WorldColourFilter,
                         ],
@@ -580,8 +1003,27 @@ impl App {
             });
     }
     fn results(&mut self, ui: &mut Ui) {
-        ui.heading("Results");
         let state = self.state.clone();
+        ui.horizontal(|ui| {
+            ui.heading("Results");
+            if !state.results.is_empty() {
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    ui.menu_button("Export", |ui| {
+                        for format in [ExportFormat::Text, ExportFormat::Csv] {
+                            if ui.button(format.label()).clicked() {
+                                self.export_request =
+                                    Some(ExportRequest::new(format, &state.results));
+                                self.export_status = None;
+                                ui.close();
+                            }
+                        }
+                    });
+                });
+            }
+        });
+        if let Some(status) = &self.export_status {
+            ui.colored_label(self.palette().success, status);
+        }
         if state.availability != Availability::Ready {
             ui.label(match state.availability {
                 Availability::MainMenu => "Load a save to search.",
@@ -616,6 +1058,7 @@ impl App {
                     Some(SearchPause::OtherGalaxy) => {
                         "Search paused: return to its starting galaxy to resume."
                     }
+                    Some(SearchPause::User) => "Search paused.",
                     None => "Searching…",
                 },
                 Phase::Completed => "Search complete",
@@ -626,12 +1069,26 @@ impl App {
                 && progress.phase == Phase::Running
                 && state.search_pause.is_none()
             {
-                ui.small(format!(
-                    "Average {:.0} generated systems/s · {} served from cache",
-                    state.metrics.generated_systems as f64 * 1000.0
-                        / state.metrics.elapsed_ms as f64,
-                    number(progress.cached_systems)
-                ));
+                let per_second = |count| count as f64 * 1000.0 / state.metrics.elapsed_ms as f64;
+                let mut rates = vec![format!(
+                    "{:.0} generated systems/s",
+                    per_second(state.metrics.generated_systems)
+                )];
+                if let Ok(plan) = progress.options.criteria.compile() {
+                    if !plan.planet.is_empty() {
+                        rates.push(format!(
+                            "{:.0} generated planets/s",
+                            per_second(state.metrics.generated_planets)
+                        ));
+                    }
+                    if plan.targets_animals() {
+                        rates.push(format!(
+                            "{:.0} generated fauna/s",
+                            per_second(state.metrics.generated_fauna)
+                        ));
+                    }
+                }
+                ui.small(format!("Average {}", rates.join(" · ")));
             }
             if progress.unresolved_arena_planets > 0 {
                 ui.small(format!(
@@ -640,7 +1097,7 @@ impl App {
                 ));
             }
             if let Some(error) = &progress.error {
-                ui.colored_label(Color32::LIGHT_RED, error);
+                ui.colored_label(self.palette().error, error);
             }
         } else if state.results.is_empty() {
             ui.label("Choose your criteria and start a search.");
@@ -648,91 +1105,87 @@ impl App {
         if !state.results.is_empty() {
             ui.separator();
             let results: Vec<_> = state.results.iter().collect();
-            egui::ScrollArea::vertical()
-                .id_salt("results")
-                .show(ui, |ui| {
-                    let gap = ui.spacing().item_spacing.x;
-                    let available = ui.available_width();
-                    let columns = ((available + gap) / (RESULT_CARD_MIN_WIDTH + gap))
-                        .floor()
-                        .max(1.0) as usize;
-                    for (row, results) in results.chunks(columns).enumerate() {
-                        ui.columns(columns, |cards| {
-                            for (column, result) in results.iter().enumerate() {
-                                let index = row * columns + column;
-                                cards[column].push_id(
-                                    (result.address.raw(), result.kind, result.fauna_role),
-                                    |ui| {
-                                    egui::Frame::group(ui.style()).show(ui, |ui| {
-                                        ui.set_width(ui.available_width());
-                                        let coordinates = result.address.coordinates();
-                                        let name = result
-                                            .name
-                                            .as_deref()
-                                            .filter(|name| !name.is_empty())
-                                            .map(str::to_owned)
-                                            .unwrap_or_else(|| {
-                                                match result.kind {
-                                                    search_probes_model::target::TargetKind::Planet => format!("Planet {}", coordinates.planet),
-                                                    search_probes_model::target::TargetKind::Fauna => "Animal".to_owned(),
-                                                    kind => kind.label().to_owned(),
-                                                }
+            let gap = ui.spacing().item_spacing.x;
+            let available = ui.available_width();
+            let columns = ((available + gap) / (RESULT_CARD_MIN_WIDTH + gap))
+                .floor()
+                .max(1.0) as usize;
+            for (row, results) in results.chunks(columns).enumerate() {
+                ui.columns(columns, |cards| {
+                    for (column, result) in results.iter().enumerate() {
+                        let index = row * columns + column;
+                        cards[column].push_id(
+                            (
+                                result.address.raw(),
+                                result.kind,
+                                result.fauna.as_ref().map(|fauna| fauna.role),
+                            ),
+                            |ui| {
+                                egui::Frame::group(ui.style()).show(ui, |ui| {
+                                    ui.set_width(ui.available_width());
+                                    let coordinates = result.address.coordinates();
+                                    let name = result.title().unwrap_or("Name unavailable");
+                                    ui.label(
+                                        RichText::new(format!("{}. {name}", index + 1)).strong(),
+                                    );
+                                    let portal_code = result.target().portal_code();
+                                    ui.small(result_subtitle(
+                                        result,
+                                        u16::from(coordinates.galaxy) + 1,
+                                    ));
+                                    self.portal_glyphs
+                                    .show(
+                                        ui,
+                                        &portal_code,
+                                        self.palette().on_surface_variant,
+                                    )
+                                    .on_hover_text(format!("Portal code: {portal_code}"));
+                                    ui.horizontal_wrapped(|ui| {
+                                        if ui
+                                            .add_enabled(
+                                                state.availability == Availability::Ready
+                                                    && result.destination_names_complete()
+                                                    && state.player.is_some_and(|player| player.coordinates().galaxy == coordinates.galaxy),
+                                                egui::Button::new("Set destination"),
+                                            )
+                                            .clicked()
+                                        {
+                                            self.send(Action::Navigate {
+                                                target: result.target(),
                                             });
-                                        ui.label(
-                                            RichText::new(format!("{}. {name}", index + 1))
-                                                .strong(),
-                                        );
-                                        ui.small(format!(
-                                            "{} · Galaxy {}",
-                                            result.kind.label(),
-                                            u16::from(coordinates.galaxy) + 1
-                                        ));
-                                        ui.horizontal_wrapped(|ui| {
-                                            if ui
-                                                .add_enabled(
-                                                    state.availability == Availability::Ready
-                                                        && state.player.is_some_and(|player| player.coordinates().galaxy == coordinates.galaxy),
-                                                    egui::Button::new("Set destination"),
-                                                )
-                                                .clicked()
-                                            {
-                                                self.send(Action::Navigate {
-                                                    target: result.target(),
-                                                });
-                                            }
-                                            if ui
-                                                .button("Copy portal code")
-                                                .on_hover_text(format!(
-                                                    "{}\nUse a portal in Galaxy {}. {}",
-                                                    result.target().portal_code(),
-                                                    u16::from(coordinates.galaxy) + 1,
-                                                    if result.kind == search_probes_model::target::TargetKind::System { "Arrives through the first planet’s portal in this system." } else { "Arrives on the target planet." }
-                                                ))
-                                                .clicked()
-                                            {
-                                                ui.ctx().copy_text(result.target().portal_code());
-                                            }
-                                            if ui
-                                                .button("Copy galactic coords")
-                                                .on_hover_text(format!(
-                                                    "{}\nIdentifies this system.",
-                                                    result.address.galactic_coordinates()
-                                                ))
-                                                .clicked()
-                                            {
-                                                ui.ctx().copy_text(result.address.galactic_coordinates());
-                                            }
-                                            if state.destination == Some(result.target()) {
-                                                ui.label("Active destination");
-                                            }
-                                        });
+                                        }
+                                        if ui
+                                            .button("Copy portal code")
+                                            .on_hover_text(format!(
+                                                "{}\nUse a portal in Galaxy {}. {}",
+                                                portal_code,
+                                                u16::from(coordinates.galaxy) + 1,
+                                                if result.kind == TargetKind::System { "Arrives through the first planet’s portal in this system." } else { "Arrives on the target planet." }
+                                            ))
+                                            .clicked()
+                                        {
+                                            ui.ctx().copy_text(portal_code.clone());
+                                        }
+                                        if ui
+                                            .button("Copy galactic coords")
+                                            .on_hover_text(format!(
+                                                "{}\nIdentifies this system.",
+                                                result.address.galactic_coordinates()
+                                            ))
+                                            .clicked()
+                                        {
+                                            ui.ctx().copy_text(result.address.galactic_coordinates());
+                                        }
+                                        if state.destination == Some(result.target()) {
+                                            ui.label("Active destination");
+                                        }
                                     });
-                                    },
-                                );
-                            }
-                        });
+                                });
+                            },
+                        );
                     }
                 });
+            }
         }
     }
 }
@@ -743,6 +1196,24 @@ impl App {
         &self.settings
     }
 
+    pub fn take_export_request(&mut self) -> Option<ExportRequest> {
+        self.export_request.take()
+    }
+
+    pub fn finish_export(&mut self, result: Result<Option<String>, String>) {
+        match result {
+            Ok(Some(path)) => {
+                self.error = None;
+                self.export_status = Some(format!("Exported results to {path}"));
+            }
+            Ok(None) => {}
+            Err(error) => {
+                self.export_status = None;
+                self.error = Some(format!("Cannot export results: {error}"));
+            }
+        }
+    }
+
     pub fn refresh(&mut self) {
         self.state = self.controls.snapshot();
         let state = &self.state;
@@ -751,7 +1222,11 @@ impl App {
             self.loaded_generation = Some(state.generation);
         }
         if self.published_settings.as_ref() != Some(&state.settings) {
-            self.settings = state.settings.clone();
+            if let Some(previous) = self.published_settings.as_ref() {
+                reconcile_settings(&mut self.settings, previous, &state.settings);
+            } else {
+                self.settings = state.settings.clone();
+            }
             self.published_settings = Some(state.settings.clone());
             self.selected_preset = None;
         }
@@ -763,13 +1238,35 @@ impl App {
         }
     }
     pub fn ui(&mut self, ui: &mut Ui) {
+        let selected_theme = self.settings.interface.theme;
+        if self.applied_theme != Some(selected_theme) {
+            theme::apply(ui.ctx(), selected_theme);
+            self.applied_theme = Some(selected_theme);
+            ui.ctx().request_repaint();
+        }
+        let palette = self.palette();
+        self.capture_keyboard(ui.ctx());
         egui::Frame::new()
             .inner_margin(16.0)
-            .fill(Color32::from_rgb(18, 24, 32))
+            .fill(palette.background)
             .show(ui, |ui| {
-                ui.heading(RichText::new("Search Probes").size(28.0));
+                ui.horizontal(|ui| {
+                    ui.heading(RichText::new("Search Probes").size(28.0));
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        if ui
+                            .button(format!(
+                                "UI Hotkey  ·  {}",
+                                binding_text(self.settings.interface.hotkey)
+                            ))
+                            .clicked()
+                        {
+                            self.binding_window = true;
+                        }
+                        self.theme_control(ui);
+                    });
+                });
                 if let Some(error) = self.error.as_ref().or(self.state.error.as_ref()) {
-                    ui.colored_label(Color32::LIGHT_RED, error);
+                    ui.colored_label(palette.error, error);
                 }
 
                 egui::Frame::group(ui.style()).show(ui, |ui| {
@@ -809,6 +1306,40 @@ impl App {
                         });
                 }
             });
+        self.binding_dialog(ui.ctx());
+    }
+}
+
+fn reconcile_settings(draft: &mut Settings, previous: &Settings, published: &Settings) {
+    if draft.schema == previous.schema {
+        draft.schema = published.schema;
+    }
+    if draft.search == previous.search {
+        draft.search = published.search.clone();
+    }
+    if draft.presets == previous.presets {
+        draft.presets = published.presets.clone();
+    }
+    if draft.interface == previous.interface {
+        draft.interface = published.interface.clone();
+    }
+    if draft.workers == previous.workers {
+        draft.workers = published.workers;
+    }
+    if draft.frame_budget_ms == previous.frame_budget_ms {
+        draft.frame_budget_ms = published.frame_budget_ms;
+    }
+}
+
+fn result_subtitle(result: &CachedMatch, galaxy: u16) -> String {
+    let system = result.system_name.as_deref().unwrap_or("name unavailable");
+    let planet = result.planet_name.as_deref().unwrap_or("name unavailable");
+    match result.kind {
+        TargetKind::System => format!("System · Galaxy {galaxy}"),
+        TargetKind::Planet => format!("Planet · System {system} · Galaxy {galaxy}"),
+        TargetKind::Fauna => {
+            format!("Animal · Planet {planet} · System {system} · Galaxy {galaxy}")
+        }
     }
 }
 
@@ -823,17 +1354,218 @@ enum CalloutTone {
     Warning,
 }
 
-fn callout(ui: &mut Ui, tone: CalloutTone, title: &str, message: &str) {
+fn binding_caps(ui: &mut Ui, binding: InputBinding, palette: Palette) {
+    match binding {
+        InputBinding::Keyboard { first, second } => {
+            if let Some(second) = second {
+                binding_cap_group(ui, &[first.label(), second.label()], palette);
+            } else {
+                binding_cap_group(ui, &[first.label()], palette);
+            }
+        }
+        InputBinding::Controller { first, second } => {
+            if let Some(second) = second {
+                binding_cap_group(ui, &[first.label(), second.label()], palette);
+            } else {
+                binding_cap_group(ui, &[first.label()], palette);
+            }
+        }
+    }
+}
+
+fn binding_text(binding: InputBinding) -> String {
+    match binding {
+        InputBinding::Keyboard { first, second } => second.map_or_else(
+            || first.label().to_owned(),
+            |second| format!("{} + {}", first.label(), second.label()),
+        ),
+        InputBinding::Controller { first, second } => second.map_or_else(
+            || first.label().to_owned(),
+            |second| format!("{} + {}", first.label(), second.label()),
+        ),
+    }
+}
+
+fn captured_caps(ui: &mut Ui, inputs: &[CapturedInput], palette: Palette) {
+    let labels: Vec<_> = inputs.iter().map(|input| input.label()).collect();
+    binding_cap_group(ui, &labels, palette);
+}
+
+fn responsive_row(ui: &mut Ui, height: f32, add_contents: impl FnOnce(&mut Ui)) {
+    let available_width = ui.available_width();
+    let content_width = available_width * 0.68;
+    let (row, _) =
+        ui.allocate_exact_size(egui::vec2(available_width, height), egui::Sense::hover());
+    let content = egui::Rect::from_center_size(row.center(), egui::vec2(content_width, height));
+    let mut child = ui.new_child(
+        egui::UiBuilder::new()
+            .max_rect(content)
+            .layout(egui::Layout::left_to_right(egui::Align::Center)),
+    );
+    add_contents(&mut child);
+}
+
+fn binding_cap_group(ui: &mut Ui, labels: &[&str], palette: Palette) {
+    let total_width = ui.available_width();
+    let gap = ui.spacing().item_spacing.x;
+    let cap_width = if labels.len() == 2 {
+        (total_width - 14.0 - gap * 2.0) / 2.0
+    } else {
+        total_width
+    };
+    for (index, label) in labels.iter().enumerate() {
+        if index > 0 {
+            input_separator(ui);
+        }
+        input_cap(ui, label, cap_width, palette);
+    }
+}
+
+fn input_separator(ui: &mut Ui) {
+    let (rect, _) = ui.allocate_exact_size(egui::vec2(14.0, 38.0), egui::Sense::hover());
+    ui.painter().text(
+        rect.center(),
+        egui::Align2::CENTER_CENTER,
+        "+",
+        egui::FontId::proportional(18.0),
+        ui.visuals().text_color(),
+    );
+}
+
+fn input_cap(ui: &mut Ui, label: &str, width: f32, palette: Palette) {
+    egui::Frame::new()
+        .fill(palette.surface_container_high)
+        .stroke(egui::Stroke::new(1.0, palette.outline))
+        .corner_radius(4.0)
+        .inner_margin(egui::Margin::symmetric(12, 7))
+        .show(ui, |ui| {
+            ui.set_width((width - 24.0).max(1.0));
+            ui.vertical_centered(|ui| {
+                ui.label(RichText::new(label).size(18.0).strong());
+            });
+        });
+}
+
+fn keyboard_key(key: egui::Key) -> Option<KeyboardKey> {
+    use egui::Key;
+    Some(match key {
+        Key::ArrowDown => KeyboardKey::ArrowDown,
+        Key::ArrowLeft => KeyboardKey::ArrowLeft,
+        Key::ArrowRight => KeyboardKey::ArrowRight,
+        Key::ArrowUp => KeyboardKey::ArrowUp,
+        Key::Escape => KeyboardKey::Escape,
+        Key::Tab => KeyboardKey::Tab,
+        Key::Backspace => KeyboardKey::Backspace,
+        Key::Enter => KeyboardKey::Enter,
+        Key::Space => KeyboardKey::Space,
+        Key::Insert => KeyboardKey::Insert,
+        Key::Delete => KeyboardKey::Delete,
+        Key::Home => KeyboardKey::Home,
+        Key::End => KeyboardKey::End,
+        Key::PageUp => KeyboardKey::PageUp,
+        Key::PageDown => KeyboardKey::PageDown,
+        Key::Colon => KeyboardKey::Semicolon,
+        Key::Comma => KeyboardKey::Comma,
+        Key::Backslash => KeyboardKey::Backslash,
+        Key::Slash => KeyboardKey::Slash,
+        Key::Pipe => KeyboardKey::Backslash,
+        Key::Questionmark => KeyboardKey::Slash,
+        Key::Exclamationmark => KeyboardKey::Num1,
+        Key::OpenBracket => KeyboardKey::OpenBracket,
+        Key::CloseBracket => KeyboardKey::CloseBracket,
+        Key::OpenCurlyBracket => KeyboardKey::OpenBracket,
+        Key::CloseCurlyBracket => KeyboardKey::CloseBracket,
+        Key::Backtick => KeyboardKey::Backtick,
+        Key::Minus => KeyboardKey::Minus,
+        Key::Period => KeyboardKey::Period,
+        Key::Plus => KeyboardKey::Equals,
+        Key::Equals => KeyboardKey::Equals,
+        Key::Semicolon => KeyboardKey::Semicolon,
+        Key::Quote => KeyboardKey::Quote,
+        Key::Num0 => KeyboardKey::Num0,
+        Key::Num1 => KeyboardKey::Num1,
+        Key::Num2 => KeyboardKey::Num2,
+        Key::Num3 => KeyboardKey::Num3,
+        Key::Num4 => KeyboardKey::Num4,
+        Key::Num5 => KeyboardKey::Num5,
+        Key::Num6 => KeyboardKey::Num6,
+        Key::Num7 => KeyboardKey::Num7,
+        Key::Num8 => KeyboardKey::Num8,
+        Key::Num9 => KeyboardKey::Num9,
+        Key::A => KeyboardKey::A,
+        Key::B => KeyboardKey::B,
+        Key::C => KeyboardKey::C,
+        Key::D => KeyboardKey::D,
+        Key::E => KeyboardKey::E,
+        Key::F => KeyboardKey::F,
+        Key::G => KeyboardKey::G,
+        Key::H => KeyboardKey::H,
+        Key::I => KeyboardKey::I,
+        Key::J => KeyboardKey::J,
+        Key::K => KeyboardKey::K,
+        Key::L => KeyboardKey::L,
+        Key::M => KeyboardKey::M,
+        Key::N => KeyboardKey::N,
+        Key::O => KeyboardKey::O,
+        Key::P => KeyboardKey::P,
+        Key::Q => KeyboardKey::Q,
+        Key::R => KeyboardKey::R,
+        Key::S => KeyboardKey::S,
+        Key::T => KeyboardKey::T,
+        Key::U => KeyboardKey::U,
+        Key::V => KeyboardKey::V,
+        Key::W => KeyboardKey::W,
+        Key::X => KeyboardKey::X,
+        Key::Y => KeyboardKey::Y,
+        Key::Z => KeyboardKey::Z,
+        Key::F1 => KeyboardKey::F1,
+        Key::F2 => KeyboardKey::F2,
+        Key::F3 => KeyboardKey::F3,
+        Key::F4 => KeyboardKey::F4,
+        Key::F5 => KeyboardKey::F5,
+        Key::F6 => KeyboardKey::F6,
+        Key::F7 => KeyboardKey::F7,
+        Key::F8 => KeyboardKey::F8,
+        Key::F9 => KeyboardKey::F9,
+        Key::F10 => KeyboardKey::F10,
+        Key::F11 => KeyboardKey::F11,
+        Key::F12 => KeyboardKey::F12,
+        Key::F13 => KeyboardKey::F13,
+        Key::F14 => KeyboardKey::F14,
+        Key::F15 => KeyboardKey::F15,
+        Key::F16 => KeyboardKey::F16,
+        Key::F17 => KeyboardKey::F17,
+        Key::F18 => KeyboardKey::F18,
+        Key::F19 => KeyboardKey::F19,
+        Key::F20 => KeyboardKey::F20,
+        Key::F21 => KeyboardKey::F21,
+        Key::F22 => KeyboardKey::F22,
+        Key::F23 => KeyboardKey::F23,
+        Key::F24 => KeyboardKey::F24,
+        Key::ShiftLeft => KeyboardKey::ShiftLeft,
+        Key::ShiftRight => KeyboardKey::ShiftRight,
+        Key::ControlLeft => KeyboardKey::ControlLeft,
+        Key::ControlRight => KeyboardKey::ControlRight,
+        Key::AltLeft => KeyboardKey::AltLeft,
+        Key::AltRight => KeyboardKey::AltRight,
+        Key::SuperLeft => KeyboardKey::SuperLeft,
+        Key::SuperRight => KeyboardKey::SuperRight,
+        Key::IntlBackslash => KeyboardKey::IntlBackslash,
+        _ => return None,
+    })
+}
+
+fn callout(ui: &mut Ui, palette: Palette, tone: CalloutTone, title: &str, message: &str) {
     let (fill, border, title_color) = match tone {
         CalloutTone::Success => (
-            Color32::from_rgb(16, 42, 28),
-            Color32::from_rgb(55, 155, 92),
-            Color32::from_rgb(105, 220, 140),
+            palette.success_container,
+            palette.success_outline,
+            palette.success,
         ),
         CalloutTone::Warning => (
-            Color32::from_rgb(45, 35, 18),
-            Color32::from_rgb(195, 145, 55),
-            Color32::from_rgb(240, 190, 90),
+            palette.warning_container,
+            palette.warning_outline,
+            palette.warning,
         ),
     };
     let width = ui.available_width().min(CALLOUT_MAX_WIDTH);
@@ -926,24 +1658,15 @@ fn filter_row(ui: &mut Ui, label: &str, control_width: f32, add_control: impl Fn
         )
     } else if label == Field::WaterColour.label() {
         Some(
-            "The water's own colour in clear daylight. Reflections, foam and nearby lights can change its appearance.",
+            "Derived from the generated water's scattering and transmittance in clear daylight. Reflections, depth, foam and nearby lights can change its appearance.",
         )
-    } else if label == Field::NightSky.label() {
+    } else if label == Field::Sky.label() {
         Some(
-            "Clear nighttime sky colour. Stars, nearby planets, storms and lights can change what you see.",
+            "Representative clear-day upper sky, evaluated midway through the game's upper-to-main sky gradient and away from the sun and horizon. The visible result still varies across the dome and with fog, weather and exposure.",
         )
-    } else if [
-        Field::Cloud,
-        Field::Sky,
-        Field::Horizon,
-        Field::SkyFog,
-        Field::SkyHeightFog,
-    ]
-    .iter()
-    .any(|field| label == field.label())
-    {
+    } else if label == Field::Horizon.label() {
         Some(
-            "Typical colour in clear daylight. Looking toward the sun, sunset, storms and nearby lights can change what you see.",
+            "Generated atmospheric horizon tint. The visible lower sky also blends with the base sky, fog, sun direction and exposure.",
         )
     } else {
         None
@@ -1397,10 +2120,173 @@ fn number(value: u64) -> String {
     let digits = value.to_string();
     let mut output = String::new();
     for (index, digit) in digits.chars().enumerate() {
-        if index > 0 && (digits.len() - index) % 3 == 0 {
+        if index > 0 && (digits.len() - index).is_multiple_of(3) {
             output.push(',');
         }
         output.push(digit);
     }
     output
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn result(kind: TargetKind) -> CachedMatch {
+        let address =
+            search_probes_model::address::Address::new(search_probes_model::address::Coordinates {
+                x: 0,
+                y: 0,
+                z: 0,
+                galaxy: 0,
+                system: 1,
+                planet: if kind == TargetKind::System { 0 } else { 1 },
+            })
+            .unwrap();
+        CachedMatch {
+            address,
+            kind,
+            system_name: Some("Iousongola".into()),
+            planet_name: (kind != TargetKind::System).then(|| "New Lennon".into()),
+            fauna: (kind == TargetKind::Fauna).then(|| search_probes_model::cache::FaunaMatch {
+                role: 0,
+                name_identity: search_probes_model::fauna::NameIdentity {
+                    species_seed: 1,
+                    genus_seed: 2,
+                },
+                name: Some("Diplo".into()),
+                domain: search_probes_model::fauna::Domain::Land,
+                cave: false,
+            }),
+        }
+    }
+
+    #[test]
+    fn result_subtitles_show_the_destination_hierarchy() {
+        assert_eq!(
+            result_subtitle(&result(TargetKind::System), 1),
+            "System · Galaxy 1"
+        );
+        assert_eq!(
+            result_subtitle(&result(TargetKind::Planet), 2),
+            "Planet · System Iousongola · Galaxy 2"
+        );
+        assert_eq!(
+            result_subtitle(&result(TargetKind::Fauna), 3),
+            "Animal · Planet New Lennon · System Iousongola · Galaxy 3"
+        );
+    }
+
+    #[test]
+    fn one_input_binding_commits_on_release() {
+        let mut capture = BindingCapture::new(BindingDevice::Keyboard);
+
+        assert_eq!(
+            capture.input(CapturedInput::Keyboard(KeyboardKey::F8), true),
+            None
+        );
+        assert_eq!(
+            capture.input(CapturedInput::Keyboard(KeyboardKey::F8), false),
+            Some(InputBinding::Keyboard {
+                first: KeyboardKey::F8,
+                second: None,
+            })
+        );
+    }
+
+    #[test]
+    fn two_input_binding_waits_until_both_inputs_are_released() {
+        let mut capture = BindingCapture::new(BindingDevice::Keyboard);
+
+        assert_eq!(
+            capture.input(CapturedInput::Keyboard(KeyboardKey::ShiftLeft), true),
+            None
+        );
+        assert_eq!(
+            capture.input(CapturedInput::Keyboard(KeyboardKey::Z), true),
+            None
+        );
+        assert_eq!(
+            capture.input(CapturedInput::Keyboard(KeyboardKey::ShiftLeft), false),
+            None
+        );
+        assert_eq!(
+            capture.input(CapturedInput::Keyboard(KeyboardKey::Z), false),
+            Some(InputBinding::Keyboard {
+                first: KeyboardKey::ShiftLeft,
+                second: Some(KeyboardKey::Z),
+            })
+        );
+    }
+
+    #[test]
+    fn more_than_two_inputs_rejects_only_the_current_attempt() {
+        let mut capture = BindingCapture::new(BindingDevice::Controller);
+        capture.controller = Some(2);
+        for button in [
+            ControllerButton::LeftBumper,
+            ControllerButton::RightBumper,
+            ControllerButton::FaceBottom,
+        ] {
+            assert_eq!(capture.input(CapturedInput::Controller(button), true), None);
+        }
+        for button in [
+            ControllerButton::LeftBumper,
+            ControllerButton::RightBumper,
+            ControllerButton::FaceBottom,
+        ] {
+            assert_eq!(
+                capture.input(CapturedInput::Controller(button), false),
+                None
+            );
+        }
+        assert_eq!(capture.controller, None);
+
+        assert_eq!(
+            capture.input(CapturedInput::Controller(ControllerButton::Menu), true),
+            None
+        );
+        assert_eq!(
+            capture.input(CapturedInput::Controller(ControllerButton::Menu), false),
+            Some(InputBinding::Controller {
+                first: ControllerButton::Menu,
+                second: None,
+            })
+        );
+    }
+
+    #[test]
+    fn changing_device_clears_the_in_progress_attempt() {
+        let mut capture = BindingCapture::new(BindingDevice::Controller);
+        capture.controller = Some(1);
+        assert_eq!(
+            capture.input(
+                CapturedInput::Controller(ControllerButton::LeftBumper),
+                true,
+            ),
+            None
+        );
+
+        capture.set_device(BindingDevice::Keyboard);
+
+        assert_eq!(capture.device, BindingDevice::Keyboard);
+        assert_eq!(capture.controller, None);
+        assert!(capture.held.is_empty());
+        assert!(capture.candidate.is_empty());
+    }
+
+    #[test]
+    fn published_intensity_changes_do_not_replace_draft_search_edits() {
+        let previous = Settings::default();
+        let mut draft = previous.clone();
+        draft.search.results = 23;
+        draft.frame_budget_ms = 16;
+        let mut published = previous.clone();
+        published.frame_budget_ms = 16;
+
+        reconcile_settings(&mut draft, &previous, &published);
+
+        assert_eq!(draft.search.results, 23);
+        assert_eq!(draft.frame_budget_ms, 16);
+    }
 }

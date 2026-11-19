@@ -5,12 +5,21 @@ use crate::{
 };
 use search_probes_model::{appearance, vocabulary::GRASS_COLOUR_SET};
 use std::{
-    collections::{BTreeMap, HashMap},
+    collections::{BTreeMap, BTreeSet, HashMap},
     path::{Path, PathBuf},
     sync::{Arc, Mutex, OnceLock},
 };
 
 type Result<T> = std::result::Result<T, &'static str>;
+type OptionalLayers = [BTreeSet<(Vec<u8>, Vec<u8>)>; 2];
+type TextureRecipeKey = (usize, usize, usize);
+type TextureRecipe = Arc<[[f64; 4]]>;
+type PreparedModel = (
+    Arc<Model>,
+    Option<Arc<colour_lut::Lut>>,
+    Vec<u32>,
+    Option<Observation>,
+);
 pub type Palettes = [[[f32; 4]; 5]; 66];
 #[derive(Clone)]
 pub struct Context {
@@ -160,9 +169,9 @@ impl PreparedMaterial {
             return Vec::new();
         }
         for pixel in &mut pixels {
-            for channel in 0..3 {
-                let diffuse = pixel[channel].powf(1. / 2.2);
-                pixel[channel] = if self.srgb {
+            for channel in pixel.iter_mut().take(3) {
+                let diffuse = channel.powf(1. / 2.2);
+                *channel = if self.srgb {
                     appearance::srgb_to_linear(diffuse)
                 } else {
                     diffuse
@@ -175,7 +184,7 @@ impl PreparedMaterial {
 #[derive(Default)]
 struct TexturePreparation {
     materials: HashMap<(usize, usize), Arc<PreparedMaterial>>,
-    recipes: HashMap<(usize, usize, usize), Arc<[[f64; 4]]>>,
+    recipes: HashMap<TextureRecipeKey, TextureRecipe>,
     bytes: usize,
 }
 impl TexturePreparation {
@@ -211,7 +220,7 @@ impl TexturePreparation {
         material_key: (usize, usize),
         prepared: &PreparedMaterial,
         combination: usize,
-    ) -> Arc<[[f64; 4]]> {
+    ) -> TextureRecipe {
         let key = (material_key.0, material_key.1, combination);
         if let Some(pixels) = self.recipes.get(&key) {
             return pixels.clone();
@@ -230,10 +239,19 @@ struct Preparation {
     classified: HashMap<[u64; 3], u32>,
 }
 
+struct ObservationRequest<'a> {
+    context: &'a Context,
+    lut: &'a colour_lut::Lut,
+    spawn: &'a Spawn,
+    samples: &'a [VertexSample],
+    optional_layers: &'a OptionalLayers,
+    wanted: u32,
+}
+
 pub struct Model {
     materials: Vec<Arc<Material>>,
     samples: Vec<Arc<[VertexSample]>>,
-    optional_layers: [std::collections::BTreeSet<(Vec<u8>, Vec<u8>)>; 2],
+    optional_layers: OptionalLayers,
 }
 impl Model {
     fn metadata_bytes(&self) -> usize {
@@ -604,12 +622,7 @@ impl Assets {
         context: &Context,
         filter: i32,
         wanted: u32,
-    ) -> Result<(
-        Arc<Model>,
-        Option<Arc<colour_lut::Lut>>,
-        Vec<u32>,
-        Option<Observation>,
-    )> {
+    ) -> Result<PreparedModel> {
         let name =
             path(std::str::from_utf8(&spawn.model).map_err(|_| "invalid flora model filename")?)?;
         let model = self.model(&name)?;
@@ -624,13 +637,12 @@ impl Assets {
                 );
             }
         }
-        if let Some(&colours) = self.colours.get(&(spawn.clone(), key.clone())) {
-            if colours.complete
+        if let Some(&colours) = self.colours.get(&(spawn.clone(), key.clone()))
+            && (colours.complete
                 || colours.colours & wanted != 0
-                || wanted != 0 && wanted & !colours.known == 0
-            {
-                return Ok((model, None, key, Some(colours)));
-            }
+                || wanted != 0 && wanted & !colours.known == 0)
+        {
+            return Ok((model, None, key, Some(colours)));
         }
         if !self.luts.contains_key(&filter) {
             self.luts
@@ -676,12 +688,14 @@ impl Model {
         let mut absent = 0x7ff;
         for (index, material) in self.materials.iter().enumerate() {
             let observed = material.observe_prepared(
-                context,
-                lut,
-                spawn,
-                &self.samples[index],
-                &self.optional_layers,
-                wanted,
+                ObservationRequest {
+                    context,
+                    lut,
+                    spawn,
+                    samples: &self.samples[index],
+                    optional_layers: &self.optional_layers,
+                    wanted,
+                },
                 &mut preparation,
             )?;
             colours |= observed.colours & !GRASS_COLOUR_SET;
@@ -973,14 +987,17 @@ impl Material {
     }
     fn observe_prepared(
         &self,
-        context: &Context,
-        lut: &colour_lut::Lut,
-        spawn: &Spawn,
-        samples: &[VertexSample],
-        optional_layers: &[std::collections::BTreeSet<(Vec<u8>, Vec<u8>)>; 2],
-        wanted: u32,
+        request: ObservationRequest<'_>,
         preparation: &mut Preparation,
     ) -> Result<Observation> {
+        let ObservationRequest {
+            context,
+            lut,
+            spawn,
+            samples,
+            optional_layers,
+            wanted,
+        } = request;
         let primary_count = self.combinations(&optional_layers[0])?;
         let secondary_count = self
             .secondary

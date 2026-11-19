@@ -2,9 +2,9 @@ const ROLE_TABLE: usize = 0x3180;
 const ROLE_STRIDE: usize = 0x5d8;
 const MAX_ROLES: i32 = search_probes_model::fauna::MAX_SPECIES as i32;
 const PLAYER_PREDATOR: u32 = 2;
-const APPLICATION_RVA: usize = 0x6f6b208;
+const APPLICATION_RVA: usize = 0x6f6c288;
 const NAME_CONTEXT: usize = 0xcd0;
-const NAME_RVA: usize = 0xeb39f0;
+const NAME_RVA: usize = 0xeb43c0;
 const NAME_PREFIX: [u8; 20] = [
     0x48, 0x89, 0x5c, 0x24, 0x20, 0x55, 0x56, 0x57, 0x41, 0x54, 0x41, 0x55, 0x41, 0x56, 0x41, 0x57,
     0x48, 0x8d, 0xac, 0x24,
@@ -14,11 +14,12 @@ type GenerateName = unsafe extern "system" fn(usize, u64, u64, *mut u8, bool);
 pub struct Context {
     name_context: usize,
     generate_name: GenerateName,
+    models: crate::fauna_models::Catalogue,
 }
 
 impl Context {
     /// # Safety
-    /// `base` is the verified NMS 7.13 image and remains loaded while the context is used.
+    /// `base` is the verified NMS 7.14 image and remains loaded while the context is used.
     pub unsafe fn from_verified_image(base: usize) -> Result<Self, &'static str> {
         let address = base + NAME_RVA;
         if unsafe { std::slice::from_raw_parts(address as *const u8, NAME_PREFIX.len()) }
@@ -33,7 +34,16 @@ impl Context {
         Ok(Self {
             name_context: application + NAME_CONTEXT,
             generate_name: unsafe { std::mem::transmute::<usize, GenerateName>(address) },
+            models: unsafe { crate::fauna_models::Catalogue::from_verified_image(base) }?,
         })
+    }
+
+    pub fn identity(
+        &self,
+        role: &[u8],
+        address: search_probes_model::address::Address,
+    ) -> Result<search_probes_model::fauna::NameIdentity, &'static str> {
+        self.models.naming_identity(role, address)
     }
 
     /// # Safety
@@ -124,7 +134,11 @@ pub struct Observation {
 
 /// # Safety
 /// Same observation window as `player_attacking`. No native pointer is retained.
-pub unsafe fn capture(planet: *const u8) -> Result<Observation, &'static str> {
+pub unsafe fn capture(
+    context: &Context,
+    planet: *const u8,
+    address: search_probes_model::address::Address,
+) -> Result<Observation, &'static str> {
     use search_probes_model::fauna::{Domain, Family, Species};
     let player_attacking = unsafe { player_attacking(planet)? };
     let sandworms = unsafe { sandworms(planet)? };
@@ -172,6 +186,10 @@ pub unsafe fn capture(planet: *const u8) -> Result<Observation, &'static str> {
         }
         species.push(Species {
             role: role_index,
+            name_identity: context.identity(
+                unsafe { std::slice::from_raw_parts(role, ROLE_STRIDE) },
+                address,
+            )?,
             family,
             domain,
             activity: activity as u8,

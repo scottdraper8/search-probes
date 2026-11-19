@@ -14,8 +14,22 @@ use std::{
 struct Policy {
     schema: u32,
     allowed_licenses: Vec<String>,
+    bundled_assets: Vec<BundledAsset>,
     extra_notice_files: BTreeMap<String, Vec<String>>,
     toolchain: Vec<ToolchainComponent>,
+}
+
+#[derive(Clone, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+struct BundledAsset {
+    name: String,
+    version: String,
+    license: String,
+    repository: String,
+    revision: String,
+    notice_directory: String,
+    artifacts: Vec<PolicyFile>,
+    notices: Vec<PolicyFile>,
 }
 
 #[derive(Clone, Deserialize, Serialize)]
@@ -117,6 +131,62 @@ fn validate_configuration(
     }
     if allowed.is_empty() {
         return Err("license policy does not allow any licenses".into());
+    }
+
+    let mut bundled_identifiers = BTreeSet::new();
+    let mut bundled_directories = BTreeSet::new();
+    let mut bundled_paths = BTreeSet::new();
+    for asset in &policy.bundled_assets {
+        if asset.name.trim().is_empty()
+            || asset.version.trim().is_empty()
+            || asset.revision.trim().is_empty()
+            || asset.artifacts.is_empty()
+            || asset.notices.is_empty()
+        {
+            return Err("incomplete bundled asset policy".into());
+        }
+        let identifier = package_key(&asset.name, &asset.version);
+        if !bundled_identifiers.insert(identifier.clone()) {
+            return Err(format!("duplicate bundled asset: {identifier}").into());
+        }
+        validate_license(&identifier, &asset.license, &allowed)?;
+        if !asset.repository.starts_with("https://")
+            || asset.repository.len() == "https://".len()
+            || asset.repository.chars().any(char::is_whitespace)
+        {
+            return Err(format!("invalid bundled asset repository: {identifier}").into());
+        }
+        let notice_directory = relative_path(&asset.notice_directory, "bundled asset notice")?;
+        if notice_directory.components().count() != 1
+            || !bundled_directories.insert(asset.notice_directory.as_str())
+        {
+            return Err(format!(
+                "invalid or duplicate bundled asset notice directory: {}",
+                asset.notice_directory
+            )
+            .into());
+        }
+
+        let mut notice_names = BTreeSet::new();
+        for file in asset.artifacts.iter().chain(&asset.notices) {
+            let path = relative_path(&file.path, "bundled asset")?;
+            validate_digest(&file.sha256, &file.path)?;
+            if !bundled_paths.insert(file.path.as_str()) {
+                return Err(format!("duplicate bundled asset path: {}", file.path).into());
+            }
+            if hash(&workspace.join(&path))? != file.sha256 {
+                return Err(format!("bundled asset hash differs: {}", file.path).into());
+            }
+        }
+        for notice in &asset.notices {
+            let name = Path::new(&notice.path)
+                .file_name()
+                .and_then(|value| value.to_str())
+                .ok_or_else(|| format!("invalid bundled asset notice: {}", notice.path))?;
+            if !notice_names.insert(name) {
+                return Err(format!("duplicate bundled asset notice name: {name}").into());
+            }
+        }
     }
 
     for (package, paths) in &policy.extra_notice_files {
@@ -259,18 +329,28 @@ fn selected_registry_packages(data: &Value) -> Result<Vec<&Value>> {
     let nodes = data["resolve"]["nodes"]
         .as_array()
         .ok_or("missing dependency graph")?;
+    let root_names = ["search-probes-bootstrap", "search-probes-runtime"];
     let roots: Vec<_> = packages
         .iter()
-        .filter(|package| package["name"] == "search-probes-bootstrap")
+        .filter(|package| {
+            package["name"]
+                .as_str()
+                .is_some_and(|name| root_names.contains(&name))
+        })
         .map(|package| {
             package["id"]
                 .as_str()
-                .ok_or("invalid bootstrap package id")
+                .ok_or("invalid runtime package id")
                 .map(str::to_owned)
         })
         .collect::<std::result::Result<_, _>>()?;
-    if roots.len() != 1 {
-        return Err(format!("expected one bootstrap package, found {}", roots.len()).into());
+    if roots.len() != root_names.len() {
+        return Err(format!(
+            "expected {} runtime packages, found {}",
+            root_names.len(),
+            roots.len()
+        )
+        .into());
     }
 
     let mut pending = roots;
@@ -467,6 +547,47 @@ fn collect_toolchain_notices(
     Ok(())
 }
 
+fn collect_bundled_asset_notices(
+    workspace: &Path,
+    output: &Path,
+    assets: &[BundledAsset],
+) -> Result<()> {
+    let mut index = Vec::new();
+    for asset in assets {
+        let destination = output.join("bundled").join(&asset.notice_directory);
+        let mut retained = Vec::new();
+        for notice in &asset.notices {
+            let source = workspace.join(relative_path(&notice.path, "bundled asset notice")?);
+            let name = source
+                .file_name()
+                .ok_or_else(|| format!("missing bundled asset notice name: {}", notice.path))?;
+            let destination = destination.join(name);
+            copy(&source, &destination)?;
+            retained.push(
+                destination
+                    .strip_prefix(output)?
+                    .to_str()
+                    .ok_or("non-UTF8 bundled asset notice path")?
+                    .replace('\\', "/"),
+            );
+        }
+        index.push(json!({
+            "name": asset.name,
+            "version": asset.version,
+            "license": asset.license,
+            "repository": asset.repository,
+            "revision": asset.revision,
+            "artifacts": asset.artifacts,
+            "files": retained,
+        }));
+    }
+    fs::write(
+        output.join("BUNDLED-ASSETS.json"),
+        serde_json::to_vec_pretty(&index)?,
+    )?;
+    Ok(())
+}
+
 pub fn collect(workspace: &Path, output: &Path) -> Result<()> {
     let policy: Policy = read_json(&workspace.join("license-policy.json"))?;
     let supplemental_root = workspace.join("licenses");
@@ -545,5 +666,24 @@ pub fn collect(workspace: &Path, output: &Path) -> Result<()> {
     )?;
     collect_rust_notices(output)?;
     collect_toolchain_notices(&supplemental_root, output, policy.toolchain.as_slice())?;
+    collect_bundled_asset_notices(workspace, output, &policy.bundled_assets)?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn licensing_policy_and_managed_files_are_current() {
+        let workspace = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .and_then(Path::parent)
+            .expect("package crate must be inside the workspace");
+        let policy: Policy = read_json(&workspace.join("license-policy.json")).unwrap();
+        let supplemental: Vec<SupplementalFile> =
+            read_json(&workspace.join("licenses/sources.json")).unwrap();
+
+        validate_configuration(workspace, &policy, &supplemental).unwrap();
+    }
 }

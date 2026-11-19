@@ -5,7 +5,8 @@ use crate::{
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize)]
+#[serde(rename_all = "snake_case")]
 pub enum Stage {
     System,
     Input,
@@ -54,12 +55,8 @@ fields! {
     StormFrequency => ("Storm frequency",STORM_FREQUENCIES,Query),
     Grass => ("Grass colour",GRASS_COLOURS,Objects),
     FloraColour => ("Non-grass flora colour",GRASS_COLOURS,Objects),
-    Cloud => ("Cloud colour",GRASS_COLOURS,Colour),
-    SkyFog => ("Sky fog colour",GRASS_COLOURS,Colour),
-    SkyHeightFog => ("Height fog colour",GRASS_COLOURS,Colour),
-    Horizon => ("Horizon colour",GRASS_COLOURS,Colour),
+    Horizon => ("Horizon tint",GRASS_COLOURS,Colour),
     Sky => ("Daytime sky colour",GRASS_COLOURS,Colour),
-    NightSky => ("Night sky colour",GRASS_COLOURS,Colour),
     WaterColour => ("Water colour",GRASS_COLOURS,Colour),
     WorldColourFilter => ("World colour filter",WORLD_FILTERS,ScreenFilter),
     UniqueResources => ("Unique resources",UNIQUE_RESOURCES,Hints),
@@ -77,28 +74,22 @@ impl Field {
                 Self::Biome => !(8..=11).contains(index),
                 Self::Subtype => *index < 29,
                 Self::Flora | Self::Fauna => *index != 1,
-                Self::Sky | Self::Horizon | Self::SkyFog => *index != 9,
-                Self::SkyHeightFog => !matches!(index, 6 | 8 | 9),
+                Self::Sky | Self::Horizon => matches!(index, 0..=8 | 10),
+                Self::WaterColour => matches!(index, 0 | 1 | 3..=7),
 
                 _ => true,
             })
     }
 
     pub fn colour_index(self) -> Option<usize> {
-        [
-            Self::Grass,
-            Self::FloraColour,
-            Self::Cloud,
-            Self::SkyFog,
-            Self::SkyHeightFog,
-            Self::Horizon,
-            Self::Sky,
-            Self::NightSky,
-            Self::WaterColour,
-        ]
-        .iter()
-        .position(|field| *field == self)
-        .map(|index| if index >= 2 { index + 1 } else { index })
+        match self {
+            Self::Grass => Some(0),
+            Self::FloraColour => Some(1),
+            Self::Horizon => Some(4),
+            Self::Sky => Some(5),
+            Self::WaterColour => Some(6),
+            _ => None,
+        }
     }
 
     pub fn native_value(self, choice: usize) -> Option<u32> {
@@ -139,6 +130,41 @@ impl Field {
         } else {
             native_value.checked_sub(self.native_origin())
         }
+    }
+
+    pub fn labels_for_native(self, native_value: u32) -> Vec<&'static str> {
+        if self.colour_index().is_some() {
+            if native_value & GRASS_COLOUR_SET == 0 {
+                return Vec::new();
+            }
+            return self
+                .options()
+                .iter()
+                .copied()
+                .enumerate()
+                .filter_map(|(index, label)| {
+                    (native_value & !GRASS_COLOUR_SET & (1 << index) != 0).then_some(label)
+                })
+                .collect();
+        }
+        if matches!(self, Self::Terrain | Self::UniqueResources) {
+            return self
+                .options()
+                .iter()
+                .copied()
+                .enumerate()
+                .filter_map(|(index, label)| {
+                    self.native_value(index)
+                        .is_some_and(|value| value & native_value & !(1 << 31) != 0)
+                        .then_some(label)
+                })
+                .collect();
+        }
+        self.choice_index(native_value)
+            .and_then(|index| self.options().get(index as usize))
+            .copied()
+            .into_iter()
+            .collect()
     }
 
     fn native_origin(self) -> u32 {
@@ -219,6 +245,7 @@ impl WaterFilter {
     }
 }
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
 pub enum WaterPresence {
     Dry,
     Shallow,
@@ -418,7 +445,8 @@ pub struct Criteria {
     pub arena: crate::arena::ArenaCriteria,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize)]
+#[serde(deny_unknown_fields)]
 pub struct Choices {
     field: Field,
     mask: u64,
@@ -431,6 +459,9 @@ impl Choices {
     }
     pub fn mask(self) -> u64 {
         self.mask
+    }
+    pub fn mode(self) -> ResourceMode {
+        self.mode
     }
     pub fn accepts(self, native_value: u32) -> bool {
         if self.field == Field::UniqueResources {
@@ -466,7 +497,8 @@ impl Choices {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize)]
+#[serde(tag = "kind", content = "value", rename_all = "snake_case")]
 pub enum PlanetSelection {
     Biome { biomes: u64, subtypes: u64 },
     Size(u64),
@@ -481,7 +513,8 @@ impl PlanetSelection {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize)]
+#[serde(tag = "kind", content = "value", rename_all = "snake_case")]
 pub enum Predicate {
     Choice(Choices),
     Planet(PlanetFlag, bool),
@@ -520,6 +553,113 @@ impl Predicate {
             Self::MinimumPlanets(_) => Stage::System,
             Self::Water(_) => Stage::Query,
             Self::Contains(selection, _) => selection.stage(),
+        }
+    }
+
+    pub fn description(self) -> String {
+        fn selected(mask: u64, labels: impl IntoIterator<Item = (usize, &'static str)>) -> String {
+            labels
+                .into_iter()
+                .filter_map(|(index, label)| (mask & (1u64 << index) != 0).then_some(label))
+                .collect::<Vec<_>>()
+                .join(" | ")
+        }
+        fn expected(label: &str, value: bool) -> String {
+            if value {
+                label.to_owned()
+            } else {
+                format!("Not {label}")
+            }
+        }
+        match self {
+            Self::Choice(choices) => format!(
+                "{}: {}",
+                choices.field.label(),
+                selected(
+                    choices.mask,
+                    choices.field.options().iter().copied().enumerate()
+                )
+            ),
+            Self::Planet(flag, value) => expected(flag.label(), value),
+            Self::System(flag, value) => expected(flag.label(), value),
+            Self::Resources(resources) => format!(
+                "Resources ({}): {}",
+                match resources.mode {
+                    ResourceMode::All => "all",
+                    ResourceMode::Any => "any",
+                },
+                selected(
+                    u64::from(resources.selected),
+                    crate::vocabulary::RESOURCE_LABELS
+                        .iter()
+                        .copied()
+                        .enumerate()
+                )
+            ),
+            Self::MinimumPlanets(minimum) => format!("At least {minimum} planets"),
+            Self::Water(rule) => format!("Water: {}", rule.label()),
+            Self::Contains(selection, value) => {
+                let detail = match selection {
+                    PlanetSelection::Biome { biomes, subtypes } => format!(
+                        "biome [{}], subtype [{}]",
+                        selected(biomes, Field::Biome.options().iter().copied().enumerate()),
+                        selected(
+                            subtypes,
+                            Field::Subtype.options().iter().copied().enumerate()
+                        )
+                    ),
+                    PlanetSelection::Size(mask) => format!(
+                        "size [{}]",
+                        selected(mask, Field::Size.options().iter().copied().enumerate())
+                    ),
+                    PlanetSelection::Water(rule) => format!("water [{}]", rule.label()),
+                };
+                if value {
+                    format!("System contains a planet with {detail}")
+                } else {
+                    format!("System contains no planet with {detail}")
+                }
+            }
+            Self::Fauna(selection) => {
+                let mut details = Vec::new();
+                if let Some(presence) = selection.presence {
+                    details.push(expected(selection.domain.presence_label(), presence));
+                }
+                for (index, field) in crate::fauna::FaunaField::ALL.iter().copied().enumerate() {
+                    let mask = selection.masks[index];
+                    if mask != 0 {
+                        details.push(format!(
+                            "{}: {}",
+                            field.label(),
+                            selected(mask, field.options(selection.domain))
+                        ));
+                    }
+                }
+                if let Some(minimum) = selection.height.minimum_cm {
+                    details.push(format!("Minimum height: {minimum} cm"));
+                }
+                if let Some(maximum) = selection.height.maximum_cm {
+                    details.push(format!("Maximum height: {maximum} cm"));
+                }
+                format!("{}: {}", selection.domain.label(), details.join("; "))
+            }
+            Self::Arena(selection) => {
+                let mut details = Vec::new();
+                if let Some(presence) = selection.presence {
+                    details.push(expected("Has Arena-eligible fauna", presence));
+                }
+                for (index, field) in crate::arena::ArenaField::ALL.iter().copied().enumerate() {
+                    let mask = selection.masks[index];
+                    if mask != 0 {
+                        details.push(format!(
+                            "{}: {}",
+                            field.label(),
+                            selected(mask, field.options())
+                        ));
+                    }
+                }
+                format!("Arena: {}", details.join("; "))
+            }
         }
     }
 }
@@ -728,8 +868,6 @@ impl Criteria {
                         | Field::Fauna
                         | Field::StormFrequency
                         | Field::WaterColour
-                        | Field::SkyHeightFog
-                        | Field::NightSky
                 )
             {
                 let allowed = if field == Field::Subtype {
@@ -853,15 +991,41 @@ pub fn subtype_options_for(selected: u64) -> Vec<(u64, &'static str)> {
                 _ => ambiguous = true,
             }
         }
-        if !ambiguous {
-            if let Some(label) = label {
-                if let Some((mask, _)) = options.iter_mut().find(|(_, name)| *name == label) {
-                    *mask |= 1 << choice;
-                } else {
-                    options.push((1 << choice, label));
-                }
+        if !ambiguous && let Some(label) = label {
+            if let Some((mask, _)) = options.iter_mut().find(|(_, name)| *name == label) {
+                *mask |= 1 << choice;
+            } else {
+                options.push((1 << choice, label));
             }
         }
     }
     options
+}
+
+#[cfg(test)]
+mod tests {
+    use super::Field;
+
+    fn available_labels(field: Field) -> Vec<&'static str> {
+        field.available_options().map(|(_, label)| label).collect()
+    }
+
+    #[test]
+    fn atmospheric_colour_options_match_authored_game_tables() {
+        let chromatic_and_light_neutrals = vec![
+            "Red", "Orange", "Yellow", "Green", "Cyan", "Blue", "Purple", "Magenta", "Grey",
+            "White",
+        ];
+        assert_eq!(
+            available_labels(Field::Horizon),
+            chromatic_and_light_neutrals
+        );
+        assert_eq!(available_labels(Field::Sky), chromatic_and_light_neutrals);
+        assert_eq!(
+            available_labels(Field::WaterColour),
+            vec![
+                "Red", "Orange", "Green", "Cyan", "Blue", "Purple", "Magenta"
+            ]
+        );
+    }
 }

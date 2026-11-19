@@ -6,12 +6,12 @@ use crate::{
     lifecycle_hook, mission_text_hook,
     navigation::Navigation,
     navigation_hook, platform, query_hooks,
-    scheduler::Scheduler,
+    scheduler::{Scheduler, TickRequest},
     workers::Workers,
 };
 use search_probes_model::{
     controls::Controls,
-    runtime::{Action, Availability, Command, Metrics, SearchPause, State},
+    runtime::{Action, Availability, Command, CurrentWorld, Metrics, SearchPause, State},
     session::Phase,
     settings::{Settings, available_workers},
     storage,
@@ -54,6 +54,7 @@ struct Runtime {
     settings: Settings,
     epoch: Option<Epoch>,
     session: u64,
+    guide_topics: Option<guide_hook::Topics>,
     navigation: Navigation,
     navigation_polled: Option<Instant>,
 }
@@ -105,6 +106,8 @@ pub(crate) fn initialize_at(directory: std::path::PathBuf) -> Result<(), String>
 
 fn attach(image: Image, controls: Arc<Controls>, settings: Settings) -> Result<(), String> {
     let base = image.base();
+    mission_text_hook::set_presets(&settings.presets)
+        .map_err(|error| format!("Cannot name Guide presets: {error}"))?;
     let runtime = Runtime {
         image,
         controls: controls.clone(),
@@ -114,6 +117,7 @@ fn attach(image: Image, controls: Arc<Controls>, settings: Settings) -> Result<(
         settings,
         epoch: None,
         session: lifecycle_hook::session(),
+        guide_topics: None,
         navigation: Navigation::default(),
         navigation_polled: None,
     };
@@ -197,6 +201,9 @@ pub(crate) fn begin_application_transition() -> Result<(), &'static str> {
         .map_err(|_| "application transition state poisoned")?;
     if transition.is_none() {
         let dispatch = RUNTIME.get().map(|runtime| runtime.close()).transpose()?;
+        if let Some(runtime) = RUNTIME.get() {
+            runtime.lock()?.restore_application_sources()?;
+        }
         *transition = Some(LifecycleTransition { dispatch });
     }
     Ok(())
@@ -208,31 +215,42 @@ pub(crate) fn finish_application_transition() -> Result<(), &'static str> {
         .lock()
         .map_err(|_| "application transition state poisoned")?
         .take();
-    if let Some(transition) = transition {
-        if let Some(dispatch) = transition.dispatch {
-            dispatch.complete()?;
-        }
+    if let Some(transition) = transition
+        && let Some(dispatch) = transition.dispatch
+    {
+        dispatch.complete()?;
     }
     Ok(())
 }
 
-/// Drop old session data after the native FSM has left gameplay. Runtime state contains copied
-/// model data and no borrowed NMS pointers; dispatch is already closed at this point.
+/// Retire application-owned sources after the native FSM has left gameplay. Search state contains
+/// only copied model data and survives ordinary loading; a main-menu transition starts a new game
+/// session and resets it. Dispatch is already closed at this point.
 pub(crate) fn retire_application_sources(menu: bool) -> Result<(), &'static str> {
     if let Some(runtime) = RUNTIME.get() {
         let mut runtime = runtime.lock()?;
-        runtime.reset();
+        if menu {
+            runtime.reset_session();
+            runtime.controls.cancel.store(true, Ordering::Release);
+        } else {
+            runtime.retire_application_sources();
+        }
         runtime.epoch = None;
-        runtime.controls.cancel.store(true, Ordering::Release);
         runtime.controls.update(|state| {
             state.generation = state.generation.wrapping_add(1);
-            state.progress = None;
-            state.results.clear();
-            state.cached_systems = 0;
             state.player = None;
             state.destination = None;
-            state.metrics = Metrics::default();
-            state.search_pause = Some(SearchPause::Loading);
+            state.current_world = None;
+            if menu {
+                state.progress = None;
+                state.search_command = None;
+                state.results.clear();
+                state.cached_systems = 0;
+                state.metrics = Metrics::default();
+                state.search_pause = None;
+            } else {
+                state.search_pause = Some(SearchPause::Loading);
+            }
             if !matches!(
                 state.availability,
                 Availability::Failed | Availability::Unsupported | Availability::Stopped
@@ -249,15 +267,47 @@ pub(crate) fn retire_application_sources(menu: bool) -> Result<(), &'static str>
 }
 
 impl Runtime {
-    fn reset(&mut self) {
+    fn reset_search(&mut self) {
         self.scheduler.reset();
-        self.navigation = Navigation::default();
-        navigation_hook::reset();
-        discovery_hook::reset();
-        mission_text_hook::clear();
-        self.navigation_polled = None;
         self.controls.reset_search_clock();
     }
+
+    fn retire_application_sources(&mut self) {
+        // Scheduler state is copied model data. Do not reset or cancel it here: this is the pause
+        // boundary that preserves an active search through same-session warps and teleports.
+        self.navigation.retire_application_sources();
+        navigation_hook::reset();
+        discovery_hook::reset();
+        self.guide_topics = None;
+        self.navigation_polled = None;
+    }
+
+    fn restore_application_sources(&mut self) -> Result<(), &'static str> {
+        if let Some(topics) = self.guide_topics.take() {
+            unsafe { topics.restore()? };
+        }
+        Ok(())
+    }
+
+    unsafe fn update_guide(&mut self, application: usize) -> Result<(), &'static str> {
+        if self.guide_topics.is_none() {
+            self.guide_topics = Some(unsafe { guide_hook::Topics::locate(application)? });
+        }
+        unsafe {
+            self.guide_topics
+                .as_ref()
+                .expect("located Guide topics")
+                .sync(self.settings.presets.len())
+        }
+    }
+
+    fn reset_session(&mut self) {
+        self.reset_search();
+        self.retire_application_sources();
+        self.navigation = Navigation::default();
+        mission_text_hook::clear();
+    }
+
     fn tick(&mut self) {
         let available = self
             .controls
@@ -275,7 +325,7 @@ impl Runtime {
         let session = lifecycle_hook::session();
         self.controls.observe_transition(transition, session);
         if session != self.session {
-            self.reset();
+            self.reset_session();
             self.epoch = None;
             self.session = session;
         }
@@ -290,6 +340,7 @@ impl Runtime {
                     };
                     state.player = None;
                     state.destination = None;
+                    state.current_world = None;
                     state.search_pause = Some(SearchPause::Loading);
                 });
                 return;
@@ -301,13 +352,14 @@ impl Runtime {
                 .as_ref()
                 .is_some_and(|epoch| epoch.evaluation_rules_changed(&snapshot.epoch))
             {
-                self.reset();
+                self.reset_search();
                 self.controls.update(|state| {
                     state.generation = state.generation.wrapping_add(1);
                     state.progress = None;
                     state.search_command = None;
                     state.results.clear();
                     state.search_pause = None;
+                    state.current_world = None;
                 });
             }
             if self
@@ -327,6 +379,10 @@ impl Runtime {
                 state.error = result.err().map(str::to_owned);
             });
         }
+        if let Err(error) = unsafe { self.update_guide(snapshot.application) } {
+            self.controls
+                .update(|state| state.error = Some(error.into()));
+        }
         let (request, overflow) = guide_hook::take();
         if overflow {
             self.controls.update(|state| {
@@ -334,11 +390,11 @@ impl Runtime {
                     Some("A Guide request is already pending. Launch one preset at a time.".into())
             });
         }
-        if let Some(request) = request.filter(|request| request.epoch == transition) {
-            if let Err(error) = self.start_guide(request.slot, &snapshot) {
-                self.controls
-                    .update(|state| state.error = Some(error.into()));
-            }
+        if let Some(request) = request.filter(|request| request.epoch == transition)
+            && let Err(error) = self.start_guide(request.slot, &snapshot)
+        {
+            self.controls
+                .update(|state| state.error = Some(error.into()));
         }
         if self
             .navigation_polled
@@ -351,24 +407,26 @@ impl Runtime {
             }
         }
         let in_search_galaxy = self.scheduler.session.is_in_search_galaxy(snapshot.address);
-        if in_search_galaxy {
-            if let Err(error) = unsafe {
-                self.scheduler.tick(
-                    &self.pool,
-                    self.image.base(),
-                    snapshot.planet as *const u8,
-                    snapshot.difficulty,
-                    self.settings.workers,
-                    Duration::from_millis(u64::from(self.settings.frame_budget_ms)),
-                    &self.controls.cancel,
-                )
-            } {
-                self.scheduler.session.fail(error);
-                self.controls
-                    .update(|state| state.error = Some(error.into()));
+        let user_paused = self.scheduler.session.is_paused();
+        if in_search_galaxy
+            && !user_paused
+            && let Err(error) = unsafe {
+                self.scheduler.tick(TickRequest {
+                    pool: &self.pool,
+                    base: self.image.base(),
+                    live: snapshot.planet as *const u8,
+                    difficulty: snapshot.difficulty,
+                    workers: self.settings.workers,
+                    budget: Duration::from_millis(u64::from(self.settings.frame_budget_ms)),
+                    cancel: &self.controls.cancel,
+                })
             }
+        {
+            self.scheduler.session.fail(error);
+            self.controls
+                .update(|state| state.error = Some(error.into()));
         }
-        if let Err(error) = unsafe { self.scheduler.name_system_results(self.image.base()) } {
+        if let Err(error) = unsafe { self.scheduler.name_results(self.image.base()) } {
             self.scheduler.session.fail(error);
             self.controls
                 .update(|state| state.error = Some(error.into()));
@@ -378,20 +436,33 @@ impl Runtime {
         let object_tables = self.scheduler.object_statistics();
         let progress = self.scheduler.session.progress().cloned();
         self.controls.update(|state| {
+            if state.player != Some(snapshot.address) {
+                state.current_world = None;
+            }
             state.availability = Availability::Ready;
             state.player = Some(snapshot.address);
             state.publish_progress(progress);
-            state.search_pause = (!in_search_galaxy
-                && state
-                    .progress
-                    .as_ref()
-                    .is_some_and(|progress| progress.phase == Phase::Running))
-            .then_some(SearchPause::OtherGalaxy);
+            state.search_pause = if state
+                .progress
+                .as_ref()
+                .is_some_and(|progress| progress.phase == Phase::Running)
+            {
+                if user_paused {
+                    Some(SearchPause::User)
+                } else if !in_search_galaxy {
+                    Some(SearchPause::OtherGalaxy)
+                } else {
+                    None
+                }
+            } else {
+                None
+            };
             state.cached_systems = self.scheduler.session.cache_len();
             state.destination = self.navigation.destination();
             state.metrics = Metrics {
                 generated_systems: work.systems,
                 generated_planets: work.planets,
+                generated_fauna: work.fauna,
                 metadata_captures: work.metadata_captures,
                 colour_captures: work.colour_captures,
                 object_scans: work.object_scans,
@@ -426,6 +497,7 @@ impl Runtime {
             state.availability = Availability::Ready;
             state.search_pause = None;
             state.metrics = Metrics::default();
+            state.current_world = None;
             state.publish_progress(self.scheduler.session.progress().cloned());
         });
         Ok(())
@@ -444,6 +516,9 @@ impl Runtime {
                 self.scheduler
                     .session
                     .start(settings.search.clone(), snapshot.address)?;
+                if self.settings.presets != settings.presets {
+                    mission_text_hook::set_presets(&settings.presets)?;
+                }
                 self.controls.cancel.store(false, Ordering::Release);
                 self.scheduler.reset_statistics();
                 self.controls.reset_search_clock();
@@ -454,6 +529,7 @@ impl Runtime {
                     state.availability = Availability::Ready;
                     state.search_pause = None;
                     state.metrics = Metrics::default();
+                    state.current_world = None;
                     state.publish_progress(self.scheduler.session.progress().cloned());
                 });
             }
@@ -461,10 +537,49 @@ impl Runtime {
                 self.controls.cancel.store(true, Ordering::Release);
                 self.scheduler.session.cancel();
             }
+            Action::SetSearchPaused { paused } => {
+                self.scheduler.session.set_paused(paused)?;
+            }
             Action::Configure { settings } => {
+                if self.settings.presets != settings.presets {
+                    mission_text_hook::set_presets(&settings.presets)?;
+                }
                 self.settings = settings;
+                self.controls.update(|state| {
+                    state.settings = self.settings.clone();
+                    state.current_world = None;
+                });
+            }
+            Action::ConfigureIntensity { frame_budget_ms } => {
+                self.settings.frame_budget_ms = frame_budget_ms;
                 self.controls
-                    .update(|state| state.settings = self.settings.clone());
+                    .update(|state| state.settings.frame_budget_ms = frame_budget_ms);
+            }
+            Action::InspectCurrent {} => {
+                let criteria = self.settings.search.criteria.clone();
+                let plan = criteria.compile()?;
+                let outcome = unsafe {
+                    self.scheduler.inspect_current(
+                        self.image.base(),
+                        snapshot.planet as *const u8,
+                        snapshot.difficulty,
+                        snapshot.address,
+                        &plan,
+                    )
+                }?;
+                if outcome.cancelled {
+                    return Err("current-world inspection was cancelled");
+                }
+                let world = CurrentWorld::capture(
+                    command.id,
+                    snapshot.address,
+                    criteria,
+                    &plan,
+                    &outcome.snapshot.system,
+                    &outcome.snapshot.planets[..outcome.snapshot.count],
+                )?;
+                self.controls
+                    .update(|state| state.current_world = Some(world));
             }
             Action::Navigate { target } => {
                 let displayed = self
@@ -474,11 +589,10 @@ impl Runtime {
                     .map_err(|_| "runtime state poisoned")?
                     .results
                     .iter()
-                    .any(|result| result.target() == target);
-                if !displayed {
-                    return Err("destination is not a current search result");
-                }
-                unsafe { self.navigation.start(&self.image, snapshot, target) }?;
+                    .find(|result| result.target() == target)
+                    .cloned()
+                    .ok_or("destination is not a current search result")?;
+                unsafe { self.navigation.start(&self.image, snapshot, &displayed) }?;
                 self.navigation_polled = None;
             }
         }

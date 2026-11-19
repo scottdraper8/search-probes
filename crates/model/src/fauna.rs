@@ -40,6 +40,14 @@ impl Domain {
     pub fn bit(self) -> u8 {
         1 << self as u8
     }
+    pub const fn dwelling(self, cave: bool) -> &'static str {
+        match (self, cave) {
+            (Self::Land, true) => "underground-dwelling",
+            (Self::Land, false) => "surface-dwelling",
+            (Self::Aquatic, _) => "aquatic",
+            (Self::Airborne, _) => "airborne",
+        }
+    }
 }
 
 macro_rules! families {
@@ -206,7 +214,8 @@ pub struct FaunaCriteria {
     pub choices: BTreeMap<FaunaField, u64>,
     pub height: HeightRange,
 }
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize)]
+#[serde(deny_unknown_fields)]
 pub struct Selection {
     pub domain: Domain,
     pub presence: Option<bool>,
@@ -251,11 +260,18 @@ impl FaunaCriteria {
         )
     }
 }
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+pub struct NameIdentity {
+    pub species_seed: u64,
+    pub genus_seed: u64,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct Species {
     /// Index in the generated planet's creature-role table. The current game exposes at most 30
     /// corresponding discovery records for a loaded planet.
     pub role: u8,
+    pub name_identity: NameIdentity,
     pub family: Family,
     pub domain: Domain,
     pub activity: u8,
@@ -350,6 +366,10 @@ mod tests {
     fn animal(role: u8, family: Family, domain: Domain) -> Species {
         Species {
             role,
+            name_identity: NameIdentity {
+                species_seed: u64::from(role) + 1,
+                genus_seed: u64::from(role) + 2,
+            },
             family,
             domain,
             activity: 2,

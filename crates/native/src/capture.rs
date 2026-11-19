@@ -14,12 +14,12 @@ pub enum Colour {
     Flora,
     LeafPalette,
     Cloud,
-    SkyFog,
-    SkyHeightFog,
     SkyHorizon,
     Sky,
-    SkyNight,
     Water,
+    SkySolar,
+    SkyUpper,
+    Sun,
 }
 
 #[repr(C)]
@@ -55,6 +55,7 @@ pub struct Facts {
     pub screen_filter: i32,
     pub name: [u8; 128],
     pub colours: [[f64; 4]; COLOUR_COUNT],
+    pub sky_gradient_speed: [f64; 3],
     pub grass_terrain: [[f64; 4]; 2],
 }
 
@@ -68,6 +69,7 @@ impl Default for Facts {
             screen_filter: -1,
             name: [0; 128],
             colours: [[0.; 4]; COLOUR_COUNT],
+            sky_gradient_speed: [0.; 3],
             grass_terrain: [[0.; 4]; 2],
         }
     }
@@ -221,7 +223,7 @@ pub unsafe fn capture(
                 facts.colours[i] = read::<[f32; 4]>(planet, i * 0x70).map(f64::from);
             }
         }
-        if wanted & (colour(3) | colour(4) | colour(5) | colour(6) | colour(7) | colour(8)) != 0 {
+        if wanted & (colour(3) | colour(4) | colour(5)) != 0 {
             if generator.is_null() {
                 return Err("null sky generator");
             }
@@ -235,37 +237,36 @@ pub unsafe fn capture(
             } else if subtype == 26 {
                 biome = 13;
             }
-            for (table_offset, index_offset, fields) in [
-                (
-                    0x518,
-                    0x1e34,
-                    &[(3, 0), (4, 0x20), (5, 0x30), (6, 0x40), (7, 0x70)][..],
-                ),
-                (0x528, 0x1e3c, &[(8, 0x70)][..]),
-            ] {
-                if !fields.iter().any(|(i, _)| wanted & colour(*i) != 0) {
-                    continue;
-                }
-                let table = pointer(read(generator, table_offset))?;
-                let mut header = table.add(biome as usize * 16);
-                if read::<i32>(header, 8) <= 0 {
-                    header = table.add(0x120);
-                }
-                let row = record(header, read(planet, index_offset), 0xe0)?;
-                for &(i, offset) in fields {
-                    if wanted & colour(i) != 0 {
-                        facts.colours[i] = read::<[f32; 4]>(row, offset).map(f64::from);
-                    }
+            let fields = [
+                (3, 0),
+                (4, 0x40),
+                (5, 0x70),
+                (7, 0x90),
+                (8, 0xa0),
+                (9, 0xb0),
+            ];
+            let table = pointer(read(generator, 0x518))?;
+            let mut header = table.add(biome as usize * 16);
+            if read::<i32>(header, 8) <= 0 {
+                header = table.add(0x120);
+            }
+            let row = record(header, read(planet, 0x1e34), 0xe0)?;
+            for (i, offset) in fields {
+                if wanted & colour(i) != 0 || (i >= 7 && wanted & colour(5) != 0) {
+                    facts.colours[i] = read::<[f32; 4]>(row, offset).map(f64::from);
                 }
             }
+            if wanted & colour(5) != 0 {
+                facts.sky_gradient_speed = read::<[f32; 3]>(row, 0x80).map(f64::from);
+            }
         }
-        if wanted & colour(9) != 0 {
+        if wanted & colour(6) != 0 {
             if generator.is_null() {
                 return Err("null water generator");
             }
             let header = pointer(read(generator, 0x530))?;
             let row = record(header, read(planet, 0x3518), 0x80)?;
-            facts.colours[9] =
+            facts.colours[6] =
                 water_reflectance(read(row, 0x40), read(row, 0x50), read(row, 0x68))?;
         }
     }

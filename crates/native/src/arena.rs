@@ -2,13 +2,12 @@
 //! traversal, or native data pointer retention.
 use search_probes_model::address::Address;
 use search_probes_model::arena::{Creature, RankEvidence, Ranks};
-use std::collections::BTreeMap;
 
 type Result<T> = std::result::Result<T, &'static str>;
-const RANK_FUNCTION_RVA: usize = 0x13d0270;
-const RANK_WEIGHTS_RVA: usize = 0x53286e4;
-const RANK_FORK_IDS_RVA: usize = 0x4afdf40;
-const RANK_ROOT_FORK_ID_RVA: usize = 0x4ba8960;
+const RANK_FUNCTION_RVA: usize = 0x13d0740;
+const RANK_WEIGHTS_RVA: usize = 0x5329724;
+const RANK_FORK_IDS_RVA: usize = 0x4aff480;
+const RANK_ROOT_FORK_ID_RVA: usize = 0x4baa208;
 const RANK_FUNCTION_PREFIX: [u8; 36] = [
     0x48, 0x89, 0x5c, 0x24, 0x08, 0x48, 0x89, 0x74, 0x24, 0x10, 0x48, 0x89, 0x7c, 0x24, 0x20, 0x44,
     0x89, 0x44, 0x24, 0x18, 0x55, 0x41, 0x54, 0x41, 0x55, 0x41, 0x56, 0x41, 0x57, 0x48, 0x81, 0xec,
@@ -21,157 +20,14 @@ const RANK_FORK_IDS: [[u8; 16]; 3] = [
 ];
 const RANK_ROOT_FORK_ID: [u8; 17] = *b"CORE_STAT_CLASSES";
 const RANK_WEIGHTS: [u32; 12] = [30, 30, 25, 15, 30, 30, 25, 15, 30, 30, 25, 15];
-const PET_BIOME_AFFINITIES: [u8; 16] = [1, 4, 3, 6, 2, 5, 5, 7, 7, 7, 7, 1, 4, 3, 7, 1];
 type Roll = unsafe extern "system" fn(*mut u32, *const u64, i32, i32) -> u8;
 unsafe fn read<T: Copy>(p: *const u8, o: usize) -> T {
     unsafe { p.add(o).cast::<T>().read_unaligned() }
 }
-fn pointer(p: *const u8, size: usize) -> Result<()> {
-    if !(0x10000..=0x0000_7fff_ffff_ffffusize.saturating_sub(size)).contains(&(p as usize)) {
-        return Err("invalid Arena data pointer");
-    }
-    Ok(())
-}
-#[derive(Clone, Copy)]
-struct Catalogue {
-    eligible: bool,
-    forced_affinity: u8,
-    source: crate::fauna_model_scalars::Catalogue,
-}
-fn catalogue(bytes: &[u8]) -> Result<([u8; 16], Catalogue)> {
-    if bytes.len() != 0xd0 {
-        return Err("invalid Arena catalogue extent");
-    }
-    let id = bytes[0x30..0x40].try_into().unwrap();
-    let eligible = bytes[0xc9];
-    let affinity = bytes[0xcc];
-    let min = f32::from_le_bytes(bytes[0xa8..0xac].try_into().unwrap());
-    let max = f32::from_le_bytes(bytes[0xa4..0xa8].try_into().unwrap());
-    if eligible > 1
-        || affinity > 9
-        || !min.is_finite()
-        || !max.is_finite()
-        || min <= 0.
-        || max < min
-    {
-        return Err("invalid Arena catalogue entry");
-    }
-    Ok((
-        id,
-        Catalogue {
-            eligible: eligible != 0,
-            forced_affinity: affinity,
-            source: crate::fauna_model_scalars::Catalogue::from_native_bytes(
-                bytes.try_into().unwrap(),
-            ),
-        },
-    ))
-}
-#[derive(Clone, Copy)]
-struct SizeGlobals {
-    maximum: f32,
-    multiplier: f32,
-    thresholds: [f32; 3],
-    quarter: f32,
-    uniform: f64,
-    infant_multiplier: f32,
-}
-impl SizeGlobals {
-    /// Constants read from the current 7.13 creature globals and generator. The executable
-    /// identity gate in `supported.rs` makes this data specific to that release.
-    fn current_7_13() -> Self {
-        Self {
-            maximum: 8.0,
-            multiplier: 1.0,
-            thresholds: [1.2, 2.5, 4.5],
-            quarter: 0.25,
-            uniform: 1.0 / 4_294_967_296.0,
-            // Infant scale and catalogue dependency do not participate in adult rank classes.
-            infant_multiplier: 1.0,
-        }
-    }
-    fn validate(self) -> Result<Self> {
-        if ![
-            self.maximum,
-            self.multiplier,
-            self.quarter,
-            self.infant_multiplier,
-        ]
-        .into_iter()
-        .chain(self.thresholds)
-        .all(|v| v.is_finite() && v > 0.)
-            || !self.uniform.is_finite()
-            || self.uniform <= 0.
-            || self.thresholds[0] >= self.thresholds[1]
-            || self.thresholds[1] >= self.thresholds[2]
-        {
-            return Err("invalid Arena size globals");
-        }
-        Ok(self)
-    }
-    fn model_scalars(
-        self,
-        entry: Catalogue,
-        role: &[u8],
-    ) -> Result<crate::fauna_model_scalars::ModelScalars> {
-        crate::fauna_model_scalars::calculate(
-            role.try_into().map_err(|_| "invalid Arena role extent")?,
-            entry.source,
-            crate::fauna_model_scalars::Parameters {
-                maximum: self.maximum,
-                quarter: self.quarter,
-                uniform: self.uniform,
-                infant_multiplier: self.infant_multiplier,
-            },
-        )
-    }
-    fn class(self, entry: Catalogue, role: &[u8]) -> Result<Option<u8>> {
-        let scale = self.model_scalars(entry, role)?.adult_scale * self.multiplier;
-        if !scale.is_finite() || scale <= 0. {
-            return Err("invalid generated Arena scale");
-        }
-        // The native actor derives length from its transformed basis; do not assert an exact rank
-        // when float rounding around a size-class boundary could change the seed. Underwater
-        // depth scaling likewise needs placement information absent from a remote planet query.
-        let tile = u32::from_le_bytes(role[0x5cc..0x5d0].try_into().unwrap());
-        if tile == 4
-            || self
-                .thresholds
-                .iter()
-                .any(|&t| (scale - t).abs() <= 64. * f32::EPSILON * scale.max(t))
-        {
-            return Ok(None);
-        }
-        Ok(Some(
-            self.thresholds.iter().filter(|&&t| scale >= t).count() as u8,
-        ))
-    }
-}
-fn pair(a: u64, b: u64) -> u64 {
-    const M: u64 = 0x9ddfea08eb382d69;
-    let a = (a ^ b).wrapping_mul(M);
-    let a = a ^ (a >> 47);
-    let b = (b ^ a).wrapping_mul(M);
-    let b = b ^ (b >> 47);
-    b.wrapping_mul(M)
-}
-// The role family selects the scale catalogue, but the native rank hash reads the selected
-// GcCreatureComponentData.Id. Current single-component scene assets qualify these aliases;
-// CRAB also has live actor/resource/role association and visor rank parity.
-fn component_id(role_id: [u8; 16]) -> [u8; 16] {
-    match role_id.as_slice() {
-        b"CRAB\0\0\0\0\0\0\0\0\0\0\0\0" | b"HERMITCRAB\0\0\0\0\0\0" => {
-            *b"SPIDER\0\0\0\0\0\0\0\0\0\0"
-        }
-        b"MANTAGLOW\0\0\0\0\0\0\0" => *b"MANTA\0\0\0\0\0\0\0\0\0\0\0",
-        b"SEAHORSEGLOW\0\0\0\0" => *b"SEAHORSE\0\0\0\0\0\0\0\0",
-        _ => role_id,
-    }
-}
 fn rank_seed(role: &[u8], planet: u64, size: u8) -> u64 {
     rank_seed_selected(
         role,
-        component_id(role[0x5a0..0x5b0].try_into().unwrap()),
+        crate::fauna_models::component_id(role[0x5a0..0x5b0].try_into().unwrap()),
         planet,
         size,
     )
@@ -181,12 +37,20 @@ fn rank_seed_selected(role: &[u8], id: [u8; 16], planet: u64, size: u8) -> u64 {
     let high = u64::from_le_bytes(id[8..].try_into().unwrap());
     let resource = u64::from_le_bytes(role[0x5b0..0x5b8].try_into().unwrap());
     let engine = u32::from_le_bytes(role[0x5d0..0x5d4].try_into().unwrap());
-    pair(
-        pair(size as u64, pair(engine as u64, planet)),
-        pair(resource, pair(high, low)),
+    crate::fauna_models::pair(
+        crate::fauna_models::pair(
+            size as u64,
+            crate::fauna_models::pair(engine as u64, planet),
+        ),
+        crate::fauna_models::pair(resource, crate::fauna_models::pair(high, low)),
     )
 }
-fn affinity(entry: Catalogue, biome: u32, subtype: u32, map: [u8; 16]) -> Result<u8> {
+fn affinity(
+    entry: crate::fauna_models::Entry,
+    biome: u32,
+    subtype: u32,
+    map: [u8; 16],
+) -> Result<u8> {
     if biome >= 16 || subtype >= 31 {
         return Err("invalid Arena biome classification");
     }
@@ -207,8 +71,7 @@ fn affinity(entry: Catalogue, biome: u32, subtype: u32, map: [u8; 16]) -> Result
     Ok(value)
 }
 pub struct Context {
-    catalogue: BTreeMap<[u8; 16], Catalogue>,
-    size: SizeGlobals,
+    catalogue: crate::fauna_models::Catalogue,
     affinities: [u8; 16],
     roll: Roll,
 }
@@ -241,43 +104,16 @@ impl Context {
             if read::<[[u8; 16]; 3]>(image, RANK_FORK_IDS_RVA) != RANK_FORK_IDS
                 || read::<[u8; 17]>(image, RANK_ROOT_FORK_ID_RVA) != RANK_ROOT_FORK_ID
             {
-                return Err("Arena rank fork IDs do not match 7.13");
+                return Err("Arena rank fork IDs do not match 7.14");
             }
-            let app = read::<*const u8>(image, 0x6f6b208);
-            pointer(app, 0x5c5550)?;
-            let count = read::<i32>(app, 0x5c5548);
-            if !(1..=32).contains(&count) {
-                return Err("invalid Arena catalogue groups");
-            }
-            let mut entries = BTreeMap::new();
-            for i in 0..count as usize {
-                let header = read::<*const u8>(app, 0x5c5448 + i * 8);
-                pointer(header, 16)?;
-                let data = read::<*const u8>(header, 0);
-                let n = read::<i32>(header, 8);
-                if !(0..=512).contains(&n) || entries.len() + n as usize > 1024 {
-                    return Err("Arena catalogue exceeds bound");
-                }
-                if n != 0 {
-                    pointer(data, n as usize * 0xd0)?;
-                }
-                for j in 0..n as usize {
-                    let (id, value) =
-                        catalogue(std::slice::from_raw_parts(data.add(j * 0xd0), 0xd0))?;
-                    if entries.insert(id, value).is_some() {
-                        return Err("duplicate Arena catalogue ID");
-                    }
-                }
-            }
-            let size = SizeGlobals::current_7_13().validate()?;
-            let affinities = PET_BIOME_AFFINITIES;
+            let catalogue = crate::fauna_models::Catalogue::from_verified_image(base)?;
+            let affinities = catalogue.affinity_map();
             let weights = read::<[u32; 12]>(image, RANK_WEIGHTS_RVA);
             if weights != RANK_WEIGHTS {
-                return Err("Arena rank weights do not match 7.13");
+                return Err("Arena rank weights do not match 7.14");
             }
             Ok(Self {
-                catalogue: entries,
-                size,
+                catalogue,
                 affinities,
                 roll: std::mem::transmute::<*const u8, Roll>(code),
             })
@@ -292,19 +128,15 @@ impl Context {
         subtype: u32,
     ) -> Result<Option<Creature>> {
         let id: [u8; 16] = role[0x5a0..0x5b0].try_into().unwrap();
-        let entry = *self
+        let entry = self.catalogue.entry(id)?;
+        let component = self
             .catalogue
-            .get(&id)
-            .ok_or("missing generated Arena catalogue entry")?;
-        let component = *self
-            .catalogue
-            .get(&component_id(id))
-            .ok_or("missing Arena component catalogue entry")?;
+            .entry(crate::fauna_models::component_id(id))?;
         if !component.eligible {
             return Ok(None);
         }
         let affinity = affinity(component, biome, subtype, self.affinities)?;
-        let ranks = if let Some(size) = self.size.class(entry, role)? {
+        let ranks = if let Some(size) = self.catalogue.arena_size_class(entry, role)? {
             RankEvidence::exact(self.ranks(role, planet, size)?)?
         } else {
             // All four adult classes bound every depth/rounding outcome. The matcher may settle
@@ -375,9 +207,8 @@ mod tests {
     #[test]
     fn rank_outputs_keep_the_game_health_speed_combat_projection() {
         let context = Context {
-            catalogue: BTreeMap::new(),
-            size: SizeGlobals::current_7_13(),
-            affinities: PET_BIOME_AFFINITIES,
+            catalogue: crate::fauna_models::Catalogue::empty_for_tests(),
+            affinities: [1, 4, 3, 6, 2, 5, 5, 7, 7, 7, 7, 1, 4, 3, 7, 1],
             roll: known_roll,
         };
         let role = [0; 0x5d8];

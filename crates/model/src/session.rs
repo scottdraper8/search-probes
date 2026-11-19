@@ -44,6 +44,7 @@ struct Search {
     progress: Progress,
     plan: Plan,
     frontier: Frontier,
+    paused: bool,
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -105,6 +106,7 @@ impl Session {
             return Err("cancel the current search before starting another");
         }
         let plan = options.criteria.compile()?;
+        let results = self.retained_results(&plan, origin, options.results);
         let progress = Progress {
             phase: Phase::Running,
             finish: None,
@@ -114,15 +116,59 @@ impl Session {
             cached_systems: 0,
             unresolved_arena_planets: 0,
             unresolved_arena_examples: Vec::new(),
-            results: Vec::new(),
+            results,
             error: None,
         };
         self.search = Some(Search {
             progress,
             plan,
             frontier: Frontier::new(origin),
+            paused: false,
         });
         Ok(())
+    }
+    pub fn is_paused(&self) -> bool {
+        self.search
+            .as_ref()
+            .is_some_and(|search| search.progress.phase == Phase::Running && search.paused)
+    }
+    pub fn set_paused(&mut self, paused: bool) -> Result<(), &'static str> {
+        let search = self
+            .search
+            .as_mut()
+            .filter(|search| search.progress.phase == Phase::Running)
+            .ok_or("search is not running")?;
+        search.paused = paused;
+        Ok(())
+    }
+    fn retained_results(&self, plan: &Plan, origin: Address, limit: usize) -> Vec<CachedMatch> {
+        let Some(previous) = self.search.as_ref().map(|search| &search.progress.results) else {
+            return Vec::new();
+        };
+        previous
+            .iter()
+            .filter(|result| {
+                let address = result.address.system();
+                if address == origin.system()
+                    || address.coordinates().galaxy != origin.coordinates().galaxy
+                {
+                    return false;
+                }
+                let Some(record) = self.cache.get(address) else {
+                    return false;
+                };
+                let evaluation = record.evaluate(plan);
+                (0..record.count()).any(|index| {
+                    evaluation.matches & (1 << index) != 0
+                        && record
+                            .results(address, index, plan)
+                            .iter()
+                            .any(|candidate| candidate.target() == result.target())
+                })
+            })
+            .take(limit)
+            .cloned()
+            .collect()
     }
     fn finish(&mut self, reason: Finish) {
         let Some(search) = self.search.as_mut() else {
@@ -145,7 +191,7 @@ impl Session {
         self.finish(Finish::Failed);
     }
     pub fn next(&mut self, limit: usize) -> Result<Work, &'static str> {
-        if limit == 0 {
+        if limit == 0 || self.is_paused() {
             return Ok(Work::Idle);
         }
         for _ in 0..limit.min(256) {
@@ -214,10 +260,21 @@ impl Session {
         self.progress()
             .into_iter()
             .flat_map(|progress| &progress.results)
-            .filter(|result| {
-                result.kind == crate::target::TargetKind::System && result.name.is_none()
-            })
-            .map(|result| result.address)
+            .filter(|result| result.system_name.is_none())
+            .map(|result| result.address.system())
+            .collect::<std::collections::BTreeSet<_>>()
+            .into_iter()
+            .collect()
+    }
+    pub fn unnamed_fauna_results(&self) -> Vec<crate::fauna::NameIdentity> {
+        self.progress()
+            .into_iter()
+            .flat_map(|progress| &progress.results)
+            .filter_map(|result| result.fauna.as_ref())
+            .filter(|fauna| fauna.name.is_none())
+            .map(|fauna| fauna.name_identity)
+            .collect::<std::collections::BTreeSet<_>>()
+            .into_iter()
             .collect()
     }
     pub fn name_system(&mut self, address: Address, name: &str) -> Result<(), &'static str> {
@@ -227,11 +284,30 @@ impl Session {
         self.cache.name_system(address, name)?;
         if let Some(search) = self.search.as_mut() {
             for result in &mut search.progress.results {
-                if result.kind == crate::target::TargetKind::System
-                    && result.address == address.system()
-                {
-                    result.name = Some(name.into());
+                if result.address.system() == address.system() {
+                    result.system_name = Some(name.into());
                 }
+            }
+        }
+        Ok(())
+    }
+    pub fn name_fauna(
+        &mut self,
+        identity: crate::fauna::NameIdentity,
+        name: &str,
+    ) -> Result<(), &'static str> {
+        if name.is_empty() || name.len() > crate::cache::MAX_NAME_BYTES {
+            return Err("invalid result fauna name");
+        }
+        if let Some(search) = self.search.as_mut() {
+            for fauna in search
+                .progress
+                .results
+                .iter_mut()
+                .filter_map(|result| result.fauna.as_mut())
+                .filter(|fauna| fauna.name_identity == identity)
+            {
+                fauna.name = Some(name.into());
             }
         }
         Ok(())
@@ -302,5 +378,88 @@ impl Session {
             self.finish(Finish::Budget);
         }
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{address::Coordinates, criteria::PlanetFlag, facts::Facts, target::TargetKind};
+
+    fn address(system: u16) -> Address {
+        Address::new(Coordinates {
+            x: 1,
+            y: 2,
+            z: 3,
+            galaxy: 0,
+            system,
+            planet: 0,
+        })
+        .unwrap()
+    }
+
+    fn record(has_moons: bool) -> SystemRecord {
+        let mut system = Facts::default();
+        system.set_planet_count(1);
+        let mut planets: [Facts; 8] = std::array::from_fn(|_| Facts::default());
+        planets[0].set_planet_flag(PlanetFlag::Rings, true);
+        planets[0].set_planet_flag(PlanetFlag::Moons, has_moons);
+        SystemRecord::new(system, planets).unwrap()
+    }
+
+    fn planet_result(address: Address, name: &str) -> CachedMatch {
+        CachedMatch {
+            address: address.planet(0).unwrap(),
+            kind: TargetKind::Planet,
+            system_name: None,
+            planet_name: Some(name.into()),
+            fauna: None,
+        }
+    }
+
+    #[test]
+    fn starting_search_immediately_keeps_only_prior_results_matching_the_new_plan() {
+        let origin = address(1);
+        let retained_address = address(2);
+        let removed_address = address(3);
+        let uncached_address = address(4);
+        let retained = planet_result(retained_address, "Retained");
+        let removed = planet_result(removed_address, "Removed");
+        let uncached = planet_result(uncached_address, "Uncached");
+        let mut session = Session::default();
+        session.observe(retained_address, record(true)).unwrap();
+        session.observe(removed_address, record(false)).unwrap();
+
+        let mut previous = SearchOptions::default();
+        previous.criteria.planets.insert(PlanetFlag::Rings, true);
+        session.start(previous, origin).unwrap();
+        let progress = &mut session.search.as_mut().unwrap().progress;
+        progress.phase = Phase::Completed;
+        progress.results = vec![retained.clone(), removed, uncached];
+
+        let mut next = SearchOptions::default();
+        next.criteria.planets.insert(PlanetFlag::Rings, true);
+        next.criteria.planets.insert(PlanetFlag::Moons, true);
+        session.start(next, origin).unwrap();
+
+        assert_eq!(session.progress().unwrap().results, vec![retained]);
+        assert_eq!(session.progress().unwrap().systems, 0);
+    }
+
+    #[test]
+    fn manual_pause_retains_and_resumes_the_active_frontier() {
+        let mut session = Session::default();
+        session
+            .start(SearchOptions::default(), address(1))
+            .expect("start search");
+
+        session.set_paused(true).expect("pause active search");
+        assert!(session.is_paused());
+        assert_eq!(session.next(256).expect("paused work"), Work::Idle);
+        assert_eq!(session.progress().unwrap().systems, 0);
+
+        session.set_paused(false).expect("resume active search");
+        assert!(!session.is_paused());
+        assert_ne!(session.next(256).expect("resumed work"), Work::Idle);
     }
 }

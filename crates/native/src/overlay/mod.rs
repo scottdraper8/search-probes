@@ -1,3 +1,4 @@
+mod export;
 mod hdr;
 mod iat;
 mod input;
@@ -45,11 +46,33 @@ impl Dispatch {
         Ok(Self {
             module: module as usize,
             name,
-            gipa: unsafe { std::mem::transmute(get(c"vkGetInstanceProcAddr")?) },
-            gdpa: unsafe { std::mem::transmute(get(c"vkGetDeviceProcAddr")?) },
-            present: unsafe { std::mem::transmute(get(c"vkQueuePresentKHR")?) },
-            create_instance: unsafe { std::mem::transmute(get(c"vkCreateInstance")?) },
-            create_device: unsafe { std::mem::transmute(get(c"vkCreateDevice")?) },
+            gipa: unsafe {
+                std::mem::transmute::<
+                    unsafe extern "system" fn() -> isize,
+                    vk::PFN_vkGetInstanceProcAddr,
+                >(get(c"vkGetInstanceProcAddr")?)
+            },
+            gdpa: unsafe {
+                std::mem::transmute::<
+                    unsafe extern "system" fn() -> isize,
+                    vk::PFN_vkGetDeviceProcAddr,
+                >(get(c"vkGetDeviceProcAddr")?)
+            },
+            present: unsafe {
+                std::mem::transmute::<unsafe extern "system" fn() -> isize, vk::PFN_vkQueuePresentKHR>(
+                    get(c"vkQueuePresentKHR")?,
+                )
+            },
+            create_instance: unsafe {
+                std::mem::transmute::<unsafe extern "system" fn() -> isize, vk::PFN_vkCreateInstance>(
+                    get(c"vkCreateInstance")?,
+                )
+            },
+            create_device: unsafe {
+                std::mem::transmute::<unsafe extern "system" fn() -> isize, vk::PFN_vkCreateDevice>(
+                    get(c"vkCreateDevice")?,
+                )
+            },
         })
     }
 }

@@ -55,6 +55,7 @@ unsafe extern "system" fn detour(communicator: *mut u8, timestep: f32) {
     {
         return;
     }
+    crate::lifecycle_hook::reconcile_gameplay();
     let thread = unsafe { GetCurrentThreadId() };
     let epoch = crate::lifecycle_hook::epoch();
     if OWNER_EPOCH.load(Ordering::Acquire) != epoch {
@@ -66,10 +67,10 @@ unsafe extern "system" fn detour(communicator: *mut u8, timestep: f32) {
         BUSY.store(false, Ordering::Release);
         return;
     }
-    if let Some(callback) = CALLBACK.get() {
-        if catch_unwind(AssertUnwindSafe(*callback)).is_err() {
-            FAILED.store(2, Ordering::Release);
-        }
+    if let Some(callback) = CALLBACK.get()
+        && catch_unwind(AssertUnwindSafe(*callback)).is_err()
+    {
+        FAILED.store(2, Ordering::Release);
     }
     BUSY.store(false, Ordering::Release);
 }
@@ -81,7 +82,7 @@ pub unsafe fn enable(base: usize, callback: fn()) -> Result<(), HookError> {
     let mut state = HOOK.lock().map_err(|_| HookError::StatePoisoned)?;
     if state.is_none() {
         let hook = unsafe {
-            ResidentHook::prepare(base + 0x141ff20, detour as *const () as usize, &PREFIX)
+            ResidentHook::prepare(base + 0x1420310, detour as *const () as usize, &PREFIX)
         }?;
         if CALLBACK.set(callback).is_err() {
             return Err(HookError::StatePoisoned);

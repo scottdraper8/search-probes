@@ -4,6 +4,7 @@ use crate::{
 };
 use search_probes_model::{
     address::Address,
+    cache::{CachedMatch, FaunaMatch},
     fauna::{Domain, Family},
     target::{FAUNA_SCAN_READY_PROGRESS, Target, TargetKind},
 };
@@ -14,6 +15,7 @@ const PLANET_TABLE: usize = 0x2e30;
 const PLANET_STRIDE: usize = 0xd9170;
 const PLANET_ADDRESS: usize = 0x8;
 const PLANET_DATA: usize = 0x60;
+const PLANET_NAME: usize = 0x3a4e;
 const ROLE_TABLE: usize = 0x3180;
 const ROLE_STRIDE: usize = 0x5d8;
 const ROLE_RARITY: usize = 0x8c;
@@ -23,16 +25,9 @@ const ROLE_SEED: usize = 0x5b0;
 const ROLE_SEED_VALID: usize = 0x5b8;
 const ROLE_DENSITY: usize = 0x5c4;
 const ROLE_TILE: usize = 0x5cc;
-const CREATURE_TABLE: usize = 0xe1130;
-const CREATURE_STRIDE: usize = 0x24a0;
-const CREATURE_COMPLETION_ID: usize = 0x2390;
-const CREATURE_COMPLETION_ID_VALID: usize = 0x2398;
-const CREATURE_NODE_SEED: usize = 0x23a0;
-const CREATURE_SPECIES_SEED: usize = 0x23a8;
-const CREATURE_GENUS_SEED: usize = 0x23b0;
 const SIGNAL_MISSION: &[u8] = b"SQN_SP_SIGNAL";
 const MAX_RETAINED_DISCOVERIES: usize = 64;
-const SELECT_MISSION_RVA: usize = 0x9d7de0;
+const SELECT_MISSION_RVA: usize = 0x9d7c90;
 const SELECT_MISSION_PREFIX: [u8; 26] = [
     0x48, 0x8b, 0xc4, 0x44, 0x88, 0x40, 0x18, 0x53, 0x56, 0x57, 0x41, 0x54, 0x48, 0x81, 0xec, 0x58,
     0x01, 0x00, 0x00, 0x45, 0x33, 0xe4, 0x41, 0x0f, 0xb6, 0xf8,
@@ -257,59 +252,38 @@ struct FaunaTarget {
     completion_id: u64,
     domain: Domain,
     cave: bool,
+    role: [u8; ROLE_STRIDE],
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-struct FaunaIdentity {
-    species_seed: u64,
-    genus_seed: u64,
-}
-
-fn fauna_identity(
-    application: usize,
-    completion_id: u64,
-) -> Result<Option<FaunaIdentity>, &'static str> {
-    let mut result = None;
-    // Search roles and display records are independently ordered. Join them by the completion
-    // identity copied into both records; a role index is never a display-table slot index.
-    for slot in 0..usize::from(search_probes_model::target::FAUNA_ROLES) {
-        let record = application + CREATURE_TABLE + slot * CREATURE_STRIDE;
-        let valid = platform::read::<1>(record + CREATURE_COMPLETION_ID_VALID)?[0];
-        if valid > 1 {
-            return Err("invalid generated creature completion identity");
-        }
-        if valid == 0
-            || u64::from_le_bytes(platform::read(record + CREATURE_COMPLETION_ID)?) != completion_id
-        {
-            continue;
-        }
-        let node_seed = u64::from_le_bytes(platform::read(record + CREATURE_NODE_SEED)?);
-        let identity = FaunaIdentity {
-            species_seed: u64::from_le_bytes(platform::read(record + CREATURE_SPECIES_SEED)?),
-            genus_seed: u64::from_le_bytes(platform::read(record + CREATURE_GENUS_SEED)?),
-        };
-        if node_seed == 0 || identity.species_seed == 0 || identity.genus_seed == 0 {
-            return Err("generated creature has an incomplete naming identity");
-        }
-        if result.replace(identity).is_some() {
-            return Err("generated creature completion identity is ambiguous");
-        }
-    }
-    Ok(result)
-}
-
-fn fauna_target(snapshot: &Snapshot, target: Target) -> Result<FaunaTarget, &'static str> {
+fn loaded_planet_data(snapshot: &Snapshot, target: Target) -> Result<usize, &'static str> {
     let planet = usize::from(target.address.coordinates().planet);
     let count = platform::u32_at(snapshot.root + PLANET_COUNT)? as usize;
     if planet == 0 || planet > count || count > 8 {
-        return Err("fauna destination does not identify a loaded planet");
+        return Err("destination does not identify a loaded planet");
     }
     let object = snapshot.root + PLANET_TABLE + (planet - 1) * PLANET_STRIDE;
     let address = u64::from_le_bytes(platform::read(object + PLANET_ADDRESS)?);
     if address != target.address.raw() {
-        return Err("loaded fauna planet does not match the selected destination");
+        return Err("loaded planet does not match the selected destination");
     }
-    let data = object + PLANET_DATA;
+    Ok(object + PLANET_DATA)
+}
+
+fn loaded_planet_name(snapshot: &Snapshot, target: Target) -> Result<String, &'static str> {
+    let data = loaded_planet_data(snapshot, target)?;
+    let bytes = platform::read::<128>(data + PLANET_NAME)?;
+    let end = bytes
+        .iter()
+        .position(|byte| *byte == 0)
+        .unwrap_or(bytes.len());
+    if end == 0 {
+        return Err("loaded destination planet has no name");
+    }
+    Ok(String::from_utf8_lossy(&bytes[..end]).into_owned())
+}
+
+fn fauna_target(snapshot: &Snapshot, target: Target) -> Result<FaunaTarget, &'static str> {
+    let data = loaded_planet_data(snapshot, target)?;
     let roles = platform::pointer(data + ROLE_TABLE)?;
     let count = platform::u32_at(data + ROLE_TABLE + 8)? as usize;
     let role = usize::from(target.fauna_role.ok_or("fauna destination has no role")?);
@@ -346,6 +320,7 @@ fn fauna_target(snapshot: &Snapshot, target: Target) -> Result<FaunaTarget, &'st
         completion_id,
         domain,
         cave: tile == 5,
+        role: platform::read(role)?,
     })
 }
 
@@ -355,7 +330,7 @@ pub struct Navigation {
     destination: Option<Target>,
     discoveries: Vec<discovery_hook::Discovery>,
     signaled: Option<Target>,
-    described: Option<(Target, Option<FaunaIdentity>)>,
+    description: Option<CachedMatch>,
     return_to: Option<MissionKey>,
 }
 
@@ -364,14 +339,24 @@ impl Navigation {
         self.destination
     }
 
+    /// Forget data captured from application-owned resources while retaining the copied mission
+    /// description. Warp and loading transitions replace those resources without ending the
+    /// active Search Probes mission.
+    pub fn retire_application_sources(&mut self) {
+        self.destination = None;
+        self.discoveries.clear();
+        self.signaled = None;
+    }
+
     /// # Safety
     /// Mission and scan managers plus mod-owned definitions remain live for this callback.
     pub unsafe fn start(
         &mut self,
         image: &Image,
         snapshot: &Snapshot,
-        target: Target,
+        result: &CachedMatch,
     ) -> Result<(), &'static str> {
+        let target = result.target();
         let address = target.address;
         target.validate()?;
         if address.coordinates().galaxy != snapshot.address.coordinates().galaxy {
@@ -392,14 +377,12 @@ impl Navigation {
         mission_text_hook::clear();
         self.discoveries.clear();
         self.signaled = None;
-        self.described = None;
-        if target.kind == TargetKind::Fauna && snapshot.address.system() == target.address.system()
-        {
-            unsafe { self.describe_fauna(image, snapshot, target)? };
-        }
+        self.description = None;
+        mission_text_hook::set_destination(result)?;
+        self.description = Some(result.clone());
         let mission = target.mission()?;
         type Start = unsafe extern "system" fn(usize, *const u8, *const Seed, bool, bool) -> bool;
-        let start = unsafe { std::mem::transmute::<usize, Start>(image.base() + 0x9ced00) };
+        let start = unsafe { std::mem::transmute::<usize, Start>(image.base() + 0x9cebb0) };
         let accepted = unsafe {
             start(
                 manager,
@@ -413,6 +396,8 @@ impl Navigation {
             )
         };
         if !accepted {
+            mission_text_hook::clear();
+            self.description = None;
             return Err("NMS declined the Search Probes request");
         }
         self.requested = Some((target, Instant::now()));
@@ -420,48 +405,78 @@ impl Navigation {
         Ok(())
     }
 
-    unsafe fn describe_fauna(
+    unsafe fn describe_loaded(
         &mut self,
         image: &Image,
         snapshot: &Snapshot,
         target: Target,
     ) -> Result<(), &'static str> {
-        let fauna = fauna_target(snapshot, target)?;
-        let identity = fauna_identity(snapshot.application, fauna.completion_id)?;
-        if self.described == Some((target, identity)) {
+        if self
+            .description
+            .as_ref()
+            .is_some_and(|description| description.target() == target)
+        {
             return Ok(());
         }
-        let name = if let Some(identity) = identity {
+        let system =
+            unsafe { crate::system_name::generate(image.base(), target.address.system()) }?;
+        let planet = (target.kind != TargetKind::System)
+            .then(|| loaded_planet_name(snapshot, target))
+            .transpose()?;
+        let fauna = if target.kind == TargetKind::Fauna {
+            let target_fauna = fauna_target(snapshot, target)?;
             let context = unsafe { crate::fauna::Context::from_verified_image(image.base()) }?;
-            Some(unsafe { context.name(identity.species_seed, identity.genus_seed) }?)
+            let identity = context.identity(&target_fauna.role, target.address)?;
+            let name = unsafe { context.name(identity.species_seed, identity.genus_seed) }?;
+            Some(FaunaMatch {
+                role: target.fauna_role.ok_or("fauna destination has no role")?,
+                name_identity: identity,
+                name: Some(name),
+                domain: target_fauna.domain,
+                cave: target_fauna.cave,
+            })
         } else {
             None
         };
-        mission_text_hook::set_fauna(name.as_deref(), fauna.domain, fauna.cave)?;
-        self.described = Some((target, identity));
+        let description = CachedMatch {
+            address: target.address,
+            kind: target.kind,
+            system_name: Some(system.into()),
+            planet_name: planet.map(Into::into),
+            fauna,
+        };
+        mission_text_hook::set_destination(&description)?;
+        self.description = Some(description);
         Ok(())
     }
 
-    unsafe fn update_fauna_text(
+    unsafe fn update_mission_text(
         &mut self,
         image: &Image,
         snapshot: &Snapshot,
         active: Option<Active>,
     ) -> Result<(), &'static str> {
-        let Some(active) = active.filter(|active| active.target.kind == TargetKind::Fauna) else {
-            if self.described.take().is_some() {
+        let target = active
+            .map(|active| active.target)
+            .or_else(|| self.requested.map(|(target, _)| target));
+        let Some(target) = target else {
+            if self.description.take().is_some() {
                 mission_text_hook::clear();
             }
             return Ok(());
         };
-        let target = active.target;
-        if snapshot.address.system() != target.address.system() {
-            if self.described.take().is_some() {
-                mission_text_hook::clear();
-            }
+        if self
+            .description
+            .as_ref()
+            .is_some_and(|description| description.target() == target)
+        {
             return Ok(());
         }
-        unsafe { self.describe_fauna(image, snapshot, target) }
+        if target.kind != TargetKind::System && snapshot.address.system() != target.address.system()
+        {
+            return Ok(());
+        }
+        unsafe { self.describe_loaded(image, snapshot, target) }
     }
 
     unsafe fn restore_completed_selection(
@@ -539,7 +554,7 @@ impl Navigation {
             return Ok(());
         }
         type Start = unsafe extern "system" fn(usize, *const u8, *const Seed, bool, bool) -> bool;
-        let start = unsafe { std::mem::transmute::<usize, Start>(image.base() + 0x9ced00) };
+        let start = unsafe { std::mem::transmute::<usize, Start>(image.base() + 0x9cebb0) };
         let accepted = unsafe {
             start(
                 manager,
@@ -583,7 +598,7 @@ impl Navigation {
         }
         self.destination = mission.map(|active| active.target);
         unsafe {
-            self.update_fauna_text(image, snapshot, mission)?;
+            self.update_mission_text(image, snapshot, mission)?;
             self.update_fauna_completion(image, snapshot, manager, mission)?;
             self.restore_completed_selection(image, manager)?;
         }
@@ -603,5 +618,54 @@ impl Navigation {
             }
         }
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use search_probes_model::address::Coordinates;
+
+    fn planet_target() -> Target {
+        Target {
+            address: Address::new(Coordinates {
+                x: 1,
+                y: 2,
+                z: 3,
+                galaxy: 0,
+                system: 4,
+                planet: 1,
+            })
+            .unwrap(),
+            kind: TargetKind::Planet,
+            fauna_role: None,
+        }
+    }
+
+    #[test]
+    fn loading_transition_preserves_the_selected_destination_description() {
+        let target = planet_target();
+        let description = CachedMatch {
+            address: target.address,
+            kind: target.kind,
+            system_name: Some("Yihytaka XII".into()),
+            planet_name: Some("Giumfi Major".into()),
+            fauna: None,
+        };
+        let mut navigation = Navigation {
+            requested: Some((target, Instant::now())),
+            destination: Some(target),
+            discoveries: Vec::new(),
+            signaled: Some(target),
+            description: Some(description.clone()),
+            return_to: None,
+        };
+
+        navigation.retire_application_sources();
+
+        assert_eq!(navigation.description, Some(description));
+        assert_eq!(navigation.requested.map(|(target, _)| target), Some(target));
+        assert_eq!(navigation.destination, None);
+        assert_eq!(navigation.signaled, None);
     }
 }

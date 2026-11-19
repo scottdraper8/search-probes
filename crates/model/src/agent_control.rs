@@ -15,6 +15,9 @@ use std::{
 };
 
 pub const ENDPOINT: &str = "agent-control.json";
+pub const PROTOCOL_ID: &str = "search-probes.agent-control";
+pub const PROTOCOL_VERSION: u32 = 1;
+pub const CAPABILITIES: &[&str] = &["search.control/v1", "nms.current-world/v1"];
 const MAX_BYTES: usize = 1_100_000;
 const MAX_LIFETIME_MS: u64 = 120_000;
 
@@ -33,8 +36,17 @@ fn valid_id(id: &str) -> bool {
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
+pub struct Protocol {
+    pub id: String,
+    pub version: u32,
+}
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Endpoint {
     pub schema: u32,
+    pub protocol: Protocol,
+    pub product: String,
+    pub capabilities: Vec<String>,
     pub instance: String,
     pub process_id: u32,
     pub executable_sha256: String,
@@ -73,7 +85,13 @@ impl AgentControl {
             .map_err(io::Error::other)?
             .as_nanos();
         let endpoint = Endpoint {
-            schema: 1,
+            schema: 2,
+            protocol: Protocol {
+                id: PROTOCOL_ID.into(),
+                version: PROTOCOL_VERSION,
+            },
+            product: "search-probes".into(),
+            capabilities: CAPABILITIES.iter().map(|value| (*value).into()).collect(),
             instance: format!("{:08x}-{stamp:032x}", std::process::id()),
             process_id: std::process::id(),
             executable_sha256: crate::supported::EXECUTABLE_SHA256.into(),
@@ -114,10 +132,12 @@ impl AgentControl {
         if matches!(request.action, Action::Navigate { .. }) {
             return Err("Agent control accepts search commands, not navigation".into());
         }
-        if matches!(request.action, Action::Start { .. })
-            && controls.snapshot().availability != Availability::Ready
+        if matches!(
+            request.action,
+            Action::Start { .. } | Action::SetSearchPaused { .. } | Action::InspectCurrent {}
+        ) && controls.snapshot().availability != Availability::Ready
         {
-            return Err("The loaded game is not ready to search".into());
+            return Err("The loaded game is not ready for this request".into());
         }
         if matches!(request.action, Action::Start { .. })
             && controls

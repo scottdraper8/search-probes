@@ -84,10 +84,10 @@ fn properties(path: &Path, mission: Option<&str>) -> Result<Vec<(String, String)
                 if mission.is_some() && id.as_deref() == mission {
                     selected = Some(depth);
                 }
-                if mission.is_none() || selected.is_some() {
-                    if let (Some(name), Some(value)) = (name, value) {
-                        result.push((name, value));
-                    }
+                if (mission.is_none() || selected.is_some())
+                    && let (Some(name), Some(value)) = (name, value)
+                {
+                    result.push((name, value));
                 }
             }
             Event::End(_) => {
@@ -136,6 +136,9 @@ pub fn validate(root: &Path, expanded: bool) -> Result<()> {
     let missions: Vec<_> = (0..search_probes_model::settings::MAX_PRESETS)
         .map(search_probes_model::guide::mission)
         .collect::<std::result::Result<_, _>>()?;
+    let topics: Vec<_> = (0..search_probes_model::settings::MAX_PRESETS)
+        .map(search_probes_model::guide::topic)
+        .collect::<std::result::Result<_, _>>()?;
     let mut guide = Vec::new();
     for mission in &missions {
         guide.extend(properties(&table, Some(mission))?);
@@ -162,6 +165,12 @@ pub fn validate(root: &Path, expanded: bool) -> Result<()> {
         return Err("unexpected mission table entries".into());
     }
     if values(&wiki, "Mission") != missions
+        || values(&wiki, "TopicID") != topics
+        || values(&wiki, "PageID") != topics
+        || values(&wiki, "Seen") != vec!["false"; topics.len()]
+        || values(&wiki, "Unlocked") != vec!["false"; topics.len()]
+        || values(&wiki, "UnlockedCount") != ["0"]
+        || values(&wiki, "UnseenCount") != ["0"]
         || values(&guide, "MissionID") != missions
         || !values(&guide, "Name").is_empty()
         || !values(&guide, "Event").is_empty()
@@ -349,6 +358,12 @@ pub fn validate(root: &Path, expanded: bool) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn authored_guide_capacity_starts_locked() {
+        let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../assets");
+        validate(&root, false).unwrap();
+    }
 
     #[test]
     fn packaged_fauna_missions_contain_only_role_specific_runtime_ids() {

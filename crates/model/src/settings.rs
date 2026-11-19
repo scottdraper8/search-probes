@@ -1,4 +1,4 @@
-use crate::criteria::Criteria;
+use crate::{binding::InputBinding, criteria::Criteria, theme::UiTheme};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeSet;
 
@@ -15,6 +15,13 @@ pub const MAX_RESULTS: usize = 100;
 pub const MAX_PRESETS: usize = 9;
 pub const MAX_SETTINGS_BYTES: usize = 1_048_576;
 pub const MAX_WORKERS: usize = 16;
+
+pub fn validate_frame_budget(frame_budget_ms: u8) -> Result<(), &'static str> {
+    if !(1..=16).contains(&frame_budget_ms) {
+        return Err("frame budget must be between 1 and 16 milliseconds");
+    }
+    Ok(())
+}
 
 pub fn available_workers() -> usize {
     std::thread::available_parallelism()
@@ -71,16 +78,25 @@ pub struct Settings {
     pub schema: u32,
     pub search: SearchOptions,
     pub presets: Vec<Preset>,
+    pub interface: InterfaceSettings,
     pub workers: Option<usize>,
     pub frame_budget_ms: u8,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct InterfaceSettings {
+    pub hotkey: InputBinding,
+    pub theme: UiTheme,
 }
 
 impl Default for Settings {
     fn default() -> Self {
         Self {
-            schema: 1,
+            schema: 3,
             search: SearchOptions::default(),
             presets: Vec::new(),
+            interface: InterfaceSettings::default(),
             workers: None,
             frame_budget_ms: 4,
         }
@@ -89,10 +105,11 @@ impl Default for Settings {
 
 impl Settings {
     pub fn validate(&self) -> Result<(), &'static str> {
-        if self.schema != 1 {
+        if self.schema != 3 {
             return Err("unsupported settings schema");
         }
         self.search.validate()?;
+        self.interface.hotkey.validate()?;
         if self.presets.len() > MAX_PRESETS {
             return Err("at most nine Guide presets can be saved");
         }
@@ -110,10 +127,7 @@ impl Settings {
         {
             return Err("worker count must be automatic or between 1 and 16");
         }
-        if !(1..=16).contains(&self.frame_budget_ms) {
-            return Err("frame budget must be between 1 and 16 milliseconds");
-        }
-        Ok(())
+        validate_frame_budget(self.frame_budget_ms)
     }
 }
 
@@ -135,4 +149,31 @@ pub fn nearest_budget(value: u64) -> u64 {
         .iter()
         .min_by_key(|&&budget| (budget.abs_diff(value), std::cmp::Reverse(budget)))
         .expect("nonempty budgets")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn default_settings_use_the_current_interface_schema() {
+        let settings = Settings::default();
+        let encoded = serde_json::to_value(&settings).expect("settings serialize");
+
+        assert_eq!(encoded["schema"], 3);
+        assert_eq!(encoded["interface"]["hotkey"]["device"], "keyboard");
+        assert_eq!(encoded["interface"]["hotkey"]["first"], "f7");
+        assert_eq!(encoded["interface"]["theme"], "search_probes_dark");
+        assert!(settings.validate().is_ok());
+    }
+
+    #[test]
+    fn obsolete_settings_schema_is_rejected() {
+        let settings = Settings {
+            schema: 1,
+            ..Settings::default()
+        };
+
+        assert_eq!(settings.validate(), Err("unsupported settings schema"));
+    }
 }
