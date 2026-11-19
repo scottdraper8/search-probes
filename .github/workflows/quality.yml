@@ -1,8 +1,6 @@
 name: Quality
 
 on:
-  push:
-    branches: [main]
   pull_request:
     paths:
       - ".github/scripts/check_dependency_policy.py"
@@ -15,6 +13,7 @@ on:
       - "crates/**"
       - "license-policy.json"
       - "licenses/**"
+  workflow_dispatch:
 
 permissions:
   contents: read
