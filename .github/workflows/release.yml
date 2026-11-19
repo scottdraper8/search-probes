@@ -1,0 +1,92 @@
+name: Release
+
+on:
+  pull_request_target:
+    branches: [main]
+    types: [closed]
+    paths:
+      - "Cargo.lock"
+      - "Cargo.toml"
+      - "rust-toolchain.toml"
+      - "assets/**"
+      - "crates/**"
+      - "license-policy.json"
+      - "licenses/**"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: search-probes-release
+  cancel-in-progress: false
+
+jobs:
+  release:
+    if: github.event.pull_request.merged == true
+    runs-on: ubuntu-latest
+    env:
+      CARGO_TERM_COLOR: always
+      RELEASE_SHA: ${{ github.event.pull_request.merge_commit_sha }}
+    steps:
+      - name: Harden runner
+        uses: step-security/harden-runner@dc2769abcc0fcfbadfc1df54081c1608579ef6b2 # v2.22.2
+        with:
+          egress-policy: audit
+
+      - name: Checkout merged source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          ref: ${{ env.RELEASE_SHA }}
+
+      - name: Install Windows GNU compiler
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes binutils-mingw-w64-x86-64 gcc g++ \
+            gcc-mingw-w64-x86-64 g++-mingw-w64-x86-64
+
+      - name: Install pinned Rust toolchain
+        run: |
+          rustup show active-toolchain
+          rustup target add x86_64-pc-windows-gnu
+
+      - name: Build and verify package
+        id: package
+        run: |
+          cargo build --locked --release --target x86_64-pc-windows-gnu \
+            -p search-probes-bootstrap -p search-probes-runtime
+          version="$(cargo run --locked --quiet -p search-probes-package -- game-version)"
+          case "$version" in
+            ''|*[!0-9.]*)
+              echo "Invalid NMS release version: $version" >&2
+              exit 1
+              ;;
+          esac
+          cargo run --locked --quiet -p search-probes-package -- package "$RUNNER_TEMP/SearchProbes"
+          asset="$RUNNER_TEMP/search-probes-$version.zip"
+          mv "$RUNNER_TEMP/SearchProbes.zip" "$asset"
+          cargo run --locked --quiet -p search-probes-package -- verify "$asset"
+          sha256sum "$asset"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "asset=$asset" >> "$GITHUB_OUTPUT"
+
+      - name: Replace release for this NMS version
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ steps.package.outputs.version }}
+          ASSET: ${{ steps.package.outputs.asset }}
+        run: |
+          tag="nms-$VERSION"
+          git tag --force "$tag" "$RELEASE_SHA"
+          git push --force origin "refs/tags/$tag"
+          if gh release view "$tag" >/dev/null 2>&1; then
+            gh release upload "$tag" "$ASSET" --clobber
+            gh release edit "$tag" \
+              --title "Search Probes $VERSION" \
+              --notes "Compatible with No Man's Sky $VERSION."
+          else
+            gh release create "$tag" "$ASSET" \
+              --target "$RELEASE_SHA" \
+              --title "Search Probes $VERSION" \
+              --notes "Compatible with No Man's Sky $VERSION."
+          fi
