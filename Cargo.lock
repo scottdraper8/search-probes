@@ -827,7 +827,6 @@ dependencies = [
  "naga",
  "search-probes-model",
  "search-probes-ui",
- "serde",
  "serde_json",
  "sha2",
  "windows-sys",

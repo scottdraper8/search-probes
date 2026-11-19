@@ -1,0 +1,51 @@
+name: Quality
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    paths:
+      - ".github/scripts/check_dependency_policy.py"
+      - ".github/workflows/**"
+      - ".pre-commit-config.yaml"
+      - "Cargo.lock"
+      - "Cargo.toml"
+      - "rust-toolchain.toml"
+      - "assets/**"
+      - "crates/**"
+      - "license-policy.json"
+      - "licenses/**"
+
+permissions:
+  contents: read
+
+jobs:
+  quality:
+    runs-on: ubuntu-latest
+    env:
+      CARGO_BUILD_WARNINGS: deny
+      CARGO_TERM_COLOR: always
+    steps:
+      - name: Harden runner
+        uses: step-security/harden-runner@dc2769abcc0fcfbadfc1df54081c1608579ef6b2 # v2.22.2
+        with:
+          egress-policy: audit
+
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Install native and Windows GNU compilers
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes binutils-mingw-w64-x86-64 gcc g++ \
+            gcc-mingw-w64-x86-64 g++-mingw-w64-x86-64
+
+      - name: Test host workspace
+        run: cargo test --workspace --all-targets --all-features --locked
+
+      - name: Build and verify the release package
+        run: |
+          cargo build --locked --release --target x86_64-pc-windows-gnu \
+            -p search-probes-bootstrap -p search-probes-runtime
+          cargo run --locked --quiet -p search-probes-package -- package "$RUNNER_TEMP/SearchProbes"
+          cargo run --locked --quiet -p search-probes-package -- verify "$RUNNER_TEMP/SearchProbes.zip"
