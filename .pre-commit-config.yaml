@@ -9,11 +9,16 @@ repos:
       - id: check-added-large-files
         args: [--maxkb=5120]
       - id: trailing-whitespace
+        # Imported license texts remain byte-for-byte identical to their sources.
+        exclude: &verbatim_license_texts >-
+          ^(licenses/|crates/ui/assets/fonts/nms-geosans/OFL-1\.1\.txt$|crates/ui/assets/glyphs/nms-portal/LICENSE\.txt$)
       - id: end-of-file-fixer
+        exclude: *verbatim_license_texts
       - id: check-merge-conflict
       - id: check-case-conflict
       - id: mixed-line-ending
         args: [--fix=lf]
+        exclude: *verbatim_license_texts
       - id: check-yaml
         files: ^\.github/workflows/.*\.ya?ml$
         types: [file]
