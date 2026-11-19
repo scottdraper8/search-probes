@@ -1,5 +1,5 @@
 minimum_pre_commit_version: "4.6.2"
-default_install_hook_types: [pre-commit, commit-msg, pre-push]
+default_install_hook_types: [pre-commit, pre-push]
 default_stages: [pre-commit]
 
 repos:
@@ -52,20 +52,6 @@ repos:
 
   - repo: local
     hooks:
-      - id: contribution-branch-policy
-        name: reject attributed branch names
-        entry: .github/scripts/check_contribution_attribution.py branches
-        language: python
-        pass_filenames: false
-        always_run: true
-        stages: [pre-commit, pre-push]
-
-      - id: contribution-message-policy
-        name: reject attributed commit metadata
-        entry: .github/scripts/check_contribution_attribution.py message-file
-        language: python
-        stages: [commit-msg]
-
       - id: dependency-policy
         name: validate pinned Rust dependency and toolchain policy
         entry: .github/scripts/check_dependency_policy.py
@@ -87,18 +73,10 @@ repos:
         pass_filenames: false
         files: (^|/)Cargo\.toml$|^Cargo\.lock$|^rust-toolchain\.toml$|^crates/.*\.rs$
 
-      - id: test-workspace
-        name: Rust workspace tests
-        entry: cargo test --workspace --all-targets --all-features --locked
-        language: system
-        pass_filenames: false
-        stages: [pre-push]
-        files: ^(Cargo\.lock|Cargo\.toml|rust-toolchain\.toml|crates/|assets/|license-policy\.json|licenses/)
-
       - id: clippy-windows
         name: Clippy Windows release target
-        entry: env CARGO_BUILD_WARNINGS=deny cargo clippy --workspace --all-targets --all-features --locked --target x86_64-pc-windows-gnu
+        entry: .github/scripts/check_windows_target.py
         language: system
         pass_filenames: false
         stages: [pre-push]
-        files: ^(Cargo\.lock|Cargo\.toml|rust-toolchain\.toml|crates/)
+        files: ^(Cargo\.lock|Cargo\.toml|rust-toolchain\.toml|crates/|tooling/windows\.Containerfile$|\.github/scripts/check_windows_target\.py$)

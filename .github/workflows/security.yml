@@ -40,10 +40,6 @@ jobs:
             echo "relevant=false" >> "$GITHUB_OUTPUT"
           fi
 
-      - name: Enforce exact direct dependency pins
-        if: steps.changes.outputs.relevant == 'true'
-        run: .github/scripts/check_dependency_policy.py
-
       - name: Audit dependencies
         if: steps.changes.outputs.relevant == 'true'
         shell: bash

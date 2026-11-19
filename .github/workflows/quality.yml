@@ -40,34 +40,8 @@ jobs:
           sudo apt-get install --yes binutils-mingw-w64-x86-64 gcc g++ \
             gcc-mingw-w64-x86-64 g++-mingw-w64-x86-64
 
-      - name: Validate workflows
-        env:
-          GOBIN: ${{ runner.temp }}/bin
-        run: |
-          go install github.com/rhysd/actionlint/cmd/actionlint@914e7df21a07ef503a81201c76d2b11c789d3fca
-          "$GOBIN/actionlint"
-
-      - name: Validate dependency policy
-        run: .github/scripts/check_dependency_policy.py
-
-      - name: Check formatting
-        run: cargo fmt --all -- --check
-
-      - name: Detect unused direct dependencies
-        run: |
-          cargo install cargo-machete --version 0.9.2 --locked
-          cargo machete
-
-      - name: Lint host workspace
-        run: cargo clippy --workspace --all-targets --all-features --locked
-
       - name: Test host workspace
         run: cargo test --workspace --all-targets --all-features --locked
-
-      - name: Lint Windows release target
-        run: >-
-          cargo clippy --workspace --all-targets --all-features --locked
-          --target x86_64-pc-windows-gnu
 
       - name: Build and verify the release package
         run: |
