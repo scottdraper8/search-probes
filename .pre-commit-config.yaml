@@ -20,7 +20,7 @@ repos:
         args: [--fix=lf]
         exclude: *verbatim_license_texts
       - id: check-yaml
-        files: ^\.github/workflows/.*\.ya?ml$
+        files: ^\.github/(dependabot\.ya?ml|workflows/.*\.ya?ml)$
         types: [file]
       - id: check-toml
       - id: check-json
@@ -57,6 +57,7 @@ repos:
         entry: .github/scripts/check_dependency_policy.py
         language: python
         pass_filenames: false
+        always_run: true
         files: (^|/)Cargo\.toml$|^Cargo\.lock$|^rust-toolchain\.toml$
 
       - id: rustfmt
