@@ -32,6 +32,20 @@ pub struct Palette {
     pub warning_outline: Color32,
 }
 
+#[derive(Clone, Copy)]
+pub struct ProgressColors {
+    pub track: Color32,
+    pub fill: Color32,
+}
+
+pub fn progress_bar(ui: &mut egui::Ui, palette: Palette, fraction: f32) {
+    let colors = palette.progress();
+    ui.scope(|ui| {
+        ui.visuals_mut().extreme_bg_color = colors.track;
+        ui.add(egui::ProgressBar::new(fraction).fill(colors.fill));
+    });
+}
+
 const fn rgb(red: u8, green: u8, blue: u8) -> Color32 {
     Color32::from_rgb(red, green, blue)
 }
@@ -173,6 +187,14 @@ fn editor_palette(
 }
 
 impl Palette {
+    /// Progress must remain distinct even in palettes whose selection and input fills match.
+    pub fn progress(self) -> ProgressColors {
+        ProgressColors {
+            track: self.surface_container_high,
+            fill: ensure_contrast(self.primary, &[self.surface_container_high], 3.0),
+        }
+    }
+
     pub fn for_theme(theme: UiTheme) -> Self {
         match theme {
             UiTheme::SearchProbesDark => Self {
@@ -693,6 +715,56 @@ mod tests {
                 "{} outline is not distinguishable",
                 theme.label()
             );
+        }
+    }
+
+    #[test]
+    fn all_progress_fills_and_toast_text_are_distinguishable() {
+        for &theme in UiTheme::ALL {
+            let palette = Palette::for_theme(theme);
+            let progress = palette.progress();
+            assert!(
+                contrast(progress.fill, progress.track) >= 3.0,
+                "{} progress",
+                theme.label()
+            );
+            assert!(
+                contrast(palette.on_surface, palette.surface) >= 4.5,
+                "{} toast",
+                theme.label()
+            );
+        }
+    }
+
+    #[test]
+    fn progress_component_paints_semantic_colors_at_every_progress_boundary() {
+        fn contains_fill(shape: &egui::Shape, color: Color32) -> bool {
+            match shape {
+                egui::Shape::Rect(rect) => rect.fill == color,
+                egui::Shape::Vec(shapes) => shapes.iter().any(|shape| contains_fill(shape, color)),
+                _ => false,
+            }
+        }
+        for &theme in UiTheme::ALL {
+            for fraction in [0.0, 0.5, 1.0] {
+                let context = egui::Context::default();
+                let palette = Palette::for_theme(theme);
+                let colors = palette.progress();
+                let mut output = context.run_ui(egui::RawInput::default(), |ui| {
+                    progress_bar(ui, palette, fraction)
+                });
+                output.textures_delta.clear();
+                for color in [colors.track, colors.fill] {
+                    assert!(
+                        output
+                            .shapes
+                            .iter()
+                            .any(|shape| contains_fill(&shape.shape, color)),
+                        "{} at {fraction} omitted {color:?}",
+                        theme.label()
+                    );
+                }
+            }
         }
     }
 

@@ -1,6 +1,9 @@
 use ash::vk;
 use search_probes_model::binding::{BindingDevice, ControllerButton, InputBinding, KeyboardKey};
-use search_probes_ui::egui::{self, Event, Key, Modifiers, PointerButton};
+use search_probes_ui::{
+    OverlayMode,
+    egui::{self, Event, Key, Modifiers, PointerButton},
+};
 use std::{
     collections::BTreeMap,
     sync::{
@@ -130,6 +133,7 @@ impl Input {
 pub struct InputFrame {
     pub raw: egui::RawInput,
     pub controller: Vec<(u8, ControllerButton, bool)>,
+    pub mode: OverlayMode,
 }
 
 pub fn install(hwnd: usize) -> Result<(), String> {
@@ -161,13 +165,20 @@ fn modifiers() -> Modifiers {
         command: down(i32::from(VK_CONTROL)),
     }
 }
-fn deactivate(input: &mut Input) {
+fn deactivate_interaction(input: &mut Input) {
     ACTIVE.store(false, Ordering::Release);
-    HOTKEY_DOWN.store(false, Ordering::Release);
-    RECOVERY_HOTKEY_DOWN.store(false, Ordering::Release);
     input.buttons = [false; 3];
     input.events.clear();
     input.surrogate = None;
+}
+fn deactivate(input: &mut Input) {
+    deactivate_interaction(input);
+    HOTKEY_DOWN.store(false, Ordering::Release);
+    RECOVERY_HOTKEY_DOWN.store(false, Ordering::Release);
+}
+fn restore_interaction(input: &mut Input) -> Option<GameInput> {
+    deactivate_interaction(input);
+    input.game.take()
 }
 fn restore(input: &mut Input) -> Option<GameInput> {
     deactivate(input);
@@ -427,6 +438,7 @@ pub fn take(
     time: f64,
     binding: InputBinding,
     capture_device: Option<BindingDevice>,
+    notifications: bool,
 ) -> Option<InputFrame> {
     let window = hwnd as HWND;
     let focused = process_has_focus();
@@ -477,11 +489,23 @@ pub fn take(
         deactivate(&mut input);
         return None;
     }
-    if !input.visible || iconic || rect.right <= 0 || rect.bottom <= 0 {
-        let game = restore(&mut input);
+    let mode = OverlayMode::select(
+        focused,
+        !iconic && rect.right > 0 && rect.bottom > 0,
+        input.visible,
+        notifications,
+    );
+    if mode != Some(OverlayMode::Interactive) {
+        // Keep suppressing a still-held overlay chord until physical release. Interaction and
+        // cursor capture end here, but chord lifetime is updated by the next input poll.
+        let game = restore_interaction(&mut input);
         drop(input);
         restore_game_input(game, true);
-        return None;
+        return mode.map(|mode| InputFrame {
+            raw: raw_frame(extent, scale, time, Vec::new()),
+            controller: Vec::new(),
+            mode,
+        });
     }
     let activated = !ACTIVE.swap(true, Ordering::AcqRel);
     if activated && input.game.is_none() {
@@ -508,17 +532,7 @@ pub fn take(
             });
         }
     }
-    let screen_rect = egui::Rect::from_min_size(
-        egui::Pos2::ZERO,
-        egui::vec2(extent.width as f32 / scale, extent.height as f32 / scale),
-    );
-    let mut raw = egui::RawInput {
-        screen_rect: Some(screen_rect),
-        time: Some(time),
-        events: std::mem::take(&mut input.events),
-        focused: true,
-        ..Default::default()
-    };
+    let raw = raw_frame(extent, scale, time, std::mem::take(&mut input.events));
     drop(input);
     // These Win32 calls may synchronously re-enter the window procedure.
     if activated {
@@ -529,12 +543,31 @@ pub fn take(
             SetCursor(cursor);
         }
     }
+    Some(InputFrame {
+        raw,
+        controller,
+        mode: OverlayMode::Interactive,
+    })
+}
+
+fn raw_frame(extent: vk::Extent2D, scale: f32, time: f64, events: Vec<Event>) -> egui::RawInput {
+    let screen_rect = egui::Rect::from_min_size(
+        egui::Pos2::ZERO,
+        egui::vec2(extent.width as f32 / scale, extent.height as f32 / scale),
+    );
+    let mut raw = egui::RawInput {
+        screen_rect: Some(screen_rect),
+        time: Some(time),
+        events,
+        focused: true,
+        ..Default::default()
+    };
     if let Some(viewport) = raw.viewports.get_mut(&egui::ViewportId::ROOT) {
         viewport.native_pixels_per_point = Some(scale);
         viewport.inner_rect = Some(screen_rect);
         viewport.focused = Some(true);
     }
-    Some(InputFrame { raw, controller })
+    raw
 }
 
 fn key(value: WPARAM, lparam: LPARAM) -> Option<Key> {
