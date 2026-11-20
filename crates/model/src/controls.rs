@@ -97,10 +97,14 @@ impl Controls {
     }
     pub fn update(&self, operation: impl FnOnce(&mut State)) {
         let mut state = self.state.lock().unwrap_or_else(|e| e.into_inner());
-        let before = state
-            .progress
-            .as_ref()
-            .map(|progress| (progress.id, progress.phase, progress.user_paused));
+        let before = state.progress.as_ref().map(|progress| {
+            (
+                progress.id,
+                progress.phase,
+                progress.user_paused,
+                progress.results.len(),
+            )
+        });
         let prior_pause = state.search_pause;
         operation(&mut state);
         self.revision.fetch_add(1, Ordering::Release);
@@ -108,12 +112,22 @@ impl Controls {
             return;
         };
         let mut events = self.events.lock().unwrap_or_else(|e| e.into_inner());
-        let new_search = before.is_none_or(|(id, _, _)| id != progress.id);
+        let new_search = before.is_none_or(|(id, _, _, _)| id != progress.id);
         if new_search {
             events.push(progress, LifecycleEventKind::Started, self.uptime_ms());
+        } else if let Some((_, _, _, prior_results)) = before
+            && progress.results.len() > prior_results
+        {
+            events.push(
+                progress,
+                LifecycleEventKind::ResultsFound {
+                    count: progress.results.len() - prior_results,
+                },
+                self.uptime_ms(),
+            );
         }
         if progress.phase != Phase::Running {
-            if (new_search || before.is_some_and(|(_, phase, _)| phase == Phase::Running))
+            if (new_search || before.is_some_and(|(_, phase, _, _)| phase == Phase::Running))
                 && let Some(finish) = progress.finish
             {
                 events.push(
@@ -124,7 +138,7 @@ impl Controls {
             }
         } else if !new_search
             && !progress.user_paused
-            && before.is_some_and(|(_, _, paused)| !paused)
+            && before.is_some_and(|(_, _, paused, _)| !paused)
         {
             let automatic = |pause| match pause {
                 Some(SearchPause::Loading | SearchPause::OtherGalaxy) => pause,

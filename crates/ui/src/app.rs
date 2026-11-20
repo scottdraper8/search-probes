@@ -1,5 +1,6 @@
 use crate::{
     export::{ExportFormat, ExportRequest},
+    notifications::{Notification, Notifications},
     portal_glyphs::PortalGlyphs,
     theme::{self, Palette},
 };
@@ -14,23 +15,33 @@ use search_probes_model::{
         subtype_options_for,
     },
     fauna::{Domain, FaunaCriteria, FaunaField},
-    runtime::{Action, Availability, SearchPause, State},
-    session::Phase,
+    runtime::{Action, Availability, LifecycleEventKind, SearchPause, State},
+    session::{Finish, Phase},
     settings::{
         BUDGET_LABELS, BUDGETS, MAX_PRESETS, MAX_RESULTS, Preset, Settings, TimeLimit,
-        available_workers, recommended_workers, validate_name,
+        ToastPlacement, available_workers, recommended_workers, validate_name,
     },
     target::TargetKind,
     theme::UiTheme,
     vocabulary::RESOURCE_LABELS,
 };
-use std::sync::Arc;
+use std::{
+    sync::Arc,
+    time::{Duration, Instant},
+};
 
 const CRITERIA_SPLIT_MIN_WIDTH: f32 = 820.0;
 const CRITERIA_THREE_COLUMN_MIN_WIDTH: f32 = 1230.0;
 const MAIN_SPLIT_MIN_WIDTH: f32 = 2460.0;
 const SEARCH_PANEL_SPLIT_MIN_WIDTH: f32 = 800.0;
 const RESULT_CARD_MIN_WIDTH: f32 = 310.0;
+
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub enum Page {
+    #[default]
+    Search,
+    History,
+}
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum CapturedInput {
@@ -147,7 +158,12 @@ pub struct App {
     binding_window: bool,
     binding_capture: Option<BindingCapture>,
     export_request: Option<ExportRequest>,
-    export_status: Option<String>,
+    notifications: Notifications,
+    started: Instant,
+    settings_sidebar: bool,
+    page: Page,
+    viewed_search: Option<u64>,
+    lifecycle_sequence: u64,
     applied_theme: Option<UiTheme>,
     portal_glyphs: PortalGlyphs,
 }
@@ -186,7 +202,12 @@ impl App {
             binding_window: false,
             binding_capture: None,
             export_request: None,
-            export_status: None,
+            notifications: Notifications::default(),
+            started: Instant::now(),
+            settings_sidebar: false,
+            page: Page::Search,
+            viewed_search: None,
+            lifecycle_sequence: 0,
             applied_theme: None,
             portal_glyphs: PortalGlyphs::new(ctx),
         }
@@ -222,6 +243,76 @@ impl App {
                 settings: self.settings.clone(),
             });
         }
+    }
+
+    fn settings_contents(&mut self, ui: &mut Ui) {
+        let palette = self.palette();
+        ui.horizontal(|ui| {
+            ui.heading("Settings");
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                if ui.button("Close").clicked() {
+                    self.settings_sidebar = false;
+                }
+            });
+        });
+        ui.separator();
+        ui.horizontal(|ui| {
+            for (page, label) in [(Page::Search, "Search"), (Page::History, "History")] {
+                if ui.selectable_label(self.page == page, label).clicked() {
+                    self.page = page;
+                    self.settings_sidebar = false;
+                }
+            }
+        });
+        ui.separator();
+        egui::ScrollArea::vertical()
+            .id_salt("settings_sidebar_scroll")
+            .show(ui, |ui| {
+                ui.heading("Theme");
+                self.theme_control(ui);
+                ui.add_space(12.0);
+                ui.heading("UI Hotkey");
+                if ui
+                    .button(binding_text(self.settings.interface.hotkey))
+                    .clicked()
+                {
+                    self.binding_window = true;
+                }
+                ui.label(
+                    RichText::new("Recovery: Ctrl + Shift + Backspace")
+                        .small()
+                        .color(palette.on_surface_variant),
+                );
+                ui.add_space(12.0);
+                ui.heading("Notifications");
+                ui.label("Show in-game notifications for:");
+                let previous = self.settings.interface.notifications.clone();
+                let notifications = &mut self.settings.interface.notifications;
+                ui.checkbox(&mut notifications.result_found, "Result found");
+                ui.checkbox(&mut notifications.search_completed, "Search completed");
+                ui.checkbox(&mut notifications.automatic_pause, "Automatic pause");
+                ui.checkbox(&mut notifications.automatic_resume, "Automatic resume");
+                ui.add_space(8.0);
+                ui.label("Screen placement");
+                egui::ComboBox::from_id_salt("notification_placement")
+                    .selected_text(notifications.placement.label())
+                    .show_ui(ui, |ui| {
+                        for &placement in ToastPlacement::ALL {
+                            ui.selectable_value(
+                                &mut notifications.placement,
+                                placement,
+                                placement.label(),
+                            );
+                        }
+                    });
+                if *notifications != previous {
+                    self.notifications
+                        .update(self.started.elapsed(), notifications);
+                    self.send(Action::Configure {
+                        settings: self.settings.clone(),
+                    });
+                }
+            });
     }
     fn send(&mut self, action: Action) {
         let pending = matches!(&action, Action::Start { .. });
@@ -326,7 +417,7 @@ impl App {
                 match ExportRequest::presets_json(&self.state.settings) {
                     Ok(request) => {
                         self.export_request = Some(request);
-                        self.export_status = None;
+                        self.notifications.clear_export();
                     }
                     Err(error) => self.error = Some(error),
                 }
@@ -1029,6 +1120,138 @@ impl App {
                     });
             });
     }
+    fn history(&mut self, ui: &mut Ui) {
+        let records = self.state.search_history.clone();
+        if records.is_empty() {
+            ui.label("Completed and current searches will appear here.");
+            return;
+        }
+        let selected_id = self
+            .viewed_search
+            .filter(|id| records.iter().any(|record| record.progress.id == *id))
+            .unwrap_or_else(|| records.last().unwrap().progress.id);
+        self.viewed_search = Some(selected_id);
+        let selected_index = records
+            .iter()
+            .position(|record| record.progress.id == selected_id)
+            .unwrap();
+
+        ui.horizontal_wrapped(|ui| {
+            if ui
+                .add_enabled(selected_index > 0, egui::Button::new("← Older"))
+                .clicked()
+            {
+                self.viewed_search = Some(records[selected_index - 1].progress.id);
+            }
+            if ui
+                .add_enabled(
+                    selected_index + 1 < records.len(),
+                    egui::Button::new("Newer →"),
+                )
+                .clicked()
+            {
+                self.viewed_search = Some(records[selected_index + 1].progress.id);
+            }
+            ui.label(format!(
+                "{} retained search{}",
+                records.len(),
+                if records.len() == 1 { "" } else { "es" }
+            ));
+        });
+        ui.separator();
+
+        let viewed_id = self.viewed_search.unwrap_or(selected_id);
+        let record = records
+            .iter()
+            .find(|record| record.progress.id == viewed_id)
+            .cloned()
+            .unwrap_or_else(|| records[selected_index].clone());
+        let progress = &record.progress;
+        ui.horizontal_wrapped(|ui| {
+            ui.heading(format!("Search #{}", progress.id));
+            ui.label(search_phase(progress.phase, progress.finish));
+            if ui.button("Export search (.json)").clicked() {
+                match ExportRequest::search_json(&record) {
+                    Ok(request) => {
+                        self.export_request = Some(request);
+                        self.notifications.clear_export();
+                    }
+                    Err(error) => self.error = Some(error),
+                }
+            }
+        });
+        ui.label(format!(
+            "{} elapsed · {} systems checked · {} result{}",
+            elapsed(progress.elapsed_ms),
+            number(progress.systems),
+            progress.results.len(),
+            if progress.results.len() == 1 { "" } else { "s" }
+        ));
+        let time_limit = progress.options.time_limit.map_or_else(
+            || "No time limit".to_owned(),
+            |limit| format!("Time limit {:02}:{:02}", limit.hours, limit.minutes),
+        );
+        ui.small(format!(
+            "System limit {} · Result limit {} · {time_limit} · {} workers · {} ms frame budget",
+            number(progress.options.systems),
+            progress.options.results,
+            record
+                .execution
+                .workers
+                .map_or_else(|| "Automatic".to_owned(), |workers| workers.to_string()),
+            record.execution.frame_budget_ms,
+        ));
+        if let Some(error) = &progress.error {
+            ui.colored_label(self.palette().error, error);
+        }
+        ui.separator();
+        if progress.results.is_empty() {
+            ui.label("This search has no results.");
+            return;
+        }
+        egui::ScrollArea::vertical()
+            .id_salt("search_history_results")
+            .show(ui, |ui| {
+                for (index, result) in progress.results.iter().enumerate() {
+                    egui::Frame::group(ui.style()).show(ui, |ui| {
+                        ui.set_width(ui.available_width());
+                        ui.label(
+                            RichText::new(format!(
+                                "{}. {}",
+                                index + 1,
+                                result.title().unwrap_or("Name unavailable")
+                            ))
+                            .strong(),
+                        );
+                        ui.small(result.address.galactic_coordinates());
+                        ui.horizontal_wrapped(|ui| {
+                            if ui
+                                .add_enabled(
+                                    self.state.availability == Availability::Ready
+                                        && result.destination_names_complete()
+                                        && self.state.player.is_some_and(|player| {
+                                            player.coordinates().galaxy
+                                                == result.address.coordinates().galaxy
+                                        }),
+                                    egui::Button::new("Set destination"),
+                                )
+                                .clicked()
+                            {
+                                self.send(Action::Navigate {
+                                    search_id: progress.id,
+                                    target: result.target(),
+                                });
+                            }
+                            if ui.button("Copy portal code").clicked() {
+                                ui.ctx().copy_text(result.target().portal_code());
+                            }
+                        });
+                    });
+                    ui.add_space(6.0);
+                }
+            });
+    }
+
     fn results(&mut self, ui: &mut Ui) {
         let state = self.state.clone();
         ui.horizontal(|ui| {
@@ -1048,7 +1271,7 @@ impl App {
                                     Ok(request) => self.export_request = Some(request),
                                     Err(error) => self.error = Some(error),
                                 }
-                                self.export_status = None;
+                                self.notifications.clear_export();
                                 ui.close();
                             }
                         }
@@ -1071,16 +1294,13 @@ impl App {
                                     Err(error) => self.error = Some(error),
                                 }
                             }
-                            self.export_status = None;
+                            self.notifications.clear_export();
                             ui.close();
                         }
                     });
                 });
             }
         });
-        if let Some(status) = &self.export_status {
-            ui.colored_label(self.palette().success, status);
-        }
         if state.availability != Availability::Ready {
             ui.label(match state.availability {
                 Availability::MainMenu => "Load a save to search.",
@@ -1100,15 +1320,15 @@ impl App {
                 progress.results.len(),
                 elapsed(progress.elapsed_ms),
             ));
-            ui.add(
-                egui::ProgressBar::new(
-                    (progress.systems as f64 / progress.options.systems as f64) as f32,
-                )
-                .text(format!(
-                    "{} / {} systems",
-                    number(progress.systems),
-                    number(progress.options.systems)
-                )),
+            ui.label(format!(
+                "{} / {} systems",
+                number(progress.systems),
+                number(progress.options.systems)
+            ));
+            theme::progress_bar(
+                ui,
+                self.palette(),
+                (progress.systems as f64 / progress.options.systems as f64) as f32,
             );
             ui.label(match progress.phase {
                 Phase::Running => match state.search_pause {
@@ -1263,12 +1483,153 @@ impl App {
         match result {
             Ok(Some(path)) => {
                 self.error = None;
-                self.export_status = Some(format!("Exported results to {path}"));
+                self.notifications.exported(path, self.started.elapsed());
             }
             Ok(None) => {}
             Err(error) => {
-                self.export_status = None;
+                self.notifications.clear_export();
                 self.error = Some(format!("Cannot export results: {error}"));
+            }
+        }
+    }
+
+    /// Supplies an already deduplicated lifecycle event. The runtime owns search identity and
+    /// must not supply direct user pause/resume as automatic events.
+    pub fn notify(&mut self, notification: Notification) {
+        self.notifications.push(
+            notification,
+            self.started.elapsed(),
+            &self.settings.interface.notifications,
+        );
+    }
+
+    /// Both timestamps must use the producer's same monotonic epoch. Only their difference is
+    /// mapped onto the UI clock, preserving expiry through delayed delivery or minimized windows.
+    pub fn notify_at(
+        &mut self,
+        notification: Notification,
+        occurred: Duration,
+        producer_now: Duration,
+    ) {
+        self.notifications.push_aged(
+            notification,
+            producer_now.saturating_sub(occurred),
+            self.started.elapsed(),
+            &self.settings.interface.notifications,
+        );
+    }
+
+    /// Call when the runtime begins a different search, before delivering its events.
+    pub fn clear_search_notifications(&mut self) {
+        self.notifications.clear_search();
+    }
+
+    pub fn page(&self) -> Page {
+        self.page
+    }
+
+    /// Prepare both interactive and passive overlay frames. Call even while its window is hidden.
+    pub fn prepare_frame(&mut self, ctx: &egui::Context) {
+        self.refresh();
+        self.apply_theme(ctx);
+    }
+
+    pub fn has_notifications(&self) -> bool {
+        !self.notifications.is_empty()
+    }
+
+    pub fn show_notifications(&mut self, ctx: &egui::Context) {
+        self.notifications.update(
+            self.started.elapsed(),
+            &self.settings.interface.notifications,
+        );
+        self.notifications.show(
+            ctx,
+            self.palette(),
+            self.settings.interface.notifications.placement,
+        );
+    }
+
+    fn apply_theme(&mut self, ctx: &egui::Context) {
+        let selected_theme = self.settings.interface.theme;
+        if self.applied_theme != Some(selected_theme) {
+            theme::apply(ctx, selected_theme);
+            self.applied_theme = Some(selected_theme);
+            ctx.request_repaint();
+        }
+    }
+
+    fn consume_lifecycle_events(&mut self) {
+        let events = self
+            .controls
+            .lifecycle_events_after(self.lifecycle_sequence);
+        let producer_now = Duration::from_millis(self.controls.uptime_ms());
+        for event in events {
+            self.lifecycle_sequence = self.lifecycle_sequence.max(event.sequence);
+            let occurred = Duration::from_millis(event.published_ms);
+            let notification = match event.kind {
+                LifecycleEventKind::Started => {
+                    self.clear_search_notifications();
+                    None
+                }
+                LifecycleEventKind::ResultsFound { count } => {
+                    Some(Notification::ResultsFound { count })
+                }
+                LifecycleEventKind::AutomaticPause { cause } => {
+                    let reason = match cause {
+                        SearchPause::Loading => "Search paused while the game loads.",
+                        SearchPause::OtherGalaxy => {
+                            "Search paused until you return to its starting galaxy."
+                        }
+                        SearchPause::User => continue,
+                    };
+                    Some(Notification::AutomaticallyPaused {
+                        reason: reason.into(),
+                    })
+                }
+                LifecycleEventKind::AutomaticResume { cause } => {
+                    if cause == SearchPause::User {
+                        continue;
+                    }
+                    Some(Notification::AutomaticallyResumed)
+                }
+                LifecycleEventKind::Finished { finish } => match finish {
+                    Finish::Cancelled => None,
+                    Finish::Results => Some(Notification::SearchCompleted {
+                        message: format!(
+                            "Search completed after finding {} result{}.",
+                            event.results,
+                            if event.results == 1 { "" } else { "s" }
+                        ),
+                    }),
+                    Finish::Budget => Some(Notification::SearchCompleted {
+                        message: format!(
+                            "Search reached its system limit with {} result{}.",
+                            event.results,
+                            if event.results == 1 { "" } else { "s" }
+                        ),
+                    }),
+                    Finish::Exhausted => Some(Notification::SearchCompleted {
+                        message: format!(
+                            "Search exhausted the available systems with {} result{}.",
+                            event.results,
+                            if event.results == 1 { "" } else { "s" }
+                        ),
+                    }),
+                    Finish::TimeLimit => Some(Notification::SearchCompleted {
+                        message: format!(
+                            "Search reached its time limit with {} result{}.",
+                            event.results,
+                            if event.results == 1 { "" } else { "s" }
+                        ),
+                    }),
+                    Finish::Failed => Some(Notification::SearchCompleted {
+                        message: "Search stopped after an error.".into(),
+                    }),
+                },
+            };
+            if let Some(notification) = notification {
+                self.notify_at(notification, occurred, producer_now);
             }
         }
     }
@@ -1299,16 +1660,39 @@ impl App {
         {
             self.pending_search = None;
         }
+        if self.viewed_search.is_some_and(|id| {
+            !state
+                .search_history
+                .iter()
+                .any(|record| record.progress.id == id)
+        }) {
+            self.viewed_search = None;
+        }
+        self.consume_lifecycle_events();
+        self.notifications.update(
+            self.started.elapsed(),
+            &self.settings.interface.notifications,
+        );
     }
     pub fn ui(&mut self, ui: &mut Ui) {
-        let selected_theme = self.settings.interface.theme;
-        if self.applied_theme != Some(selected_theme) {
-            theme::apply(ui.ctx(), selected_theme);
-            self.applied_theme = Some(selected_theme);
-            ui.ctx().request_repaint();
-        }
+        self.apply_theme(ui.ctx());
         let palette = self.palette();
         self.capture_keyboard(ui.ctx());
+        if self.settings_sidebar {
+            if ui.available_width() < 700.0 {
+                egui::Frame::new()
+                    .fill(palette.background)
+                    .inner_margin(16.0)
+                    .show(ui, |ui| self.settings_contents(ui));
+                self.binding_dialog(ui.ctx());
+                return;
+            }
+            egui::Panel::right("search_probes_settings")
+                .exact_size(300.0)
+                .resizable(false)
+                .frame(egui::Frame::new().fill(palette.surface).inner_margin(12.0))
+                .show(ui, |ui| self.settings_contents(ui));
+        }
         egui::Frame::new()
             .inner_margin(16.0)
             .fill(palette.background)
@@ -1316,20 +1700,28 @@ impl App {
                 ui.horizontal(|ui| {
                     ui.heading(RichText::new("Search Probes").size(28.0));
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        if ui
-                            .button(format!(
-                                "UI Hotkey  ·  {}",
-                                binding_text(self.settings.interface.hotkey)
-                            ))
-                            .clicked()
-                        {
-                            self.binding_window = true;
+                        let settings = ui.button("⚙").on_hover_text("Settings");
+                        settings.widget_info(|| {
+                            egui::WidgetInfo::labeled(egui::WidgetType::Button, true, "Settings")
+                        });
+                        if settings.clicked() {
+                            self.settings_sidebar = !self.settings_sidebar;
                         }
-                        self.theme_control(ui);
                     });
                 });
                 if let Some(error) = self.error.as_ref().or(self.state.error.as_ref()) {
                     ui.colored_label(palette.error, error);
+                }
+
+                if self.page == Page::History {
+                    ui.horizontal(|ui| {
+                        ui.heading("History");
+                        if ui.button("Back to Search").clicked() {
+                            self.page = Page::Search;
+                        }
+                    });
+                    self.history(ui);
+                    return;
                 }
 
                 egui::Frame::group(ui.style()).show(ui, |ui| {
@@ -1380,8 +1772,14 @@ fn reconcile_settings(draft: &mut Settings, previous: &Settings, published: &Set
     if draft.presets == previous.presets {
         draft.presets = published.presets.clone();
     }
-    if draft.interface == previous.interface {
-        draft.interface = published.interface.clone();
+    if draft.interface.theme == previous.interface.theme {
+        draft.interface.theme = published.interface.theme;
+    }
+    if draft.interface.hotkey == previous.interface.hotkey {
+        draft.interface.hotkey = published.interface.hotkey;
+    }
+    if draft.interface.notifications == previous.interface.notifications {
+        draft.interface.notifications = published.interface.notifications.clone();
     }
     if draft.workers == previous.workers {
         draft.workers = published.workers;
@@ -2157,6 +2555,19 @@ fn elapsed(milliseconds: u64) -> String {
     format!("{hours:02}:{minutes:02}:{seconds:02}")
 }
 
+fn search_phase(phase: Phase, finish: Option<Finish>) -> &'static str {
+    match (phase, finish) {
+        (Phase::Running, _) => "Running",
+        (Phase::Cancelled, _) | (_, Some(Finish::Cancelled)) => "Cancelled",
+        (Phase::Failed, _) | (_, Some(Finish::Failed)) => "Failed",
+        (_, Some(Finish::Results)) => "Result limit reached",
+        (_, Some(Finish::Budget)) => "System limit reached",
+        (_, Some(Finish::Exhausted)) => "Systems exhausted",
+        (_, Some(Finish::TimeLimit)) => "Time limit reached",
+        (Phase::Completed, None) => "Completed",
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -2166,6 +2577,95 @@ mod tests {
         assert_eq!(elapsed(0), "00:00:00");
         assert_eq!(elapsed(3_661_999), "01:01:01");
         assert_eq!(elapsed(359_940_000), "99:59:00");
+    }
+
+    fn rendered_texts(app: &mut App, context: &egui::Context, size: egui::Vec2) -> Vec<String> {
+        fn collect(shape: &egui::Shape, texts: &mut Vec<String>) {
+            match shape {
+                egui::Shape::Text(text) => texts.push(text.galley.job.text.clone()),
+                egui::Shape::Vec(shapes) => {
+                    for shape in shapes {
+                        collect(shape, texts);
+                    }
+                }
+                _ => {}
+            }
+        }
+        let raw = egui::RawInput {
+            screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, size)),
+            ..Default::default()
+        };
+        let mut output = context.run_ui(raw, |ui| app.ui(ui));
+        output.textures_delta.clear();
+        let mut texts = Vec::new();
+        for shape in output.shapes {
+            collect(&shape.shape, &mut texts);
+        }
+        texts
+    }
+
+    #[test]
+    fn settings_sidebar_and_history_shell_render_at_wide_and_narrow_sizes() {
+        for width in [380.0, 1100.0] {
+            let context = egui::Context::default();
+            let controls = Arc::new(Controls::new(State::new(Settings::default())));
+            let mut app = App::new(&context, controls);
+            app.settings_sidebar = true;
+            let texts = rendered_texts(&mut app, &context, egui::vec2(width, 840.0));
+            for title in [
+                "Settings",
+                "History",
+                "Theme",
+                "UI Hotkey",
+                "Notifications",
+                "Screen placement",
+            ] {
+                assert!(
+                    texts.iter().any(|text| text == title),
+                    "{width}px omitted {title}: {texts:?}"
+                );
+            }
+            app.settings_sidebar = false;
+            app.page = Page::History;
+            let texts = rendered_texts(&mut app, &context, egui::vec2(width, 840.0));
+            assert!(texts.iter().any(|text| text == "History"));
+            assert!(texts.iter().any(|text| text == "Back to Search"));
+            assert!(!texts.iter().any(|text| text == "Presets"));
+        }
+    }
+
+    #[test]
+    fn interface_reconciliation_preserves_pending_theme_while_accepting_published_hotkey() {
+        let previous = Settings::default();
+        let mut draft = previous.clone();
+        draft.interface.theme = UiTheme::NoMansSky;
+        let mut published = previous.clone();
+        published.interface.hotkey = InputBinding::Keyboard {
+            first: KeyboardKey::F8,
+            second: None,
+        };
+        published.interface.notifications.automatic_resume = false;
+        reconcile_settings(&mut draft, &previous, &published);
+        assert_eq!(draft.interface.theme, UiTheme::NoMansSky);
+        assert_eq!(draft.interface.hotkey, published.interface.hotkey);
+        assert_eq!(
+            draft.interface.notifications,
+            published.interface.notifications
+        );
+    }
+
+    #[test]
+    fn export_cancel_does_not_claim_success_and_error_clears_confirmation() {
+        let context = egui::Context::default();
+        let controls = Arc::new(Controls::new(State::new(Settings::default())));
+        let mut app = App::new(&context, controls);
+        app.finish_export(Ok(None));
+        assert!(!app.has_notifications());
+        app.finish_export(Ok(Some("results.csv".into())));
+        assert!(app.has_notifications());
+        app.finish_export(Err("disk full".into()));
+        assert!(!app.has_notifications());
+        assert!(app.error.as_deref().unwrap().contains("disk full"));
     }
 
     fn result(kind: TargetKind) -> CachedMatch {

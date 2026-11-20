@@ -79,6 +79,7 @@ pub enum SearchPause {
 #[serde(tag = "type", rename_all = "snake_case", deny_unknown_fields)]
 pub enum LifecycleEventKind {
     Started,
+    ResultsFound { count: usize },
     AutomaticPause { cause: SearchPause },
     AutomaticResume { cause: SearchPause },
     Finished { finish: Finish },

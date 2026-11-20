@@ -132,6 +132,62 @@ pub struct Settings {
 pub struct InterfaceSettings {
     pub hotkey: InputBinding,
     pub theme: UiTheme,
+    pub notifications: NotificationSettings,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct NotificationSettings {
+    pub result_found: bool,
+    pub search_completed: bool,
+    pub automatic_pause: bool,
+    pub automatic_resume: bool,
+    pub placement: ToastPlacement,
+}
+
+impl Default for NotificationSettings {
+    fn default() -> Self {
+        Self {
+            result_found: true,
+            search_completed: true,
+            automatic_pause: true,
+            automatic_resume: true,
+            placement: ToastPlacement::TopRight,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ToastPlacement {
+    TopLeft,
+    TopCenter,
+    TopRight,
+    BottomLeft,
+    BottomCenter,
+    BottomRight,
+}
+
+impl ToastPlacement {
+    pub const ALL: &[Self] = &[
+        Self::TopLeft,
+        Self::TopCenter,
+        Self::TopRight,
+        Self::BottomLeft,
+        Self::BottomCenter,
+        Self::BottomRight,
+    ];
+
+    pub const fn label(self) -> &'static str {
+        match self {
+            Self::TopLeft => "Top left",
+            Self::TopCenter => "Top center",
+            Self::TopRight => "Top right",
+            Self::BottomLeft => "Bottom left",
+            Self::BottomCenter => "Bottom center",
+            Self::BottomRight => "Bottom right",
+        }
+    }
 }
 
 impl Default for Settings {
@@ -255,5 +311,31 @@ mod tests {
         assert_eq!(encoded["interface"]["hotkey"]["second"], "comma");
         assert_eq!(encoded["interface"]["theme"], "search_probes_dark");
         assert!(settings.validate().is_ok());
+    }
+
+    #[test]
+    fn notification_preferences_are_a_strict_current_contract() {
+        for &placement in ToastPlacement::ALL {
+            let mut settings = Settings::default();
+            settings.interface.notifications.placement = placement;
+            settings.interface.notifications.automatic_pause = false;
+            let encoded = serde_json::to_value(&settings).unwrap();
+            assert_eq!(
+                serde_json::from_value::<Settings>(encoded.clone()).unwrap(),
+                settings
+            );
+            let mut invalid = encoded.clone();
+            invalid["interface"]["notifications"]["placement"] = "anywhere".into();
+            assert!(serde_json::from_value::<Settings>(invalid).is_err());
+            let mut invalid = encoded.clone();
+            invalid["interface"]["notifications"]["unknown"] = true.into();
+            assert!(serde_json::from_value::<Settings>(invalid).is_err());
+            let mut incomplete = encoded;
+            incomplete["interface"]["notifications"]
+                .as_object_mut()
+                .unwrap()
+                .remove("automatic_pause");
+            assert!(serde_json::from_value::<Settings>(incomplete).is_err());
+        }
     }
 }
