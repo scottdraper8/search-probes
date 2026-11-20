@@ -9,6 +9,7 @@ on:
       - "Cargo.lock"
       - "Cargo.toml"
       - "crates/**/Cargo.toml"
+      - "crates/package/src/main.rs"
       - "rust-toolchain.toml"
   schedule:
     - cron: "23 11 * * 1"

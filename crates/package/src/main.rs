@@ -85,16 +85,30 @@ fn manifest(root: &Path) -> Result<BTreeMap<String, Value>> {
         .collect()
 }
 
-fn package_manifest(files: BTreeMap<String, Value>) -> Value {
-    json!({
+fn game_release_version() -> Result<&'static str> {
+    let version = supported::GAME_VERSION
+        .split_once(' ')
+        .map_or(supported::GAME_VERSION, |(version, _)| version);
+    if version.is_empty()
+        || version
+            .bytes()
+            .any(|byte| !byte.is_ascii_digit() && byte != b'.')
+    {
+        return Err("invalid game version for release naming".into());
+    }
+    Ok(version)
+}
+
+fn package_manifest(files: BTreeMap<String, Value>) -> Result<Value> {
+    Ok(json!({
         "format": 1,
         "product": "Search Probes",
-        "version": env!("CARGO_PKG_VERSION"),
+        "version": game_release_version()?,
         "game_version": supported::GAME_VERSION,
         "steam_build": supported::STEAM_BUILD,
         "nms_executable_sha256": supported::EXECUTABLE_SHA256,
         "files": files,
-    })
+    }))
 }
 
 fn archive(root: &Path, path: &Path, manifest: &Value) -> Result<()> {
@@ -163,6 +177,7 @@ fn verify(path: &Path) -> Result<()> {
     let actual = archive_manifest(&mut archive)?;
     if saved["format"] != 1
         || saved["product"] != "Search Probes"
+        || saved["version"] != game_release_version()?
         || saved["game_version"] != supported::GAME_VERSION
         || saved["steam_build"] != supported::STEAM_BUILD
         || saved["nms_executable_sha256"] != supported::EXECUTABLE_SHA256
@@ -250,7 +265,7 @@ fn package(workspace: &Path, output: &Path) -> Result<()> {
     licensing::collect(workspace, &notices)?;
     consolidate_notices(&notices, &temporary.join(THIRD_PARTY_NOTICES))?;
     fs::remove_dir_all(notices)?;
-    let manifest = package_manifest(manifest(&temporary)?);
+    let manifest = package_manifest(manifest(&temporary)?)?;
     fs::rename(&temporary, output)?;
     archive(output, &zip, &manifest)?;
     verify(&zip)?;
@@ -271,9 +286,14 @@ fn archive_path(output: &Path) -> PathBuf {
 
 fn run() -> Result<()> {
     let args: Vec<_> = std::env::args_os().skip(1).collect();
+    if args.len() == 1 && args[0] == "game-version" {
+        println!("{}", game_release_version()?);
+        return Ok(());
+    }
     if args.len() != 2 {
         return Err(
-            "usage: search-probes-package package OUTPUT-DIRECTORY | verify PACKAGE.zip".into(),
+            "usage: search-probes-package game-version | package OUTPUT-DIRECTORY | verify PACKAGE.zip"
+                .into(),
         );
     }
     let path = Path::new(&args[1]);
