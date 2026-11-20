@@ -264,7 +264,7 @@ struct VariantRequest<'a> {
     spawn: &'a Spawn,
     optional_layers: &'a std::collections::BTreeSet<(Vec<u8>, Vec<u8>)>,
     sampler: usize,
-    cancel: &'a std::sync::atomic::AtomicBool,
+    cancel: &'a crate::search::Stop<'a>,
 }
 
 pub struct Model {
@@ -705,14 +705,14 @@ impl Model {
         context: &Context,
         lut: &colour_lut::Lut,
         wanted: u32,
-        cancel: &std::sync::atomic::AtomicBool,
+        cancel: &crate::search::Stop<'_>,
     ) -> Result<Observation> {
         let mut preparation = Preparation::default();
         let mut colours = GRASS_COLOUR_SET;
         let mut possible = 0;
         let mut known = if self.materials.is_empty() { 0 } else { 0x7ff };
         for (index, material) in self.materials.iter().enumerate() {
-            if cancel.load(std::sync::atomic::Ordering::Acquire) {
+            if cancel.requested() {
                 return Err("planet observation cancelled");
             }
             let observed = material.observe_prepared(
@@ -1000,7 +1000,7 @@ impl Material {
             sampler,
             cancel,
         } = request;
-        if cancel.load(std::sync::atomic::Ordering::Acquire) {
+        if cancel.requested() {
             return Err("planet observation cancelled");
         }
         let key = (self as *const Self as usize, sampler);
@@ -1008,7 +1008,7 @@ impl Material {
             self.prepare_variants(context, spawn, optional_layers)
         })?;
         for combination in 0..prepared.combinations {
-            if cancel.load(std::sync::atomic::Ordering::Acquire) {
+            if cancel.requested() {
                 return Err("planet observation cancelled");
             }
             let pixels = preparation.recipe(key, &prepared, combination);
@@ -1025,7 +1025,7 @@ impl Material {
         &self,
         request: ObservationRequest<'_>,
         preparation: &mut Preparation,
-        cancel: &std::sync::atomic::AtomicBool,
+        cancel: &crate::search::Stop<'_>,
     ) -> Result<Observation> {
         let ObservationRequest {
             context,
@@ -1166,7 +1166,7 @@ impl Material {
                     return classify(&primary);
                 }
                 for overlay in &secondary {
-                    if cancel.load(std::sync::atomic::Ordering::Acquire) {
+                    if cancel.requested() {
                         return Err("planet observation cancelled");
                     }
                     let pixels: Vec<[f64; 4]> = primary
@@ -1314,7 +1314,7 @@ fn observe_spawn(
     context: &Context,
     filter: i32,
     wanted: u32,
-    cancel: &std::sync::atomic::AtomicBool,
+    cancel: &crate::search::Stop<'_>,
 ) -> Result<Observation> {
     let (model, lut, key, cached) = cache
         .lock()
@@ -1336,7 +1336,7 @@ pub fn inventory(
     context: &Context,
     filter: i32,
     enumeration_complete: bool,
-    cancel: &std::sync::atomic::AtomicBool,
+    cancel: &crate::search::Stop<'_>,
 ) -> Result<SurfaceModels> {
     const MAX_INVENTORY_JSON_BYTES: usize = 512 * 1024;
     let cache = cache()?;
@@ -1344,7 +1344,7 @@ pub fn inventory(
     let mut observations = Vec::with_capacity(models.len());
     let mut serialized_bytes = 2usize;
     for spawn in models {
-        if cancel.load(std::sync::atomic::Ordering::Relaxed) {
+        if cancel.requested() {
             return Err("planet observation cancelled");
         }
         let observed = observe_spawn(cache, spawn, context, filter, 0, cancel);

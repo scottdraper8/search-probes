@@ -16,6 +16,7 @@ fn filter(format: ExportFormat) -> Vec<u16> {
     let value = match format {
         ExportFormat::Text => "Text files (*.txt)\0*.txt\0All files (*.*)\0*.*\0\0",
         ExportFormat::Csv => "CSV files (*.csv)\0*.csv\0All files (*.*)\0*.*\0\0",
+        ExportFormat::Json => "JSON files (*.json)\0*.json\0All files (*.*)\0*.*\0\0",
     };
     value.encode_utf16().collect()
 }
@@ -25,7 +26,7 @@ pub fn save(hwnd: usize, request: &ExportRequest) -> Result<Option<String>, Stri
     let suggested = wide(&request.suggested_name());
     file[..suggested.len()].copy_from_slice(&suggested);
     let filter = filter(request.format);
-    let title = wide("Export Search Probes results");
+    let title = wide(&request.dialog_title());
     let extension = wide(request.format.extension());
     let mut dialog = OPENFILENAMEW {
         lStructSize: std::mem::size_of::<OPENFILENAMEW>() as u32,

@@ -1,5 +1,5 @@
 use crate::{
-    search::{Generator, Work},
+    search::{Generator, Stop, Work},
     workers::Workers,
 };
 use search_probes_model::{address::Address, cache::SystemRecord, criteria::Plan};
@@ -7,6 +7,7 @@ use std::sync::{
     OnceLock,
     atomic::{AtomicBool, AtomicUsize, Ordering},
 };
+use std::time::Instant;
 
 pub const MAX_BATCH: usize = 256;
 
@@ -24,6 +25,7 @@ pub struct Evaluation<'a> {
     pub difficulty: usize,
     pub workers: usize,
     pub cancel: &'a AtomicBool,
+    pub deadline: Option<Instant>,
 }
 
 pub struct Completed {
@@ -51,6 +53,7 @@ pub unsafe fn evaluate(
         difficulty,
         workers,
         cancel,
+        deadline,
     } = evaluation;
     if jobs.len() > MAX_BATCH
         || live.is_null()
@@ -63,6 +66,7 @@ pub unsafe fn evaluate(
         (0..jobs.len()).map(|_| OnceLock::new()).collect();
     let next = AtomicUsize::new(0);
     let live = live as usize;
+    let stop = Stop::new(cancel, deadline);
     let result = pool.run_count(workers, |_| {
         let mut generator = None;
         loop {
@@ -70,7 +74,7 @@ pub unsafe fn evaluate(
             let Some(job) = jobs.get(index) else {
                 break;
             };
-            let outcome = if cancel.load(Ordering::Acquire) {
+            let outcome = if stop.requested() {
                 Err("search cancelled before system generation")
             } else if let Some(cached) = job
                 .cached
@@ -90,7 +94,7 @@ pub unsafe fn evaluate(
                 });
                 match generator {
                     Ok(generator) => unsafe {
-                        generator.search(job.address, plan, difficulty, cancel, job.cached)
+                        generator.search(job.address, plan, difficulty, &stop, job.cached)
                     }
                     .and_then(|outcome| {
                         let (work, cancelled) = (outcome.work, outcome.cancelled);

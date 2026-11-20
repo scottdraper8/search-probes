@@ -235,6 +235,7 @@ fn negative_flags_and_mixed_system_planet_filters_are_all_required() {
                         &plan,
                         &system,
                         &[planet],
+                        None,
                     )
                     .unwrap();
                     let expected = if star < 2 && !pirate && size < 2 && !rings {

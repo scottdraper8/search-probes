@@ -70,7 +70,7 @@ impl ObjectTables {
         summaries: &ObjectTableCache,
         need_glow: u8,
         mut flora_models: Option<&mut Vec<crate::flora_appearance::Spawn>>,
-        cancel: &std::sync::atomic::AtomicBool,
+        cancel: &crate::search::Stop<'_>,
     ) -> Result<ObjectFlags, &'static str> {
         if planet.is_null() {
             return Err("null planet object source");
@@ -80,7 +80,7 @@ impl ObjectTables {
         unsafe {
             let (sources, count) = dynamic_array(planet.add(0x3210), 4096)?;
             for index in 0..count {
-                if cancel.load(std::sync::atomic::Ordering::Relaxed) {
+                if cancel.requested() {
                     return Err("planet object traversal cancelled");
                 }
                 let source = sources.add(index * 0x58);
@@ -166,7 +166,7 @@ impl ObjectTables {
         &self,
         filename: *const u8,
         glow: u8,
-        cancel: &std::sync::atomic::AtomicBool,
+        cancel: &crate::search::Stop<'_>,
     ) -> Result<Option<TableFacts>, &'static str> {
         let pointer = unsafe { (self.acquire)(self.cache, filename, false) };
         if pointer.is_null() {
@@ -189,7 +189,7 @@ impl ObjectTables {
                 .checked_add(count as u32)
                 .ok_or("object record count overflow")?;
             for index in 0..count {
-                if cancel.load(std::sync::atomic::Ordering::Relaxed) {
+                if cancel.requested() {
                     return Err("planet object traversal cancelled");
                 }
                 let object = unsafe { objects.add(index * 0x168) };

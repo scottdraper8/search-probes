@@ -50,6 +50,7 @@ enum ApplicationState {
     Loading,
     Gameplay,
     NewSession,
+    Shutdown,
 }
 
 pub fn epoch() -> u64 {
@@ -99,9 +100,8 @@ fn application_state(machine: usize, base: usize) -> ApplicationState {
         .ok();
     match vtable.and_then(|vtable| vtable.checked_sub(base)) {
         Some(SIMULATION_VTABLE | GALACTIC_MAP_VTABLE) => ApplicationState::Gameplay,
-        Some(SAVE_SELECTION_VTABLE | TITLE_SCREEN_VTABLE | SHUTDOWN_VTABLE) => {
-            ApplicationState::NewSession
-        }
+        Some(SHUTDOWN_VTABLE) => ApplicationState::Shutdown,
+        Some(SAVE_SELECTION_VTABLE | TITLE_SCREEN_VTABLE) => ApplicationState::NewSession,
         _ => ApplicationState::Loading,
     }
 }
@@ -141,6 +141,7 @@ unsafe extern "system" fn detour(this: *mut u8, key: *const u8, data: *mut u8, r
         STATE.store(state as u8, Ordering::Release);
         let result = match state {
             ApplicationState::Gameplay => crate::runtime::finish_application_transition(),
+            ApplicationState::Shutdown => crate::runtime::shutdown_application(),
             ApplicationState::Loading | ApplicationState::NewSession => {
                 crate::runtime::retire_application_sources(matches!(
                     state,

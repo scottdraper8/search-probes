@@ -108,6 +108,19 @@ impl Workers {
         self.workers.len()
     }
 
+    /// The gameplay dispatch owner must have drained every borrowed batch before shutdown.
+    pub fn shutdown(&mut self) {
+        for worker in &self.workers {
+            let _ = worker.commands.send(None);
+        }
+        for worker in &mut self.workers {
+            if let Some(thread) = worker.thread.take() {
+                let _ = thread.join();
+            }
+        }
+        self.workers.clear();
+    }
+
     pub fn run<F: Fn(usize) + Sync>(&self, task: F) -> Result<(), WorkerError> {
         self.run_count(self.count(), task)
     }
@@ -154,13 +167,26 @@ impl Workers {
 
 impl Drop for Workers {
     fn drop(&mut self) {
-        for worker in &self.workers {
-            let _ = worker.commands.send(None);
-        }
-        for worker in &mut self.workers {
-            if let Some(thread) = worker.thread.take() {
-                let _ = thread.join();
-            }
-        }
+        self.shutdown();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::atomic::AtomicUsize;
+
+    #[test]
+    fn shutdown_joins_all_dispatched_work_and_is_idempotent() {
+        let mut pool = Workers::new(2).unwrap();
+        let completed = AtomicUsize::new(0);
+        pool.run(|_| {
+            completed.fetch_add(1, Ordering::SeqCst);
+        })
+        .unwrap();
+        pool.shutdown();
+        assert_eq!(completed.load(Ordering::SeqCst), 2);
+        assert_eq!(pool.count(), 0);
+        pool.shutdown();
     }
 }
