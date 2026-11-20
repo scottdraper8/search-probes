@@ -5,6 +5,7 @@ on:
     paths:
       - ".github/dependabot.yml"
       - ".github/workflows/security.yml"
+      - ".github/workflows/release.yml"
       - "Cargo.lock"
       - "Cargo.toml"
       - "crates/**/Cargo.toml"

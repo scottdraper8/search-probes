@@ -1,10 +1,10 @@
 name: Release
 
 on:
-  pull_request_target:
+  push:
     branches: [main]
-    types: [closed]
     paths:
+      - ".github/workflows/release.yml"
       - "Cargo.lock"
       - "Cargo.toml"
       - "rust-toolchain.toml"
@@ -12,32 +12,36 @@ on:
       - "crates/**"
       - "license-policy.json"
       - "licenses/**"
+  workflow_dispatch:
 
-permissions:
-  contents: write
+permissions: {}
 
 concurrency:
   group: search-probes-release
   cancel-in-progress: false
 
 jobs:
-  release:
-    if: github.event.pull_request.merged == true
+  build:
+    if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    outputs:
+      version: ${{ steps.package.outputs.version }}
+      asset: ${{ steps.package.outputs.asset }}
+      sha256: ${{ steps.package.outputs.sha256 }}
     env:
       CARGO_TERM_COLOR: always
-      RELEASE_SHA: ${{ github.event.pull_request.merge_commit_sha }}
     steps:
       - name: Harden runner
         uses: step-security/harden-runner@dc2769abcc0fcfbadfc1df54081c1608579ef6b2 # v2.22.2
         with:
           egress-policy: audit
 
-      - name: Checkout merged source
+      - name: Checkout release source
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          fetch-depth: 0
-          ref: ${{ env.RELEASE_SHA }}
+          persist-credentials: false
 
       - name: Install Windows GNU compiler
         run: |
@@ -45,48 +49,91 @@ jobs:
           sudo apt-get install --yes binutils-mingw-w64-x86-64 gcc g++ \
             gcc-mingw-w64-x86-64 g++-mingw-w64-x86-64
 
-      - name: Install pinned Rust toolchain
-        run: |
-          rustup show active-toolchain
-          rustup target add x86_64-pc-windows-gnu
-
       - name: Build and verify package
         id: package
+        shell: bash
         run: |
+          set -euo pipefail
           cargo build --locked --release --target x86_64-pc-windows-gnu \
             -p search-probes-bootstrap -p search-probes-runtime
           version="$(cargo run --locked --quiet -p search-probes-package -- game-version)"
-          case "$version" in
-            ''|*[!0-9.]*)
-              echo "Invalid NMS release version: $version" >&2
-              exit 1
-              ;;
-          esac
+          if [[ ! "$version" =~ ^[0-9]+\.[0-9]+$ ]]; then
+            echo "Invalid NMS release version: $version" >&2
+            exit 1
+          fi
           cargo run --locked --quiet -p search-probes-package -- package "$RUNNER_TEMP/SearchProbes"
-          asset="$RUNNER_TEMP/search-probes-$version.zip"
-          mv "$RUNNER_TEMP/SearchProbes.zip" "$asset"
-          cargo run --locked --quiet -p search-probes-package -- verify "$asset"
-          sha256sum "$asset"
-          echo "version=$version" >> "$GITHUB_OUTPUT"
-          echo "asset=$asset" >> "$GITHUB_OUTPUT"
+          asset="SearchProbes${version}-$(date -u +%Y%m%d).zip"
+          mv "$RUNNER_TEMP/SearchProbes.zip" "$RUNNER_TEMP/$asset"
+          cargo run --locked --quiet -p search-probes-package -- verify "$RUNNER_TEMP/$asset"
+          digest="$(sha256sum "$RUNNER_TEMP/$asset" | cut -d ' ' -f 1)"
+          printf 'version=%s\nasset=%s\nsha256=%s\n' "$version" "$asset" "$digest" >> "$GITHUB_OUTPUT"
 
-      - name: Replace release for this NMS version
+      - name: Store verified package
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: release-package
+          path: ${{ runner.temp }}/${{ steps.package.outputs.asset }}
+          if-no-files-found: error
+          retention-days: 1
+
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Harden runner
+        uses: step-security/harden-runner@dc2769abcc0fcfbadfc1df54081c1608579ef6b2 # v2.22.2
+        with:
+          disable-sudo: true
+          egress-policy: audit
+
+      - name: Retrieve verified package
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: release-package
+          path: ${{ runner.temp }}/release
+
+      - name: Publish game-version release
+        shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
-          VERSION: ${{ steps.package.outputs.version }}
-          ASSET: ${{ steps.package.outputs.asset }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE_SHA: ${{ github.sha }}
+          VERSION: ${{ needs.build.outputs.version }}
+          ASSET: ${{ needs.build.outputs.asset }}
+          SHA256: ${{ needs.build.outputs.sha256 }}
         run: |
+          set -euo pipefail
+          [[ "$VERSION" =~ ^[0-9]+\.[0-9]+$ ]]
+          [[ "$ASSET" =~ ^SearchProbes[0-9]+\.[0-9]+-[0-9]{8}\.zip$ ]]
+          [[ "$SHA256" =~ ^[0-9a-f]{64}$ ]]
+          printf '%s  %s\n' "$SHA256" "$RUNNER_TEMP/release/$ASSET" | sha256sum --check
+          # Do not let an older queued run replace a newer main-branch build.
+          current="$(gh api "repos/$GH_REPO/git/ref/heads/main" --jq .object.sha)"
+          if [[ "$current" != "$RELEASE_SHA" ]]; then
+            echo "Main has advanced; refusing to publish an older build." >&2
+            exit 1
+          fi
           tag="nms-$VERSION"
-          git tag --force "$tag" "$RELEASE_SHA"
-          git push --force origin "refs/tags/$tag"
-          if gh release view "$tag" >/dev/null 2>&1; then
-            gh release upload "$tag" "$ASSET" --clobber
-            gh release edit "$tag" \
-              --title "Search Probes $VERSION" \
-              --notes "Compatible with No Man's Sky $VERSION."
+          refs="$(gh api "repos/$GH_REPO/git/matching-refs/tags/$tag")"
+          if jq -e --arg ref "refs/tags/$tag" 'any(.[]; .ref == $ref)' <<< "$refs" >/dev/null; then
+            gh api --method PATCH "repos/$GH_REPO/git/refs/tags/$tag" -f sha="$RELEASE_SHA" -F force=true >/dev/null
           else
-            gh release create "$tag" "$ASSET" \
-              --target "$RELEASE_SHA" \
+            gh api --method POST "repos/$GH_REPO/git/refs" -f ref="refs/tags/$tag" -f sha="$RELEASE_SHA" >/dev/null
+          fi
+          releases="$(gh api --paginate "repos/$GH_REPO/releases" --jq '.[].tag_name')"
+          if grep -Fxq -- "$tag" <<< "$releases"; then
+            gh release upload "$tag" "$RUNNER_TEMP/release/$ASSET" --clobber
+            gh release edit "$tag" --title "Search Probes $VERSION" \
+              --notes "Compatible with No Man's Sky $VERSION. SHA-256 ($ASSET): $SHA256"
+            gh release view "$tag" --json assets --jq '.assets[].name' | while IFS= read -r old; do
+              if [[ "$old" != "$ASSET" && "$old" =~ ^SearchProbes[0-9]+\.[0-9]+-[0-9]{8}\.zip$ ]]; then
+                gh release delete-asset "$tag" "$old" --yes
+              fi
+            done
+          else
+            gh release create "$tag" "$RUNNER_TEMP/release/$ASSET" --verify-tag \
               --title "Search Probes $VERSION" \
-              --notes "Compatible with No Man's Sky $VERSION."
+              --notes "Compatible with No Man's Sky $VERSION. SHA-256 ($ASSET): $SHA256"
           fi
