@@ -329,7 +329,7 @@ mod tests {
     use crate::{
         address::Coordinates,
         arena::{ArenaField, Creature, RankEvidence, Ranks, Selection as ArenaSelection},
-        criteria::{Predicate, Requirements, ResourceMode, Section},
+        criteria::{Predicate, Requirements},
         fauna::{Domain, Family, FaunaField, HeightRange, NameIdentity, Selection, Species},
     };
 
@@ -350,7 +350,6 @@ mod tests {
             system: Vec::new(),
             planet: vec![Predicate::Fauna(selection)],
             requirements: Requirements::default(),
-            match_modes: [ResourceMode::All; Section::ALL.len()],
         }
     }
 
@@ -369,7 +368,6 @@ mod tests {
             system: Vec::new(),
             planet: vec![Predicate::Arena(selection)],
             requirements: Requirements::default(),
-            match_modes: [ResourceMode::All; Section::ALL.len()],
         }
     }
 
@@ -399,7 +397,6 @@ mod tests {
             presence: None,
             masks,
             height: HeightRange::default(),
-            mode: ResourceMode::All,
         };
         let results = record(vec![Species {
             role: 5,
@@ -441,7 +438,6 @@ mod tests {
             presence: Some(false),
             masks: [0; FaunaField::ALL.len()],
             height: HeightRange::default(),
-            mode: ResourceMode::All,
         };
         let results = record(Vec::new()).results(address(), 0, &plan(selection));
 
@@ -462,7 +458,6 @@ mod tests {
         let plan = arena_plan(ArenaSelection {
             presence: None,
             masks,
-            mode: ResourceMode::All,
         });
         let mut record = record(vec![species(5)]);
         record.planets[0].set_arena(vec![Creature {
@@ -491,7 +486,6 @@ mod tests {
         let plan = arena_plan(ArenaSelection {
             presence: None,
             masks,
-            mode: ResourceMode::All,
         });
         let mut record = record(vec![species(4)]);
         record.planets[0].set_arena(vec![Creature {
