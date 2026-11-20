@@ -14,10 +14,10 @@ with **Ctrl + comma** by default. If a configured binding becomes unusable, use
 
 ## Acknowledgments
 
-- [No Man's Sky](https://www.nomanssky.com/) by Hello Games — the game that makes this mod possible.
+- [No Man's Sky](https://www.nomanssky.com/) by Hello Games — the game that makes this project possible.
 - [Lush Finder](https://www.nexusmods.com/nomanssky/mods/3368) and
-  [Creature Finder](https://www.nexusmods.com/nomanssky/mods/3876) by beihaixingchen — inspiration
-  for searching for planets and creatures.
+  [Creature Finder](https://www.nexusmods.com/nomanssky/mods/3876) by beihaixingchen — original inspiration
+  for starting this project.
 - [Oklab](https://bottosson.github.io/posts/oklab/) by Björn Ottosson — color space used to classify
   planet colors.
 - [NMSCoordinates](https://github.com/Kevin0M16/NMSCoordinates) — portal glyph artwork in search
