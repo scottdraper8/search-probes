@@ -12,7 +12,6 @@ use std::{
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct Policy {
-    schema: u32,
     allowed_licenses: Vec<String>,
     bundled_assets: Vec<BundledAsset>,
     extra_notice_files: BTreeMap<String, Vec<String>>,
@@ -59,7 +58,6 @@ struct SupplementalFile {
 
 #[derive(Serialize)]
 struct ToolchainIndex<'a> {
-    schema: u32,
     components: &'a [ToolchainComponent],
 }
 
@@ -112,10 +110,6 @@ fn validate_configuration(
     policy: &Policy,
     supplemental: &[SupplementalFile],
 ) -> Result<BTreeSet<LicenseId>> {
-    if policy.schema != 1 {
-        return Err(format!("unsupported license policy schema: {}", policy.schema).into());
-    }
-
     let mut allowed_names = BTreeSet::new();
     let mut allowed = BTreeSet::new();
     for name in &policy.allowed_licenses {
@@ -539,10 +533,7 @@ fn collect_toolchain_notices(
     }
     fs::write(
         output.join("TOOLCHAIN.json"),
-        serde_json::to_vec_pretty(&ToolchainIndex {
-            schema: 1,
-            components,
-        })?,
+        serde_json::to_vec_pretty(&ToolchainIndex { components })?,
     )?;
     Ok(())
 }

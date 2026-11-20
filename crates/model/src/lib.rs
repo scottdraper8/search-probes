@@ -15,6 +15,7 @@ pub mod storage;
 pub mod supported;
 pub mod target;
 pub mod terrain;
+pub mod ui_control;
 pub mod vocabulary;
 pub mod weather;
 
@@ -29,4 +30,5 @@ pub mod arena;
 pub mod binding;
 pub mod theme;
 
+pub mod agent_client;
 pub mod agent_control;

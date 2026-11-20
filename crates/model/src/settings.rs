@@ -342,7 +342,6 @@ mod tests {
         let settings = Settings::default();
         let encoded = serde_json::to_value(&settings).expect("settings serialize");
 
-        assert!(encoded.get("schema").is_none());
         assert_eq!(encoded["interface"]["hotkey"]["device"], "keyboard");
         assert_eq!(encoded["interface"]["hotkey"]["first"], "control_left");
         assert_eq!(encoded["interface"]["hotkey"]["second"], "comma");

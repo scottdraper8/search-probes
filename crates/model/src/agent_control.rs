@@ -4,6 +4,7 @@ use crate::{
     runtime::{Action, Availability},
     session::Phase,
     storage,
+    ui_control::{UI_ACTIONS, UiAction},
 };
 use serde::{Deserialize, Serialize};
 use std::{
@@ -17,8 +18,7 @@ use std::{
 
 pub const ENDPOINT: &str = "agent-control.json";
 pub const PROTOCOL_ID: &str = "search-probes.agent-control";
-pub const PROTOCOL_VERSION: u32 = 1;
-pub const CAPABILITIES: &[&str] = &["search.control/v1", "nms.current-world/v1"];
+pub const CAPABILITIES: &[&str] = &["search.control", "nms.current-world", "ui.control"];
 const MAX_BYTES: usize = 1_100_000;
 const MAX_LIFETIME_MS: u64 = 120_000;
 const MAX_RECEIPTS: usize = 256;
@@ -37,39 +37,68 @@ fn valid_id(id: &str) -> bool {
     id.len() == 32 && id.bytes().all(|c| c.is_ascii_hexdigit())
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct Protocol {
-    pub id: String,
-    pub version: u32,
+fn atomic_write_candidate(name: &str) -> bool {
+    name.strip_prefix(".search-probes-")
+        .and_then(|name| name.strip_suffix(".tmp"))
+        .is_some_and(|parts| {
+            let parts: Vec<_> = parts.split('-').collect();
+            parts.len() == 2
+                && parts
+                    .iter()
+                    .all(|part| !part.is_empty() && part.bytes().all(|byte| byte.is_ascii_digit()))
+        })
 }
+
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Endpoint {
-    pub schema: u32,
-    pub protocol: Protocol,
+    pub protocol: String,
     pub product: String,
     pub capabilities: Vec<String>,
+    pub ui_actions: Vec<UiActionDescriptor>,
     pub instance: String,
     pub process_id: u32,
     pub executable_sha256: String,
 }
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct UiActionDescriptor {
+    #[serde(rename = "type")]
+    pub kind: String,
+    pub fields: Vec<String>,
+}
 #[derive(Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct Request {
-    pub schema: u32,
     pub instance: String,
     pub request_id: String,
     pub generation: u64,
     pub expires_unix_ms: u64,
-    pub action: Action,
+    pub command: AgentCommand,
+}
+#[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum CommandChannel {
+    Runtime,
+    Ui,
+}
+#[derive(Deserialize, Serialize)]
+#[serde(
+    tag = "channel",
+    content = "action",
+    rename_all = "snake_case",
+    deny_unknown_fields
+)]
+pub enum AgentCommand {
+    Runtime(Action),
+    Ui(UiAction),
 }
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct Response {
-    pub schema: u32,
     pub instance: String,
     pub request_id: String,
+    pub channel: Option<CommandChannel>,
     pub command_id: Option<u64>,
     pub error: Option<String>,
 }
@@ -83,7 +112,14 @@ pub struct AgentControl {
     _owner: File,
 }
 impl AgentControl {
-    pub fn open(directory: &Path) -> io::Result<Self> {
+    pub fn open(directory: &Path, capabilities: &[&str]) -> io::Result<Self> {
+        if capabilities.is_empty()
+            || capabilities
+                .iter()
+                .any(|capability| capability.is_empty() || !CAPABILITIES.contains(capability))
+        {
+            return Err(invalid("Runtime capabilities are invalid"));
+        }
         fs::create_dir_all(directory)?;
         if unsafe_link(&fs::symlink_metadata(directory)?) {
             return Err(invalid("Runtime directory is a link or reparse point"));
@@ -122,17 +158,7 @@ impl AgentControl {
             let entry = entry?;
             let name = entry.file_name();
             let name = name.to_string_lossy();
-            if name
-                .strip_prefix(".search-probes-")
-                .and_then(|name| name.strip_suffix(".tmp"))
-                .is_some_and(|parts| {
-                    let parts: Vec<_> = parts.split('-').collect();
-                    parts.len() == 2
-                        && parts.iter().all(|part| {
-                            !part.is_empty() && part.bytes().all(|byte| byte.is_ascii_digit())
-                        })
-                })
-            {
+            if atomic_write_candidate(&name) {
                 remove_owned_file(&entry.path())?;
             }
         }
@@ -141,13 +167,16 @@ impl AgentControl {
             .map_err(io::Error::other)?
             .as_nanos();
         let endpoint = Endpoint {
-            schema: 2,
-            protocol: Protocol {
-                id: PROTOCOL_ID.into(),
-                version: PROTOCOL_VERSION,
-            },
+            protocol: PROTOCOL_ID.into(),
             product: "search-probes".into(),
-            capabilities: CAPABILITIES.iter().map(|value| (*value).into()).collect(),
+            capabilities: capabilities.iter().map(|value| (*value).into()).collect(),
+            ui_actions: UI_ACTIONS
+                .iter()
+                .map(|(kind, fields)| UiActionDescriptor {
+                    kind: (*kind).into(),
+                    fields: fields.iter().map(|field| (*field).into()).collect(),
+                })
+                .collect(),
             instance: format!("{:08x}-{stamp:032x}", std::process::id()),
             process_id: std::process::id(),
             executable_sha256: crate::supported::EXECUTABLE_SHA256.into(),
@@ -184,42 +213,63 @@ impl AgentControl {
         }
         Ok(())
     }
-    fn enqueue(&self, id: &str, path: &Path, controls: &Controls) -> Result<u64, String> {
-        let request: Request = storage::read_json(path, MAX_BYTES).map_err(|e| e.to_string())?;
-        let now = now_ms().map_err(|e| e.to_string())?;
-        if request.schema != 1
-            || request.request_id != id
-            || request.instance != self.endpoint.instance
-        {
-            return Err("Request does not belong to this runtime instance".into());
+    fn enqueue(
+        &self,
+        id: &str,
+        path: &Path,
+        controls: &Controls,
+    ) -> Result<(u64, CommandChannel), (Option<CommandChannel>, String)> {
+        let request: Request =
+            storage::read_json(path, MAX_BYTES).map_err(|error| (None, error.to_string()))?;
+        let channel = match &request.command {
+            AgentCommand::Runtime(_) => CommandChannel::Runtime,
+            AgentCommand::Ui(_) => CommandChannel::Ui,
+        };
+        let fail = |message: &str| (Some(channel), message.to_owned());
+        let now = now_ms().map_err(|error| (Some(channel), error.to_string()))?;
+        if request.request_id != id || request.instance != self.endpoint.instance {
+            return Err(fail("Request does not belong to this runtime instance"));
         }
         if request.expires_unix_ms < now
             || request.expires_unix_ms > now.saturating_add(MAX_LIFETIME_MS)
         {
-            return Err("Request expired or exceeds the maximum lifetime".into());
+            return Err(fail("Request expired or exceeds the maximum lifetime"));
         }
-        if matches!(request.action, Action::Navigate { .. }) {
-            return Err("Agent control accepts search commands, not navigation".into());
+        match request.command {
+            AgentCommand::Runtime(action) => {
+                if matches!(action, Action::Navigate { .. }) {
+                    return Err(fail(
+                        "Direct navigation is unavailable; select a published UI result",
+                    ));
+                }
+                if matches!(
+                    action,
+                    Action::Start { .. }
+                        | Action::SetSearchPaused { .. }
+                        | Action::InspectCurrent {}
+                ) && controls.availability() != Availability::Ready
+                {
+                    return Err(fail("The loaded game is not ready for this request"));
+                }
+                if matches!(action, Action::Start { .. })
+                    && controls
+                        .snapshot()
+                        .progress
+                        .as_ref()
+                        .is_some_and(|p| p.phase == Phase::Running)
+                {
+                    return Err(fail("A search is already active; cancel it first"));
+                }
+                controls
+                    .submit(request.generation, action)
+                    .map(|id| (id, CommandChannel::Runtime))
+                    .map_err(&fail)
+            }
+            AgentCommand::Ui(action) => controls
+                .submit_ui(request.generation, action)
+                .map(|id| (id, CommandChannel::Ui))
+                .map_err(fail),
         }
-        if matches!(
-            request.action,
-            Action::Start { .. } | Action::SetSearchPaused { .. } | Action::InspectCurrent {}
-        ) && controls.availability() != Availability::Ready
-        {
-            return Err("The loaded game is not ready for this request".into());
-        }
-        if matches!(request.action, Action::Start { .. })
-            && controls
-                .snapshot()
-                .progress
-                .as_ref()
-                .is_some_and(|p| p.phase == Phase::Running)
-        {
-            return Err("A search is already active; cancel it first".into());
-        }
-        controls
-            .submit(request.generation, request.action)
-            .map_err(str::to_owned)
     }
     /// Claim complete request files before enqueueing. A duplicate ID cannot enqueue twice.
     /// Only the persistence worker calls this; no native work or disk IO runs on the game thread.
@@ -230,6 +280,8 @@ impl AgentControl {
             let entry = entry?;
             let path = entry.path();
             let file_type = entry.file_type()?;
+            let name = entry.file_name();
+            let name = name.to_string_lossy();
             if file_type.is_file()
                 && path.extension().is_some_and(|s| s == "json")
                 && path
@@ -238,6 +290,13 @@ impl AgentControl {
                     .is_some_and(valid_id)
             {
                 files.push(path);
+            } else if file_type.is_file() && atomic_write_candidate(&name) {
+                let age = SystemTime::now()
+                    .duration_since(entry.metadata()?.modified()?)
+                    .unwrap_or_default();
+                if age > std::time::Duration::from_millis(MAX_LIFETIME_MS) {
+                    fs::remove_file(path)?;
+                }
             } else if file_type.is_dir() {
                 remove_owned_tree(&path)?;
             } else {
@@ -277,18 +336,18 @@ impl AgentControl {
                 prior.clone()
             } else {
                 let result = if seen.len() >= MAX_RECEIPTS {
-                    Err("Agent receipt capacity reached; retry later".into())
+                    Err((None, "Agent receipt capacity reached; retry later".into()))
                 } else {
                     self.enqueue(id, &claimed, controls)
                 };
-                let (command_id, error) = match result {
-                    Ok(id) => (Some(id), None),
-                    Err(e) => (None, Some(e)),
+                let (command_id, channel, error) = match result {
+                    Ok((id, channel)) => (Some(id), Some(channel), None),
+                    Err((channel, error)) => (None, channel, Some(error)),
                 };
                 let response = Response {
-                    schema: 1,
                     instance: self.endpoint.instance.clone(),
                     request_id: id.into(),
+                    channel,
                     command_id,
                     error,
                 };
@@ -422,11 +481,32 @@ mod tests {
     }
 
     #[test]
+    fn polling_preserves_an_atomic_request_write_until_its_final_rename() {
+        let directory = directory();
+        let agent = AgentControl::open(&directory, CAPABILITIES).unwrap();
+        let controls = Controls::new(crate::runtime::State::new(
+            crate::settings::Settings::default(),
+        ));
+        let candidate = agent
+            .requests
+            .join(format!(".search-probes-{}-1.tmp", std::process::id()));
+        fs::write(&candidate, b"partial").unwrap();
+
+        agent.poll(&controls).unwrap();
+
+        assert!(candidate.is_file());
+        fs::remove_file(candidate).unwrap();
+        agent.cleanup().unwrap();
+        drop(agent);
+        fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[test]
     fn exclusive_ownership_prevents_deleting_a_live_instances_artifacts() {
         let directory = directory();
-        let agent = AgentControl::open(&directory).unwrap();
+        let agent = AgentControl::open(&directory, CAPABILITIES).unwrap();
         let endpoint = storage::read_bytes(&directory.join(ENDPOINT), 4096).unwrap();
-        assert!(AgentControl::open(&directory).is_err());
+        assert!(AgentControl::open(&directory, CAPABILITIES).is_err());
         assert_eq!(
             storage::read_bytes(&directory.join(ENDPOINT), 4096).unwrap(),
             endpoint
@@ -440,7 +520,7 @@ mod tests {
     #[test]
     fn normal_and_stale_cleanup_remove_only_owned_artifacts_and_preserve_settings() {
         let directory = directory();
-        let agent = AgentControl::open(&directory).unwrap();
+        let agent = AgentControl::open(&directory, CAPABILITIES).unwrap();
         let previous = agent.requests.parent().unwrap().to_owned();
         storage::write_bytes(&directory.join("settings.json"), b"keep settings", 100).unwrap();
         storage::write_bytes(&directory.join("settings.backup.json"), b"keep backup", 100).unwrap();
@@ -464,7 +544,7 @@ mod tests {
         )
         .unwrap();
         drop(agent); // Simulates loss of process ownership without orderly cleanup.
-        let replacement = AgentControl::open(&directory).unwrap();
+        let replacement = AgentControl::open(&directory, CAPABILITIES).unwrap();
         assert!(!previous.exists());
         assert!(!directory.join("current.json").exists());
         assert!(!directory.join(".search-probes-123-456.tmp").exists());
@@ -485,7 +565,7 @@ mod tests {
     #[test]
     fn receipt_files_have_a_count_bound() {
         let directory = directory();
-        let agent = AgentControl::open(&directory).unwrap();
+        let agent = AgentControl::open(&directory, CAPABILITIES).unwrap();
         for index in 0..MAX_RECEIPTS + 30 {
             fs::write(agent.responses.join(format!("{index:032x}.json")), b"{}").unwrap();
         }
@@ -502,7 +582,7 @@ mod tests {
     #[test]
     fn invalid_request_artifacts_cannot_hide_a_valid_request() {
         let directory = directory();
-        let agent = AgentControl::open(&directory).unwrap();
+        let agent = AgentControl::open(&directory, CAPABILITIES).unwrap();
         for index in 0..MAX_REQUEST_FILES + 30 {
             fs::write(agent.requests.join(format!("junk-{index}")), b"junk").unwrap();
         }
@@ -513,12 +593,11 @@ mod tests {
             crate::settings::Settings::default(),
         ));
         let request = Request {
-            schema: 1,
             instance: agent.endpoint.instance.clone(),
             request_id: id.clone(),
             generation: controls.snapshot().generation,
             expires_unix_ms: now_ms().unwrap() + 1_000,
-            action: Action::Cancel {},
+            command: AgentCommand::Runtime(Action::Cancel {}),
         };
         storage::write_json(
             &agent.requests.join(format!("{id}.json")),
@@ -546,7 +625,7 @@ mod tests {
         let stale = directory.join("agent-control/00000001-00000000000000000000000000000001");
         fs::create_dir_all(&stale).unwrap();
         std::os::unix::fs::symlink(&outside, stale.join("escape")).unwrap();
-        assert!(AgentControl::open(&directory).is_err());
+        assert!(AgentControl::open(&directory, CAPABILITIES).is_err());
         assert!(outside.join("keep.txt").exists());
         fs::remove_file(stale.join("escape")).unwrap();
         fs::remove_dir_all(directory).unwrap();
@@ -561,13 +640,13 @@ mod tests {
         fs::create_dir_all(&outside).unwrap();
         fs::write(outside.join("current.json"), b"keep").unwrap();
         std::os::unix::fs::symlink(&outside, &directory).unwrap();
-        assert!(AgentControl::open(&directory).is_err());
+        assert!(AgentControl::open(&directory, CAPABILITIES).is_err());
         assert!(outside.join("current.json").exists());
         fs::remove_file(&directory).unwrap();
         fs::create_dir_all(&directory).unwrap();
         std::os::unix::fs::symlink(outside.join("current.json"), directory.join("runtime.lock"))
             .unwrap();
-        assert!(AgentControl::open(&directory).is_err());
+        assert!(AgentControl::open(&directory, CAPABILITIES).is_err());
         assert_eq!(fs::read(outside.join("current.json")).unwrap(), b"keep");
         fs::remove_file(directory.join("runtime.lock")).unwrap();
         fs::remove_dir_all(directory).unwrap();

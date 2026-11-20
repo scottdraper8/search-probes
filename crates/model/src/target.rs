@@ -70,7 +70,6 @@ impl TargetKind {
 pub struct Target {
     pub address: Address,
     pub kind: TargetKind,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub fauna_role: Option<u8>,
 }
 

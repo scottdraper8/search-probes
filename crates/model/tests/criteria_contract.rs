@@ -414,7 +414,9 @@ fn removed_mode_fields_are_rejected_instead_of_defaulted_or_ignored() {
             "accepted {value}"
         );
     }
-    let criteria: Criteria = serde_json::from_value(json!({"resources": {"selected": 3}})).unwrap();
+    assert!(serde_json::from_value::<Criteria>(json!({"resources": {"selected": 3}})).is_err());
+    let mut criteria = Criteria::default();
+    criteria.resources.selected = 3;
     let export = serde_json::to_value(&criteria).unwrap();
     assert!(export.get("match_modes").is_none());
     assert!(export.get("unique_resource_mode").is_none());

@@ -5,6 +5,7 @@ use crate::{
     session::{Finish, Progress, SearchRecord},
     settings::{Settings, validate_frame_budget},
     target::Target,
+    ui_control::UiState,
 };
 use serde::{Deserialize, Serialize};
 
@@ -151,7 +152,6 @@ pub enum AcquisitionScope {
 #[derive(Debug, Clone, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct CurrentWorld {
-    pub schema: u32,
     pub command_id: u64,
     pub address: Address,
     pub acquisition: AcquisitionScope,
@@ -255,7 +255,6 @@ impl CurrentWorld {
             }
         }
         Ok(Self {
-            schema: 1,
             command_id,
             address,
             acquisition: AcquisitionScope::CriteriaAndCore,
@@ -272,7 +271,7 @@ impl CurrentWorld {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct State {
     pub generation: u64,
@@ -286,16 +285,19 @@ pub struct State {
     pub cached_systems: usize,
     pub last_command: u64,
     /// Command that started the currently published search.
-    #[serde(default)]
     pub search_command: Option<u64>,
     pub error: Option<String>,
     pub destination: Option<Target>,
-    #[serde(default, skip_deserializing)]
+    pub ui: UiState,
     pub current_world: Option<CurrentWorld>,
 }
 
 impl State {
     pub fn new(settings: Settings) -> Self {
+        let ui = UiState {
+            draft_settings: settings.clone(),
+            ..UiState::default()
+        };
         Self {
             generation: 1,
             availability: Availability::Starting,
@@ -310,6 +312,7 @@ impl State {
             search_command: None,
             error: None,
             destination: None,
+            ui,
             current_world: None,
         }
     }

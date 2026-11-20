@@ -19,13 +19,19 @@ use search_probes_model::{
     session::{Finish, Phase},
     settings::{
         BUDGET_LABELS, BUDGETS, MAX_PRESETS, MAX_RESULTS, Preset, Settings, TimeLimit,
-        ToastPlacement, available_workers, recommended_workers, validate_name,
+        ToastPlacement, available_workers, recommended_workers, validate_frame_budget,
+        validate_name,
     },
     target::TargetKind,
     theme::UiTheme,
+    ui_control::{
+        HistoryDirection, ResultValue, TestToast, UiAction, UiCommand, UiExportFormat,
+        UiExportSource, UiOutput, UiPage, UiState, WaterScope,
+    },
     vocabulary::RESOURCE_LABELS,
 };
 use std::{
+    collections::{BTreeMap, BTreeSet},
     sync::Arc,
     time::{Duration, Instant},
 };
@@ -36,12 +42,7 @@ const MAIN_SPLIT_MIN_WIDTH: f32 = 2460.0;
 const SEARCH_PANEL_SPLIT_MIN_WIDTH: f32 = 800.0;
 const RESULT_CARD_MIN_WIDTH: f32 = 310.0;
 
-#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
-pub enum Page {
-    #[default]
-    Search,
-    History,
-}
+pub type Page = UiPage;
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum CapturedInput {
@@ -167,6 +168,41 @@ pub struct App {
     lifecycle_sequence: u64,
     applied_theme: Option<UiTheme>,
     portal_glyphs: PortalGlyphs,
+    overlay_visible: bool,
+    ui_last_command: u64,
+    ui_error: Option<String>,
+    ui_output: Option<UiOutput>,
+}
+
+fn labels_mask<'a>(
+    selected: &[String],
+    options: impl IntoIterator<Item = (u64, &'a str)>,
+) -> Result<u64, String> {
+    let mut available = BTreeMap::new();
+    for (mask, label) in options {
+        *available.entry(label).or_insert(0) |= mask;
+    }
+    let mut unique = BTreeSet::new();
+    let mut result = 0;
+    for label in selected {
+        if !unique.insert(label.as_str()) {
+            return Err(format!("Filter option is selected more than once: {label}"));
+        }
+        result |= available
+            .get(label.as_str())
+            .copied()
+            .ok_or_else(|| format!("Filter option is unavailable: {label}"))?;
+    }
+    Ok(result)
+}
+
+fn remove_empty_fauna(criteria: &mut Criteria, domain: Domain) {
+    let empty = criteria.fauna.get(&domain).is_some_and(|selected| {
+        selected.presence.is_none() && selected.choices.is_empty() && !selected.height.active()
+    });
+    if empty {
+        criteria.fauna.remove(&domain);
+    }
 }
 
 impl App {
@@ -212,6 +248,10 @@ impl App {
             lifecycle_sequence: 0,
             applied_theme: None,
             portal_glyphs: PortalGlyphs::new(ctx),
+            overlay_visible: false,
+            ui_last_command: 0,
+            ui_error: None,
+            ui_output: None,
         }
     }
 
@@ -273,6 +313,8 @@ impl App {
                 ui.heading("Theme");
                 self.theme_control(ui);
                 ui.add_space(12.0);
+                ui.separator();
+                ui.add_space(8.0);
                 ui.heading("UI Hotkey");
                 if ui
                     .button(binding_text(self.settings.interface.hotkey))
@@ -286,6 +328,8 @@ impl App {
                         .color(palette.on_surface_variant),
                 );
                 ui.add_space(12.0);
+                ui.separator();
+                ui.add_space(8.0);
                 ui.heading("Notifications");
                 ui.label("Show in-game notifications for:");
                 let previous = self.settings.interface.notifications.clone();
@@ -317,6 +361,9 @@ impl App {
             });
     }
     fn send(&mut self, action: Action) {
+        let _ = self.try_send(action);
+    }
+    fn try_send(&mut self, action: Action) -> Result<u64, String> {
         let pending = matches!(&action, Action::Start { .. });
         match self.controls.submit(self.state.generation, action) {
             Ok(id) => {
@@ -324,8 +371,12 @@ impl App {
                 if pending {
                     self.pending_search = Some(id);
                 }
+                Ok(id)
             }
-            Err(error) => self.error = Some(error.into()),
+            Err(error) => {
+                self.error = Some(error.into());
+                Err(error.into())
+            }
         }
     }
     fn preset_controls(&mut self, ui: &mut Ui) {
@@ -366,48 +417,17 @@ impl App {
                     .desired_width(220.0)
                     .char_limit(80),
             );
-            if ui.button("Save preset").clicked() {
-                let name = self.preset_name.trim().to_owned();
-                match validate_name(&name).and_then(|_| self.settings.search.validate()) {
-                    Err(error) => self.error = Some(error.into()),
-                    Ok(()) => {
-                        let existing =
-                            self.settings.presets.iter().position(|preset| {
-                                preset.name.to_lowercase() == name.to_lowercase()
-                            });
-                        let preset = Preset {
-                            name,
-                            search: self.settings.search.clone(),
-                        };
-                        if let Some(index) = existing {
-                            self.settings.presets[index] = preset;
-                            self.selected_preset = Some(index);
-                        } else if self.settings.presets.len() < MAX_PRESETS {
-                            self.selected_preset = Some(self.settings.presets.len());
-                            self.settings.presets.push(preset);
-                        } else {
-                            self.error = Some(
-                                "The Guide can display nine presets. Replace or remove one first."
-                                    .into(),
-                            );
-                            return;
-                        }
-                        self.send(Action::Configure {
-                            settings: self.settings.clone(),
-                        });
-                    }
-                }
+            if ui.button("Save preset").clicked()
+                && let Err(error) = self.save_preset()
+            {
+                self.error = Some(error);
             }
             if ui
                 .add_enabled(self.selected_preset.is_some(), egui::Button::new("Remove"))
                 .clicked()
-                && let Some(index) = self.selected_preset.take()
+                && let Err(error) = self.remove_preset()
             {
-                self.settings.presets.remove(index);
-                self.preset_name.clear();
-                self.send(Action::Configure {
-                    settings: self.settings.clone(),
-                });
+                self.error = Some(error);
             }
             if ui
                 .add_enabled(
@@ -428,38 +448,18 @@ impl App {
     }
     fn search_controls(&mut self, ui: &mut Ui) {
         if ui.available_width() >= SEARCH_PANEL_SPLIT_MIN_WIDTH {
-            ui.columns(2, |columns| {
+            ui.columns(3, |columns| {
                 self.search_scope(&mut columns[0]);
-                self.search_performance(&mut columns[1]);
+                self.search_time_limit(&mut columns[1]);
+                self.search_performance(&mut columns[2]);
             });
         } else {
             self.search_scope(ui);
             ui.separator();
+            self.search_time_limit(ui);
+            ui.separator();
             self.search_performance(ui);
         }
-        ui.separator();
-        ui.horizontal_wrapped(|ui| {
-            let mut enabled = self.settings.search.time_limit.is_some();
-            if ui.checkbox(&mut enabled, "Stop after").changed() {
-                self.settings.search.time_limit = enabled.then_some(TimeLimit {
-                    hours: 1,
-                    minutes: 0,
-                });
-            }
-            if let Some(limit) = &mut self.settings.search.time_limit {
-                ui.add(
-                    egui::DragValue::new(&mut limit.hours)
-                        .range(0..=99)
-                        .suffix(" h"),
-                );
-                ui.add(
-                    egui::DragValue::new(&mut limit.minutes)
-                        .range(0..=99)
-                        .suffix(" min"),
-                );
-                ui.label("maximum 99:99");
-            }
-        });
         ui.separator();
         let state = &self.state;
         let ready = state.availability == Availability::Ready;
@@ -477,7 +477,14 @@ impl App {
             .settings
             .validate()
             .and_then(|_| self.settings.search.validate_search());
-        ui.horizontal_wrapped(|ui| {
+        let current = state.progress.as_ref().and_then(|progress| {
+            state
+                .search_history
+                .iter()
+                .find(|record| record.progress.id == progress.id)
+                .cloned()
+        });
+        ui.horizontal(|ui| {
             if ui
                 .add_enabled(
                     ready && !active && valid.is_ok(),
@@ -511,12 +518,60 @@ impl App {
             {
                 self.send(Action::Cancel {});
             }
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                if ui
+                    .add_enabled(current.is_some(), egui::Button::new("Export search"))
+                    .on_hover_text("Export the current search settings and results as JSON")
+                    .clicked()
+                    && let Some(record) = &current
+                {
+                    match ExportRequest::search_json(record) {
+                        Ok(request) => self.export_request = Some(request),
+                        Err(error) => self.error = Some(error),
+                    }
+                    self.notifications.clear_export();
+                }
+            });
         });
         if self.pending_search.is_some() {
             ui.label("Starting search…");
         }
         if let Err(error) = valid {
             ui.colored_label(self.palette().error, error);
+        }
+    }
+
+    fn search_time_limit(&mut self, ui: &mut Ui) {
+        ui.heading(RichText::new("Time limit").size(16.0).strong());
+        let mut remove = false;
+        if let Some(limit) = &mut self.settings.search.time_limit {
+            ui.label("Stop after");
+            ui.horizontal_wrapped(|ui| {
+                ui.add(
+                    egui::DragValue::new(&mut limit.hours)
+                        .range(0..=99)
+                        .suffix(" h"),
+                );
+                ui.add(
+                    egui::DragValue::new(&mut limit.minutes)
+                        .range(0..=99)
+                        .suffix(" min"),
+                );
+            });
+            ui.label("Maximum 99 hours, 99 minutes");
+            remove = ui.button("Remove time limit").clicked();
+        } else {
+            ui.label("No time limit");
+            ui.label("The search continues until a result or system limit is reached.");
+            if ui.button("Set time limit").clicked() {
+                self.settings.search.time_limit = Some(TimeLimit {
+                    hours: 1,
+                    minutes: 0,
+                });
+            }
+        }
+        if remove {
+            self.settings.search.time_limit = None;
         }
     }
 
@@ -1286,14 +1341,11 @@ impl App {
             .map_or(&[][..], |progress| progress.results.as_slice());
         ui.horizontal(|ui| {
             ui.heading("Results");
-            if state.progress.is_some() {
-                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    ui.menu_button("Export", |ui| {
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                ui.add_enabled_ui(!results.is_empty(), |ui| {
+                    ui.menu_button("Export results", |ui| {
                         for format in [ExportFormat::Text, ExportFormat::Csv] {
-                            if ui
-                                .add_enabled(!results.is_empty(), egui::Button::new(format.label()))
-                                .clicked()
-                            {
+                            if ui.button(format.label()).clicked() {
                                 match ExportRequest::new(format, results) {
                                     Ok(request) => self.export_request = Some(request),
                                     Err(error) => self.error = Some(error),
@@ -1302,31 +1354,11 @@ impl App {
                                 ui.close();
                             }
                         }
-                        let current = state.progress.as_ref().and_then(|progress| {
-                            state
-                                .search_history
-                                .iter()
-                                .find(|record| record.progress.id == progress.id)
-                        });
-                        if ui
-                            .add_enabled(
-                                current.is_some(),
-                                egui::Button::new(ExportFormat::Json.label()),
-                            )
-                            .clicked()
-                        {
-                            if let Some(record) = current {
-                                match ExportRequest::search_json(record) {
-                                    Ok(request) => self.export_request = Some(request),
-                                    Err(error) => self.error = Some(error),
-                                }
-                            }
-                            self.notifications.clear_export();
-                            ui.close();
-                        }
                     });
-                });
-            }
+                })
+                .response
+                .on_disabled_hover_text("There are no results to export");
+            });
         });
         if state.availability != Availability::Ready {
             ui.label(match state.availability {
@@ -1497,6 +1529,597 @@ impl App {
 }
 
 impl App {
+    fn save_preset(&mut self) -> Result<u64, String> {
+        let name = self.preset_name.trim().to_owned();
+        validate_name(&name)
+            .and_then(|_| self.settings.search.validate())
+            .map_err(str::to_owned)?;
+        let existing = self
+            .settings
+            .presets
+            .iter()
+            .position(|preset| preset.name.to_lowercase() == name.to_lowercase());
+        let preset = Preset {
+            name,
+            search: self.settings.search.clone(),
+        };
+        if let Some(index) = existing {
+            self.settings.presets[index] = preset;
+            self.selected_preset = Some(index);
+        } else if self.settings.presets.len() < MAX_PRESETS {
+            self.selected_preset = Some(self.settings.presets.len());
+            self.settings.presets.push(preset);
+        } else {
+            return Err("The Guide can display nine presets. Replace or remove one first.".into());
+        }
+        self.try_send(Action::Configure {
+            settings: self.settings.clone(),
+        })
+    }
+
+    fn remove_preset(&mut self) -> Result<u64, String> {
+        let index = self
+            .selected_preset
+            .take()
+            .ok_or_else(|| "No preset is selected".to_owned())?;
+        if index >= self.settings.presets.len() {
+            return Err("Selected preset is unavailable".into());
+        }
+        self.settings.presets.remove(index);
+        self.preset_name.clear();
+        self.try_send(Action::Configure {
+            settings: self.settings.clone(),
+        })
+    }
+
+    fn record(
+        &self,
+        search_id: u64,
+    ) -> Result<Arc<search_probes_model::session::SearchRecord>, String> {
+        self.state
+            .search_history
+            .iter()
+            .find(|record| record.progress.id == search_id)
+            .cloned()
+            .ok_or_else(|| "Search is not retained in history".into())
+    }
+
+    fn result(&self, search_id: u64, result_index: usize) -> Result<CachedMatch, String> {
+        self.record(search_id)?
+            .progress
+            .results
+            .get(result_index)
+            .cloned()
+            .ok_or_else(|| "Result index is outside the retained search".into())
+    }
+
+    fn export_output(
+        &self,
+        source: UiExportSource,
+        format: UiExportFormat,
+    ) -> Result<UiOutput, String> {
+        let request = match (source, format) {
+            (UiExportSource::Results, UiExportFormat::Text | UiExportFormat::Csv) => {
+                let results = self
+                    .state
+                    .progress
+                    .as_ref()
+                    .map_or(&[][..], |progress| progress.results.as_slice());
+                let format = match format {
+                    UiExportFormat::Text => ExportFormat::Text,
+                    UiExportFormat::Csv => ExportFormat::Csv,
+                    UiExportFormat::Json => unreachable!(),
+                };
+                ExportRequest::new(format, results)?
+            }
+            (UiExportSource::CurrentSearch, UiExportFormat::Json) => {
+                let progress = self
+                    .state
+                    .progress
+                    .as_ref()
+                    .ok_or_else(|| "There is no current search to export".to_owned())?;
+                let record = self.record(progress.id)?;
+                ExportRequest::search_json(&record)?
+            }
+            (UiExportSource::ViewedSearch, UiExportFormat::Json) => {
+                let search_id = self
+                    .viewed_search
+                    .ok_or_else(|| "No history search is selected".to_owned())?;
+                let record = self.record(search_id)?;
+                ExportRequest::search_json(&record)?
+            }
+            (UiExportSource::Presets, UiExportFormat::Json) => {
+                ExportRequest::presets_json(&self.state.settings)?
+            }
+            _ => return Err("Export format is unavailable for the selected source".into()),
+        };
+        if request.contents.len() > search_probes_model::runtime::MAX_STATE_BYTES / 2 {
+            return Err("Export is too large for agent control".into());
+        }
+        Ok(UiOutput::Export {
+            source,
+            format,
+            subject: request.subject().into(),
+            suggested_name: request.suggested_name(),
+            contents: request.contents,
+        })
+    }
+
+    fn apply_agent_action(
+        &mut self,
+        ctx: &egui::Context,
+        action: UiAction,
+        set_overlay_visible: &mut impl FnMut(bool) -> Result<(), String>,
+    ) -> Result<Option<UiOutput>, String> {
+        match action {
+            UiAction::SetOverlayVisible { visible } => {
+                set_overlay_visible(visible)?;
+                self.overlay_visible = visible;
+            }
+            UiAction::SetSettingsSidebar { open } => self.settings_sidebar = open,
+            UiAction::SetPage { page } => {
+                self.page = page;
+                self.settings_sidebar = false;
+            }
+            UiAction::SetDraftSettings { settings } => {
+                self.settings = settings;
+                self.selected_preset = None;
+            }
+            UiAction::SetDraftSearch { search } => {
+                self.settings.search = search;
+                self.selected_preset = None;
+            }
+            UiAction::SetCriteria { criteria } => {
+                self.settings.search.criteria = criteria;
+                self.selected_preset = None;
+            }
+            UiAction::SetChoiceFilter { field, selected } => {
+                let options: Vec<_> = if field == Field::Subtype {
+                    self.settings.search.criteria.subtype_options()
+                } else {
+                    field
+                        .available_options()
+                        .map(|(index, label)| (1u64 << index, label))
+                        .collect()
+                };
+                let mask = labels_mask(&selected, options)?;
+                let criteria = &mut self.settings.search.criteria;
+                match field {
+                    Field::Biome => criteria.set_biome_choices(mask),
+                    Field::Sentinels => criteria.set_sentinel_choices(mask),
+                    _ if mask == 0 => {
+                        criteria.choices.remove(&field);
+                    }
+                    _ => {
+                        criteria.choices.insert(field, mask);
+                    }
+                }
+                self.selected_preset = None;
+            }
+            UiAction::SetPlanetRequirement { flag, value } => {
+                if let Some(value) = value {
+                    self.settings.search.criteria.planets.insert(flag, value);
+                } else {
+                    self.settings.search.criteria.planets.remove(&flag);
+                }
+                self.selected_preset = None;
+            }
+            UiAction::SetSystemRequirement { flag, value } => {
+                if let Some(value) = value {
+                    self.settings.search.criteria.systems.insert(flag, value);
+                } else {
+                    self.settings.search.criteria.systems.remove(&flag);
+                }
+                self.selected_preset = None;
+            }
+            UiAction::SetResourceFilter { selected } => {
+                let options = RESOURCE_LABELS
+                    .iter()
+                    .enumerate()
+                    .map(|(index, label)| (1u64 << index, *label));
+                self.settings.search.criteria.resources.selected =
+                    u32::try_from(labels_mask(&selected, options)?)
+                        .map_err(|_| "Resource selection exceeds its UI bounds")?;
+                self.selected_preset = None;
+            }
+            UiAction::SetMinimumPlanets { minimum } => {
+                if minimum.is_some_and(|minimum| !(1..=6).contains(&minimum)) {
+                    return Err("Minimum planets must be Any or between 1 and 6".into());
+                }
+                self.settings.search.criteria.minimum_planets = minimum;
+                self.selected_preset = None;
+            }
+            UiAction::SetWaterFilter { scope, value } => {
+                match scope {
+                    WaterScope::System => self.settings.search.criteria.system_water = value,
+                    WaterScope::Planet => self.settings.search.criteria.planet_water = value,
+                }
+                self.selected_preset = None;
+            }
+            UiAction::SetCompositionFilter {
+                field,
+                side,
+                selected,
+            } => {
+                let options: Vec<_> = match field {
+                    CompositionField::Biomes => Field::Biome
+                        .available_options()
+                        .map(|(index, label)| (1u64 << index, label))
+                        .collect(),
+                    CompositionField::Sizes => Field::Size
+                        .available_options()
+                        .map(|(index, label)| (1u64 << index, label))
+                        .collect(),
+                    CompositionField::Subtypes => {
+                        let biomes = self
+                            .settings
+                            .search
+                            .criteria
+                            .composition
+                            .selections(CompositionField::Biomes)
+                            .get(side);
+                        subtype_options_for(biomes)
+                    }
+                };
+                let mask = labels_mask(&selected, options)?;
+                self.settings
+                    .search
+                    .criteria
+                    .composition
+                    .set(field, side, mask);
+                self.selected_preset = None;
+            }
+            UiAction::SetFaunaChoices {
+                domain,
+                field,
+                selected,
+            } => {
+                let options = field
+                    .options(domain)
+                    .into_iter()
+                    .map(|(index, label)| (1u64 << index, label));
+                let mask = labels_mask(&selected, options)?;
+                let criteria = self
+                    .settings
+                    .search
+                    .criteria
+                    .fauna
+                    .entry(domain)
+                    .or_default();
+                if mask == 0 {
+                    criteria.choices.remove(&field);
+                } else {
+                    criteria.choices.insert(field, mask);
+                }
+                remove_empty_fauna(&mut self.settings.search.criteria, domain);
+                self.selected_preset = None;
+            }
+            UiAction::SetFaunaPresence { domain, value } => {
+                self.settings
+                    .search
+                    .criteria
+                    .fauna
+                    .entry(domain)
+                    .or_default()
+                    .presence = value;
+                remove_empty_fauna(&mut self.settings.search.criteria, domain);
+                self.selected_preset = None;
+            }
+            UiAction::SetFaunaHeight {
+                domain,
+                minimum_cm,
+                maximum_cm,
+            } => {
+                if minimum_cm.is_some_and(|value| value > 100_000)
+                    || maximum_cm.is_some_and(|value| value > 100_000)
+                    || matches!((minimum_cm, maximum_cm), (Some(a), Some(b)) if a > b)
+                {
+                    return Err("Fauna height must be ordered between 0 and 100000 cm".into());
+                }
+                let height = &mut self
+                    .settings
+                    .search
+                    .criteria
+                    .fauna
+                    .entry(domain)
+                    .or_default()
+                    .height;
+                height.minimum_cm = minimum_cm;
+                height.maximum_cm = maximum_cm;
+                remove_empty_fauna(&mut self.settings.search.criteria, domain);
+                self.selected_preset = None;
+            }
+            UiAction::SetArenaChoices { field, selected } => {
+                let options = field
+                    .options()
+                    .into_iter()
+                    .map(|(index, label)| (1u64 << index, label));
+                let mask = labels_mask(&selected, options)?;
+                if mask == 0 {
+                    self.settings.search.criteria.arena.choices.remove(&field);
+                } else {
+                    self.settings
+                        .search
+                        .criteria
+                        .arena
+                        .choices
+                        .insert(field, mask);
+                }
+                self.selected_preset = None;
+            }
+            UiAction::SetArenaPresence { value } => {
+                self.settings.search.criteria.arena.presence = value;
+                self.selected_preset = None;
+            }
+            UiAction::SetSystemBudget { systems } => {
+                if !BUDGETS.contains(&systems) {
+                    return Err("System budget is not a UI dropdown value".into());
+                }
+                self.settings.search.systems = systems;
+            }
+            UiAction::SetResultLimit { results } => {
+                if !(1..=MAX_RESULTS).contains(&results) {
+                    return Err("Result limit must be between 1 and 100".into());
+                }
+                self.settings.search.results = results;
+            }
+            UiAction::SetTimeLimit { time_limit } => {
+                if let Some(limit) = time_limit {
+                    limit.validate().map_err(str::to_owned)?;
+                }
+                self.settings.search.time_limit = time_limit;
+            }
+            UiAction::SetWorkers { workers } => {
+                if workers.is_some_and(|workers| !(1..=available_workers()).contains(&workers)) {
+                    return Err("Worker count is not available on this system".into());
+                }
+                self.settings.workers = workers;
+            }
+            UiAction::SetFrameBudget { frame_budget_ms } => {
+                validate_frame_budget(frame_budget_ms).map_err(str::to_owned)?;
+                self.settings.frame_budget_ms = frame_budget_ms;
+                let command_id = self.try_send(Action::ConfigureIntensity { frame_budget_ms })?;
+                return Ok(Some(UiOutput::RuntimeCommand { command_id }));
+            }
+            UiAction::SetTheme { theme } => {
+                self.settings.interface.theme = theme;
+                self.applied_theme = None;
+                let command_id = self.try_send(Action::Configure {
+                    settings: self.settings.clone(),
+                })?;
+                return Ok(Some(UiOutput::RuntimeCommand { command_id }));
+            }
+            UiAction::SetHotkey { hotkey } => {
+                hotkey.validate().map_err(str::to_owned)?;
+                self.settings.interface.hotkey = hotkey;
+                self.binding_capture = None;
+                let command_id = self.try_send(Action::Configure {
+                    settings: self.settings.clone(),
+                })?;
+                return Ok(Some(UiOutput::RuntimeCommand { command_id }));
+            }
+            UiAction::SetNotifications { notifications } => {
+                self.settings.interface.notifications = notifications;
+                self.notifications.update(
+                    self.started.elapsed(),
+                    &self.settings.interface.notifications,
+                );
+                let command_id = self.try_send(Action::Configure {
+                    settings: self.settings.clone(),
+                })?;
+                return Ok(Some(UiOutput::RuntimeCommand { command_id }));
+            }
+            UiAction::SetHotkeyDialog { open } => {
+                self.binding_window = open;
+                if !open {
+                    self.binding_capture = None;
+                }
+            }
+            UiAction::SetHotkeyCapture { device } => {
+                self.binding_window = device.is_some() || self.binding_window;
+                self.binding_capture = device.map(BindingCapture::new);
+            }
+            UiAction::SelectPreset { index } => {
+                let preset = self
+                    .settings
+                    .presets
+                    .get(index)
+                    .cloned()
+                    .ok_or_else(|| "Preset index is unavailable".to_owned())?;
+                self.selected_preset = Some(index);
+                self.preset_name = preset.name;
+                self.settings.search = preset.search;
+            }
+            UiAction::ClearPresetSelection {} => {
+                self.selected_preset = None;
+                self.preset_name.clear();
+            }
+            UiAction::SetPresetName { name } => {
+                if name.chars().count() > 80 || name.chars().any(char::is_control) {
+                    return Err("Preset name exceeds the UI input bounds".into());
+                }
+                self.preset_name = name;
+            }
+            UiAction::SavePreset {} => {
+                let command_id = self.save_preset()?;
+                return Ok(Some(UiOutput::RuntimeCommand { command_id }));
+            }
+            UiAction::RemovePreset {} => {
+                let command_id = self.remove_preset()?;
+                return Ok(Some(UiOutput::RuntimeCommand { command_id }));
+            }
+            UiAction::ClearCriteria {} => {
+                self.settings.search.criteria = Criteria::default();
+                self.selected_preset = None;
+            }
+            UiAction::ApplySettings {} => {
+                self.settings.validate().map_err(str::to_owned)?;
+                let command_id = self.try_send(Action::Configure {
+                    settings: self.settings.clone(),
+                })?;
+                return Ok(Some(UiOutput::RuntimeCommand { command_id }));
+            }
+            UiAction::StartSearch {} => {
+                self.settings.validate().map_err(str::to_owned)?;
+                self.settings
+                    .search
+                    .validate_search()
+                    .map_err(str::to_owned)?;
+                let command_id = self.try_send(Action::Start {
+                    settings: self.settings.clone(),
+                })?;
+                return Ok(Some(UiOutput::RuntimeCommand { command_id }));
+            }
+            UiAction::SetSearchPaused { paused } => {
+                let command_id = self.try_send(Action::SetSearchPaused { paused })?;
+                return Ok(Some(UiOutput::RuntimeCommand { command_id }));
+            }
+            UiAction::CancelSearch {} => {
+                let command_id = self.try_send(Action::Cancel {})?;
+                return Ok(Some(UiOutput::RuntimeCommand { command_id }));
+            }
+            UiAction::SetViewedSearch { search_id } => {
+                if let Some(search_id) = search_id {
+                    self.record(search_id)?;
+                }
+                self.viewed_search = search_id;
+            }
+            UiAction::StepHistory { direction } => {
+                let records = &self.state.search_history;
+                if records.is_empty() {
+                    return Err("Search history is empty".into());
+                }
+                let selected_id = self
+                    .viewed_search
+                    .unwrap_or_else(|| records.last().unwrap().progress.id);
+                let selected = records
+                    .iter()
+                    .position(|record| record.progress.id == selected_id)
+                    .ok_or_else(|| "Selected history search is unavailable".to_owned())?;
+                let next = match direction {
+                    HistoryDirection::Older => selected.checked_sub(1),
+                    HistoryDirection::Newer => {
+                        (selected + 1 < records.len()).then_some(selected + 1)
+                    }
+                }
+                .ok_or_else(|| "There is no search in that history direction".to_owned())?;
+                self.viewed_search = Some(records[next].progress.id);
+            }
+            UiAction::NavigateResult {
+                search_id,
+                result_index,
+            } => {
+                let result = self.result(search_id, result_index)?;
+                let command_id = self.try_send(Action::Navigate {
+                    search_id,
+                    target: result.target(),
+                })?;
+                return Ok(Some(UiOutput::RuntimeCommand { command_id }));
+            }
+            UiAction::CopyResult {
+                search_id,
+                result_index,
+                value,
+            } => {
+                let result = self.result(search_id, result_index)?;
+                let text = match value {
+                    ResultValue::PortalCode => result.target().portal_code(),
+                    ResultValue::GalacticCoordinates => result.address.galactic_coordinates(),
+                };
+                ctx.copy_text(text.clone());
+                return Ok(Some(UiOutput::CopiedText { value, text }));
+            }
+            UiAction::Export { source, format } => {
+                self.notifications.clear_export();
+                return self.export_output(source, format).map(Some);
+            }
+            UiAction::ShowToast { toast } => match toast {
+                TestToast::ResultFound { count } => {
+                    self.notify(Notification::ResultsFound { count })
+                }
+                TestToast::SearchCompleted { message } => {
+                    self.notify(Notification::SearchCompleted { message })
+                }
+                TestToast::AutomaticPause { reason } => {
+                    self.notify(Notification::AutomaticallyPaused { reason })
+                }
+                TestToast::AutomaticResume {} => self.notify(Notification::AutomaticallyResumed),
+                TestToast::ExportCompleted { subject, path } => {
+                    let subject = match subject.as_str() {
+                        "Results" => "Results",
+                        "Search" => "Search",
+                        "Presets" => "Presets",
+                        _ => {
+                            return Err(
+                                "Export toast subject must be Results, Search, or Presets".into()
+                            );
+                        }
+                    };
+                    self.notifications
+                        .exported(subject, path, self.started.elapsed());
+                }
+            },
+            UiAction::ClearToasts {} => self.notifications.clear(),
+        }
+        Ok(None)
+    }
+
+    fn ui_state(&self) -> UiState {
+        UiState {
+            overlay_visible: self.overlay_visible,
+            page: self.page,
+            settings_sidebar: self.settings_sidebar,
+            hotkey_dialog: self.binding_window,
+            hotkey_capture: self.binding_capture.as_ref().map(|capture| capture.device),
+            selected_preset: self.selected_preset,
+            preset_name: self.preset_name.clone(),
+            viewed_search: self.viewed_search,
+            draft_settings: self.settings.clone(),
+            toasts: self.notifications.snapshot(),
+            last_command: self.ui_last_command,
+            error: self.ui_error.clone(),
+            output: self.ui_output.clone(),
+        }
+    }
+
+    fn publish_ui_state(&self) {
+        self.controls.publish_ui(self.ui_state());
+    }
+
+    fn process_agent_commands(
+        &mut self,
+        ctx: &egui::Context,
+        set_overlay_visible: &mut impl FnMut(bool) -> Result<(), String>,
+    ) {
+        for _ in 0..16 {
+            let Some(UiCommand {
+                generation,
+                id,
+                action,
+            }) = self.controls.pop_ui()
+            else {
+                break;
+            };
+            let result = if generation == self.state.generation {
+                self.apply_agent_action(ctx, action, set_overlay_visible)
+            } else {
+                Err("UI command belongs to an expired game state".into())
+            };
+            self.ui_last_command = id;
+            match result {
+                Ok(output) => {
+                    self.ui_error = None;
+                    self.ui_output = output;
+                }
+                Err(error) => {
+                    self.error = Some(error.clone());
+                    self.ui_error = Some(error);
+                    self.ui_output = None;
+                }
+            }
+        }
+    }
+
     /// Current draft settings, including edits that have not been applied to the game.
     pub fn settings(&self) -> &Settings {
         &self.settings
@@ -1560,9 +2183,17 @@ impl App {
     }
 
     /// Prepare both interactive and passive overlay frames. Call even while its window is hidden.
-    pub fn prepare_frame(&mut self, ctx: &egui::Context) {
+    pub fn prepare_frame(
+        &mut self,
+        ctx: &egui::Context,
+        overlay_visible: bool,
+        mut set_overlay_visible: impl FnMut(bool) -> Result<(), String>,
+    ) {
+        self.overlay_visible = overlay_visible;
         self.refresh();
+        self.process_agent_commands(ctx, &mut set_overlay_visible);
         self.apply_theme(ctx);
+        self.publish_ui_state();
     }
 
     pub fn has_notifications(&self) -> bool {
@@ -1731,7 +2362,13 @@ impl App {
                 ui.horizontal(|ui| {
                     ui.heading(RichText::new("Search Probes").size(28.0));
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        let settings = ui.button("⚙").on_hover_text("Settings");
+                        let settings = ui
+                            .add(
+                                egui::Button::new(RichText::new("⚙").size(28.0))
+                                    .frame(false)
+                                    .min_size(egui::vec2(42.0, 36.0)),
+                            )
+                            .on_hover_text("Settings");
                         settings.widget_info(|| {
                             egui::WidgetInfo::labeled(egui::WidgetType::Button, true, "Settings")
                         });
@@ -2724,6 +3361,93 @@ mod tests {
             assert!(texts.iter().any(|text| text == "Back to Search"));
             assert!(!texts.iter().any(|text| text == "Presets"));
         }
+    }
+
+    #[test]
+    fn semantic_commands_drive_navigation_settings_and_notifications() {
+        let context = egui::Context::default();
+        let controls = Arc::new(Controls::new(State::new(Settings::default())));
+        let generation = controls.snapshot().generation;
+        let mut app = App::new(&context, Arc::clone(&controls));
+
+        let sidebar = controls
+            .submit_ui(generation, UiAction::SetSettingsSidebar { open: true })
+            .unwrap();
+        app.prepare_frame(&context, false, |_| Ok(()));
+        let state = controls.snapshot();
+        assert_eq!(state.ui.last_command, sidebar);
+        assert!(state.ui.settings_sidebar);
+
+        controls
+            .submit_ui(
+                generation,
+                UiAction::SetPage {
+                    page: UiPage::History,
+                },
+            )
+            .unwrap();
+        controls
+            .submit_ui(
+                generation,
+                UiAction::SetTheme {
+                    theme: UiTheme::NoMansSky,
+                },
+            )
+            .unwrap();
+        controls
+            .submit_ui(
+                generation,
+                UiAction::ShowToast {
+                    toast: TestToast::ResultFound { count: 2 },
+                },
+            )
+            .unwrap();
+        controls
+            .submit_ui(
+                generation,
+                UiAction::SetChoiceFilter {
+                    field: Field::Star,
+                    selected: vec!["Yellow".into(), "Blue".into()],
+                },
+            )
+            .unwrap();
+        controls
+            .submit_ui(
+                generation,
+                UiAction::SetPlanetRequirement {
+                    flag: PlanetFlag::Rings,
+                    value: Some(true),
+                },
+            )
+            .unwrap();
+        app.prepare_frame(&context, false, |_| Ok(()));
+
+        let state = controls.snapshot();
+        assert_eq!(state.ui.page, UiPage::History);
+        assert!(!state.ui.settings_sidebar);
+        assert_eq!(state.ui.draft_settings.interface.theme, UiTheme::NoMansSky);
+        assert_eq!(state.ui.toasts.len(), 1);
+        assert_eq!(state.ui.toasts[0].message, "Found 2 matching results.");
+        assert_eq!(
+            state
+                .ui
+                .draft_settings
+                .search
+                .criteria
+                .choices
+                .get(&Field::Star),
+            Some(&0b101)
+        );
+        assert_eq!(
+            state
+                .ui
+                .draft_settings
+                .search
+                .criteria
+                .planets
+                .get(&PlanetFlag::Rings),
+            Some(&true)
+        );
     }
 
     #[test]

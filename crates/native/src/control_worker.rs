@@ -14,8 +14,11 @@ static WORKER: Mutex<Option<JoinHandle<()>>> = Mutex::new(None);
 
 pub fn start(controls: Arc<Controls>, directory: PathBuf) -> Result<(), String> {
     // Establish exclusive artifact ownership synchronously before starting any publisher.
-    let agent = search_probes_model::agent_control::AgentControl::open(&directory)
-        .map_err(|error| format!("Cannot own runtime artifacts: {error}"))?;
+    let agent = search_probes_model::agent_control::AgentControl::open(
+        &directory,
+        search_probes_model::agent_control::CAPABILITIES,
+    )
+    .map_err(|error| format!("Cannot own runtime artifacts: {error}"))?;
     let worker = thread::Builder::new()
         .name("Search Probes persistence".into())
         .spawn(move || {
