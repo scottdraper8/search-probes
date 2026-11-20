@@ -248,6 +248,20 @@ unsafe extern "system" fn get_proc_address(
         )
     }
 }
+
+/// Resolves a Vulkan symbol through the installed overlay dispatcher.
+///
+/// # Safety
+///
+/// `module` must identify a loaded module and `name` must be either a valid symbol-name pointer or
+/// a Windows ordinal value accepted by `GetProcAddress`.
+pub unsafe fn resolve_proc_address(
+    module: windows_sys::Win32::Foundation::HMODULE,
+    name: windows_sys::core::PCSTR,
+) -> windows_sys::Win32::Foundation::FARPROC {
+    unsafe { get_proc_address(module, name) }
+}
+
 unsafe extern "system" fn get_instance_proc_addr<const KIND: usize>(
     instance: vk::Instance,
     name: *const c_char,

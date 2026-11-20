@@ -596,7 +596,7 @@ impl App {
                             if ui
                                 .add_enabled(
                                     binding != InputBinding::default(),
-                                    egui::Button::new("Reset to F7")
+                                    egui::Button::new("Reset to Ctrl + ,")
                                         .min_size(egui::vec2(button_width, 36.0)),
                                 )
                                 .clicked()
@@ -607,15 +607,22 @@ impl App {
                         ui.add_space(10.0);
                         ui.separator();
                         let (footer, _) = ui.allocate_exact_size(
-                            egui::vec2(ui.available_width(), 34.0),
+                            egui::vec2(ui.available_width(), 48.0),
                             egui::Sense::hover(),
                         );
                         ui.painter().text(
-                            footer.center(),
+                            egui::pos2(footer.center().x, footer.top() + 12.0),
                             egui::Align2::CENTER_CENTER,
                             "Use up to two keyboard keys or controller inputs",
                             egui::FontId::proportional(16.0),
                             ui.visuals().text_color(),
+                        );
+                        ui.painter().text(
+                            egui::pos2(footer.center().x, footer.bottom() - 10.0),
+                            egui::Align2::CENTER_CENTER,
+                            "Recovery hotkey: Ctrl + Shift + Backspace",
+                            egui::FontId::proportional(14.0),
+                            palette.on_surface_variant,
                         );
                     }
                 });
@@ -1311,9 +1318,6 @@ impl App {
 }
 
 fn reconcile_settings(draft: &mut Settings, previous: &Settings, published: &Settings) {
-    if draft.schema == previous.schema {
-        draft.schema = published.schema;
-    }
     if draft.search == previous.search {
         draft.search = published.search.clone();
     }

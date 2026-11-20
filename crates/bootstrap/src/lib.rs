@@ -46,6 +46,7 @@ type ProcAddress = unsafe extern "system" fn(
 static WINMM_RESOLVED: OnceLock<()> = OnceLock::new();
 static STARTUP_TRIGGER: OnceLock<Result<(), String>> = OnceLock::new();
 static ORIGINAL_GET_PROC_ADDRESS: OnceLock<ProcAddress> = OnceLock::new();
+static RUNTIME_GET_PROC_ADDRESS: OnceLock<ProcAddress> = OnceLock::new();
 static STARTED: AtomicBool = AtomicBool::new(false);
 
 static SP_WINMM_TABLE: [AtomicUsize; WINMM_EXPORT_COUNT] =
@@ -189,6 +190,13 @@ fn initialize() -> Result<(), String> {
     }
     let start = unsafe { GetProcAddress(runtime, c"SearchProbesStart".as_ptr().cast()) }
         .ok_or("SearchProbes.dll has no SearchProbesStart entry point")?;
+    let resolve = unsafe { GetProcAddress(runtime, c"SearchProbesGetProcAddress".as_ptr().cast()) }
+        .ok_or("SearchProbes.dll has no SearchProbesGetProcAddress entry point")?;
+    let resolve: ProcAddress =
+        unsafe { std::mem::transmute::<unsafe extern "system" fn() -> isize, _>(resolve) };
+    RUNTIME_GET_PROC_ADDRESS
+        .set(resolve)
+        .map_err(|_| "Search Probes Vulkan resolver is already installed")?;
     let start: unsafe extern "system" fn() =
         unsafe { std::mem::transmute::<unsafe extern "system" fn() -> isize, _>(start) };
     unsafe { start() };
@@ -321,6 +329,9 @@ unsafe extern "system" fn deferred_get_proc_address(
 ) -> windows_sys::Win32::Foundation::FARPROC {
     if is_vulkan_name(name) {
         start();
+        if let Some(resolve) = RUNTIME_GET_PROC_ADDRESS.get() {
+            return unsafe { resolve(module, name) };
+        }
     }
     ORIGINAL_GET_PROC_ADDRESS
         .get()
