@@ -41,6 +41,55 @@ const CRITERIA_THREE_COLUMN_MIN_WIDTH: f32 = 1230.0;
 const MAIN_SPLIT_MIN_WIDTH: f32 = 2460.0;
 const SEARCH_PANEL_SPLIT_MIN_WIDTH: f32 = 800.0;
 const RESULT_CARD_MIN_WIDTH: f32 = 310.0;
+const COMBO_POPUP_MAX_HEIGHT: f32 = 360.0;
+const NON_SCROLLING_SELECT_MAX_OPTIONS: usize = 10;
+const SEARCH_ACTION_HEIGHT: f32 = 32.0;
+const PRIMARY_SEARCH_ACTION_WIDTH: f32 = 110.0;
+const SECONDARY_SEARCH_ACTION_WIDTH: f32 = 80.0;
+
+fn search_action_button(button: egui::Button<'_>, width: f32) -> egui::Button<'_> {
+    button.min_size(egui::vec2(width, SEARCH_ACTION_HEIGHT))
+}
+
+fn select_menu(
+    ui: &mut Ui,
+    id: impl std::hash::Hash + std::fmt::Debug,
+    selected_text: impl Into<String>,
+    width: f32,
+    option_count: usize,
+    close_behavior: egui::PopupCloseBehavior,
+    contents: impl FnOnce(&mut Ui),
+) {
+    let selected_text = selected_text.into();
+    if option_count <= NON_SCROLLING_SELECT_MAX_OPTIONS {
+        ui.push_id(id, |ui| {
+            let chevron = egui::Image::from_bytes(
+                "bytes://search-probes/icons/chevron-down.svg",
+                include_bytes!("../assets/icons/chevron-down.svg"),
+            )
+            .fit_to_exact_size(egui::vec2(12.0, 8.0));
+            let button = egui::Button::new(selected_text)
+                .right_text(chevron)
+                .image_tint_follows_text_color(true)
+                .min_size(egui::vec2(width, ui.spacing().interact_size.y))
+                .truncate();
+            egui::containers::menu::MenuButton::from_button(button)
+                .config(egui::containers::menu::MenuConfig::new().close_behavior(close_behavior))
+                .ui(ui, |ui| {
+                    ui.set_min_width(width);
+                    contents(ui);
+                });
+        });
+    } else {
+        egui::ComboBox::from_id_salt(id)
+            .selected_text(selected_text)
+            .width(width)
+            .height(COMBO_POPUP_MAX_HEIGHT)
+            .close_behavior(close_behavior)
+            .truncate()
+            .show_ui(ui, contents);
+    }
+}
 
 pub type Page = UiPage;
 
@@ -197,9 +246,10 @@ fn labels_mask<'a>(
 }
 
 fn remove_empty_fauna(criteria: &mut Criteria, domain: Domain) {
-    let empty = criteria.fauna.get(&domain).is_some_and(|selected| {
-        selected.presence.is_none() && selected.choices.is_empty() && !selected.height.active()
-    });
+    let empty = criteria
+        .fauna
+        .get(&domain)
+        .is_some_and(|selected| selected.presence.is_none() && !selected.has_detail_filters());
     if empty {
         criteria.fauna.remove(&domain);
     }
@@ -207,17 +257,16 @@ fn remove_empty_fauna(criteria: &mut Criteria, domain: Domain) {
 
 impl App {
     pub fn new(ctx: &egui::Context, controls: Arc<Controls>) -> Self {
+        egui_extras::install_image_loaders(ctx);
         for egui_theme in [egui::Theme::Dark, egui::Theme::Light] {
             ctx.style_mut_of(egui_theme, |style| {
                 style.spacing.item_spacing = egui::vec2(10.0, 8.0);
-                for (kind, size) in [
-                    (egui::TextStyle::Body, 15.0),
-                    (egui::TextStyle::Button, 15.0),
-                    (egui::TextStyle::Small, 12.0),
-                ] {
-                    style
-                        .text_styles
-                        .insert(kind, egui::FontId::proportional(size));
+                style.spacing.combo_height = COMBO_POPUP_MAX_HEIGHT;
+                for font in style.text_styles.values_mut() {
+                    font.size += 3.0;
+                }
+                if let Some(font) = style.text_styles.get_mut(&egui::TextStyle::Small) {
+                    font.size += 3.0;
                 }
             });
         }
@@ -287,6 +336,44 @@ impl App {
         }
     }
 
+    fn result_card_settings(&mut self, ui: &mut Ui) {
+        let previous = self.settings.interface.result_cards;
+        let cards = &mut self.settings.interface.result_cards;
+
+        ui.label(RichText::new("Result Details").strong());
+        ui.checkbox(&mut cards.location_subtitle, "Location subtitle");
+        ui.checkbox(&mut cards.portal_glyphs, "Portal glyphs");
+        ui.add_space(8.0);
+        ui.label(RichText::new("Action buttons").strong());
+
+        let enabled = !cards.set_destination || cards.action_count() > 1;
+        ui.add_enabled(
+            enabled,
+            egui::Checkbox::new(&mut cards.set_destination, "Set destination"),
+        )
+        .on_disabled_hover_text("At least one result action must remain visible");
+
+        let enabled = !cards.copy_portal_code || cards.action_count() > 1;
+        ui.add_enabled(
+            enabled,
+            egui::Checkbox::new(&mut cards.copy_portal_code, "Copy portal code"),
+        )
+        .on_disabled_hover_text("At least one result action must remain visible");
+
+        let enabled = !cards.copy_galactic_coordinates || cards.action_count() > 1;
+        ui.add_enabled(
+            enabled,
+            egui::Checkbox::new(&mut cards.copy_galactic_coordinates, "Copy galactic coords"),
+        )
+        .on_disabled_hover_text("At least one result action must remain visible");
+
+        if *cards != previous {
+            self.send(Action::Configure {
+                settings: self.settings.clone(),
+            });
+        }
+    }
+
     fn settings_contents(&mut self, ui: &mut Ui) {
         let palette = self.palette();
         ui.horizontal(|ui| {
@@ -331,7 +418,6 @@ impl App {
                 ui.separator();
                 ui.add_space(8.0);
                 ui.heading("Notifications");
-                ui.label("Show in-game notifications for:");
                 let previous = self.settings.interface.notifications.clone();
                 let notifications = &mut self.settings.interface.notifications;
                 ui.checkbox(&mut notifications.result_found, "Result found");
@@ -340,9 +426,14 @@ impl App {
                 ui.checkbox(&mut notifications.automatic_resume, "Automatic resume");
                 ui.add_space(8.0);
                 ui.label("Screen placement");
-                egui::ComboBox::from_id_salt("notification_placement")
-                    .selected_text(notifications.placement.label())
-                    .show_ui(ui, |ui| {
+                select_menu(
+                    ui,
+                    "notification_placement",
+                    notifications.placement.label(),
+                    ui.spacing().combo_width,
+                    ToastPlacement::ALL.len(),
+                    egui::PopupCloseBehavior::CloseOnClick,
+                    |ui| {
                         for &placement in ToastPlacement::ALL {
                             ui.selectable_value(
                                 &mut notifications.placement,
@@ -350,7 +441,8 @@ impl App {
                                 placement.label(),
                             );
                         }
-                    });
+                    },
+                );
                 if *notifications != previous {
                     self.notifications
                         .update(self.started.elapsed(), notifications);
@@ -358,6 +450,11 @@ impl App {
                         settings: self.settings.clone(),
                     });
                 }
+                ui.add_space(12.0);
+                ui.separator();
+                ui.add_space(8.0);
+                ui.heading("Result cards");
+                self.result_card_settings(ui);
             });
     }
     fn send(&mut self, action: Action) {
@@ -381,15 +478,19 @@ impl App {
     }
     fn preset_controls(&mut self, ui: &mut Ui) {
         ui.horizontal_wrapped(|ui| {
-            egui::ComboBox::from_id_salt("preset")
-                .width(240.0)
-                .selected_text(
-                    self.selected_preset
-                        .and_then(|index| self.settings.presets.get(index))
-                        .map_or("Choose a preset", |preset| preset.name.as_str()),
-                )
-                .truncate()
-                .show_ui(ui, |ui| {
+            select_menu(
+                ui,
+                "preset",
+                self.selected_preset
+                    .and_then(|index| self.settings.presets.get(index))
+                    .map_or_else(
+                        || "Choose a preset".to_owned(),
+                        |preset| preset.name.clone(),
+                    ),
+                240.0,
+                self.settings.presets.len(),
+                egui::PopupCloseBehavior::CloseOnClick,
+                |ui| {
                     for (index, preset) in self.settings.presets.iter().enumerate() {
                         if ui
                             .selectable_label(
@@ -403,7 +504,8 @@ impl App {
                             self.settings.search = preset.search.clone();
                         }
                     }
-                });
+                },
+            );
             if ui.button("Clear criteria").clicked() {
                 self.settings.search.criteria = Criteria::default();
                 self.selected_preset = None;
@@ -448,15 +550,12 @@ impl App {
     }
     fn search_controls(&mut self, ui: &mut Ui) {
         if ui.available_width() >= SEARCH_PANEL_SPLIT_MIN_WIDTH {
-            ui.columns(3, |columns| {
+            ui.columns(2, |columns| {
                 self.search_scope(&mut columns[0]);
-                self.search_time_limit(&mut columns[1]);
-                self.search_performance(&mut columns[2]);
+                self.search_performance(&mut columns[1]);
             });
         } else {
             self.search_scope(ui);
-            ui.separator();
-            self.search_time_limit(ui);
             ui.separator();
             self.search_performance(ui);
         }
@@ -488,8 +587,10 @@ impl App {
             if ui
                 .add_enabled(
                     ready && !active && valid.is_ok(),
-                    egui::Button::new(RichText::new("Search").strong())
-                        .min_size(egui::vec2(110.0, 32.0)),
+                    search_action_button(
+                        egui::Button::new(RichText::new("Search").strong()),
+                        PRIMARY_SEARCH_ACTION_WIDTH,
+                    ),
                 )
                 .clicked()
             {
@@ -500,8 +601,10 @@ impl App {
             if ui
                 .add_enabled(
                     ready && running && !automatically_paused,
-                    egui::Button::new(if user_paused { "Resume" } else { "Pause" })
-                        .min_size(egui::vec2(80.0, 32.0)),
+                    search_action_button(
+                        egui::Button::new(if user_paused { "Resume" } else { "Pause" }),
+                        SECONDARY_SEARCH_ACTION_WIDTH,
+                    ),
                 )
                 .clicked()
             {
@@ -512,7 +615,10 @@ impl App {
             if ui
                 .add_enabled(
                     active,
-                    egui::Button::new("Cancel").min_size(egui::vec2(80.0, 32.0)),
+                    search_action_button(
+                        egui::Button::new("Cancel"),
+                        SECONDARY_SEARCH_ACTION_WIDTH,
+                    ),
                 )
                 .clicked()
             {
@@ -520,7 +626,13 @@ impl App {
             }
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 if ui
-                    .add_enabled(current.is_some(), egui::Button::new("Export search"))
+                    .add_enabled(
+                        current.is_some(),
+                        search_action_button(
+                            egui::Button::new("Export search"),
+                            PRIMARY_SEARCH_ACTION_WIDTH,
+                        ),
+                    )
                     .on_hover_text("Export the current search settings and results as JSON")
                     .clicked()
                     && let Some(record) = &current
@@ -533,45 +645,61 @@ impl App {
                 }
             });
         });
-        if self.pending_search.is_some() {
-            ui.label("Starting search…");
-        }
-        if let Err(error) = valid {
-            ui.colored_label(self.palette().error, error);
-        }
+        animated_visibility(
+            ui,
+            "pending_search_status",
+            self.pending_search.is_some(),
+            |ui| {
+                ui.label("Starting search…");
+            },
+        );
+        let validation_error = valid.err();
+        animated_visibility(
+            ui,
+            "search_validation_error",
+            validation_error.is_some(),
+            |ui| {
+                if let Some(error) = validation_error {
+                    ui.colored_label(self.palette().error, error);
+                }
+            },
+        );
     }
 
-    fn search_time_limit(&mut self, ui: &mut Ui) {
-        ui.heading(RichText::new("Time limit").size(16.0).strong());
-        let mut remove = false;
-        if let Some(limit) = &mut self.settings.search.time_limit {
-            ui.label("Stop after");
-            ui.horizontal_wrapped(|ui| {
-                ui.add(
-                    egui::DragValue::new(&mut limit.hours)
-                        .range(0..=99)
-                        .suffix(" h"),
-                );
-                ui.add(
-                    egui::DragValue::new(&mut limit.minutes)
-                        .range(0..=99)
-                        .suffix(" min"),
-                );
-            });
-            ui.label("Maximum 99 hours, 99 minutes");
-            remove = ui.button("Remove time limit").clicked();
-        } else {
-            ui.label("No time limit");
-            ui.label("The search continues until a result or system limit is reached.");
-            if ui.button("Set time limit").clicked() {
-                self.settings.search.time_limit = Some(TimeLimit {
-                    hours: 1,
-                    minutes: 0,
+    fn search_time_limit(&mut self, ui: &mut Ui, width: f32) {
+        let mut disabled = self.settings.search.time_limit.is_none();
+        let mut limit = self.settings.search.time_limit.unwrap_or(TimeLimit {
+            hours: 1,
+            minutes: 0,
+        });
+        ui.allocate_ui_with_layout(
+            egui::vec2(width, ui.spacing().interact_size.y),
+            egui::Layout::left_to_right(egui::Align::Center),
+            |ui| {
+                ui.set_width(width);
+                ui.checkbox(&mut disabled, "Disable");
+                let field_width =
+                    ((ui.available_width() - ui.spacing().item_spacing.x) / 2.0).max(36.0);
+                ui.add_enabled_ui(!disabled, |ui| {
+                    ui.add_sized(
+                        [field_width, ui.spacing().interact_size.y],
+                        egui::DragValue::new(&mut limit.hours)
+                            .range(0..=99)
+                            .suffix(" h"),
+                    );
+                    ui.add_sized(
+                        [field_width, ui.spacing().interact_size.y],
+                        egui::DragValue::new(&mut limit.minutes)
+                            .range(0..=99)
+                            .suffix(" min"),
+                    );
                 });
-            }
-        }
-        if remove {
+            },
+        );
+        if disabled {
             self.settings.search.time_limit = None;
+        } else {
+            self.settings.search.time_limit = Some(limit);
         }
     }
 
@@ -831,7 +959,7 @@ impl App {
         }
     }
     fn search_scope(&mut self, ui: &mut Ui) {
-        ui.heading(RichText::new("Search Scope").size(16.0).strong());
+        ui.heading(RichText::new("Search Scope").size(19.0).strong());
         let selected = BUDGETS
             .iter()
             .position(|&budget| budget == self.settings.search.systems)
@@ -841,11 +969,14 @@ impl App {
             .spacing([12.0, 8.0])
             .show(ui, |ui| {
                 ui.label("Systems to search");
-                egui::ComboBox::from_id_salt("systems")
-                    .width(180.0)
-                    .selected_text(BUDGET_LABELS[selected])
-                    .truncate()
-                    .show_ui(ui, |ui| {
+                select_menu(
+                    ui,
+                    "systems",
+                    BUDGET_LABELS[selected],
+                    180.0,
+                    BUDGETS.len(),
+                    egui::PopupCloseBehavior::CloseOnClick,
+                    |ui| {
                         for (index, &budget) in BUDGETS.iter().enumerate() {
                             ui.selectable_value(
                                 &mut self.settings.search.systems,
@@ -853,7 +984,11 @@ impl App {
                                 BUDGET_LABELS[index],
                             );
                         }
-                    });
+                    },
+                );
+                ui.end_row();
+                ui.label("Time limit");
+                self.search_time_limit(ui, 180.0);
                 ui.end_row();
                 ui.label("Results");
                 ui.add_sized(
@@ -866,13 +1001,14 @@ impl App {
             ui,
             self.palette(),
             CalloutTone::Success,
-            "Search completion",
-            "The search stops after processing all systems, or finding the number of requested results",
+            "The search will stop after whichever comes first",
+            "- Finding the number of requested results\n- Processing the set number of systems\n- Hitting the time limit",
         );
     }
     fn search_performance(&mut self, ui: &mut Ui) {
         let previous_intensity = self.settings.frame_budget_ms;
-        ui.heading(RichText::new("Performance").size(16.0).strong());
+        let previous_keep_game_running = self.settings.keep_game_running;
+        ui.heading(RichText::new("Performance").size(19.0).strong());
         let input_width = filter_control_width(ui);
         let intensity_levels = [
             (2, "Lowest game impact"),
@@ -887,33 +1023,38 @@ impl App {
             .spacing([12.0, 8.0])
             .show(ui, |ui| {
                 ui.label("Search intensity");
-                egui::ComboBox::from_id_salt("effort")
-                    .width(input_width)
-                    .selected_text(
-                        intensity_levels
-                            .iter()
-                            .find_map(|&(value, label)| {
-                                (value == self.settings.frame_budget_ms).then_some(label)
-                            })
-                            .unwrap_or("Unknown"),
-                    )
-                    .truncate()
-                    .show_ui(ui, |ui| {
+                select_menu(
+                    ui,
+                    "effort",
+                    intensity_levels
+                        .iter()
+                        .find_map(|&(value, label)| {
+                            (value == self.settings.frame_budget_ms).then_some(label)
+                        })
+                        .unwrap_or("Unknown"),
+                    input_width,
+                    intensity_levels.len(),
+                    egui::PopupCloseBehavior::CloseOnClick,
+                    |ui| {
                         for (value, label) in intensity_levels {
                             ui.selectable_value(&mut self.settings.frame_budget_ms, value, label);
                         }
-                    });
+                    },
+                );
                 ui.end_row();
                 ui.label("Workers");
-                egui::ComboBox::from_id_salt("workers")
-                    .width(input_width)
-                    .selected_text(match self.settings.workers {
+                select_menu(
+                    ui,
+                    "workers",
+                    match self.settings.workers {
                         None => format!("Auto ({recommended_workers})"),
                         Some(count) if count <= available_workers => count.to_string(),
                         Some(count) => format!("{count} (limited to {available_workers})"),
-                    })
-                    .truncate()
-                    .show_ui(ui, |ui| {
+                    },
+                    input_width,
+                    available_workers + 1,
+                    egui::PopupCloseBehavior::CloseOnClick,
+                    |ui| {
                         ui.selectable_value(
                             &mut self.settings.workers,
                             None,
@@ -926,7 +1067,11 @@ impl App {
                                 count.to_string(),
                             );
                         }
-                    });
+                    },
+                );
+                ui.end_row();
+                ui.label("Keep game running");
+                ui.checkbox(&mut self.settings.keep_game_running, "Enabled");
                 ui.end_row();
             });
         if self.settings.frame_budget_ms != previous_intensity {
@@ -934,15 +1079,21 @@ impl App {
                 frame_budget_ms: self.settings.frame_budget_ms,
             });
         }
+        if self.settings.keep_game_running != previous_keep_game_running {
+            self.send(Action::Configure {
+                settings: self.settings.clone(),
+            });
+        }
         callout(
             ui,
             self.palette(),
             CalloutTone::Warning,
             "Performance impact",
-            "Higher search intensity and more workers can find results faster, but may make the game less smooth",
+            "- Higher search intensity and more workers can find results faster, but may make the game less smooth\n- Keeping the game running prevents NMS from pausing in menus or while unfocused, which uses more system resources",
         );
     }
     fn criteria(&mut self, ui: &mut Ui, input_width: f32) {
+        self.settings.search.criteria.enforce_dependencies();
         if ui.available_width() >= CRITERIA_THREE_COLUMN_MIN_WIDTH {
             ui.columns(3, |columns| {
                 self.system_criteria(&mut columns[0], input_width);
@@ -963,6 +1114,7 @@ impl App {
             ui.add_space(8.0);
             self.fauna_criteria(ui, input_width);
         }
+        self.settings.search.criteria.enforce_dependencies();
     }
     fn criteria_panel(&mut self, ui: &mut Ui) {
         egui::Frame::group(ui.style()).show(ui, |ui| {
@@ -976,11 +1128,63 @@ impl App {
             .default_open(true)
             .show(ui, |ui| {
                 let criteria = &mut self.settings.search.criteria;
+                egui::CollapsingHeader::new(RichText::new("System Features").size(16.0).strong())
+                    .default_open(true)
+                    .show(ui, |ui| {
+                        choice_rows(ui, criteria, &[Field::Anomaly, Field::Star], input_width);
+                        minimum_count_row(
+                            ui,
+                            "Minimum stars",
+                            "minimum_stars",
+                            &mut criteria.minimum_stars,
+                            3,
+                            input_width,
+                        );
+                        system_flag_rows(ui, criteria, &[SystemFlag::Dissonance], input_width);
+                        water_row(
+                            ui,
+                            "system_water",
+                            &mut criteria.system_water,
+                            input_width,
+                            |_| true,
+                        );
+                    });
+
+                egui::CollapsingHeader::new(
+                    RichText::new("System Demographics").size(16.0).strong(),
+                )
+                .default_open(true)
+                .show(ui, |ui| {
+                    choice_rows(ui, criteria, &[Field::Population], input_width);
+                    criteria.enforce_population_dependencies();
+                    ui.add_enabled_ui(criteria.race_available_mask() != 0, |ui| {
+                        choice_rows(ui, criteria, &[Field::Race], input_width);
+                    });
+                    ui.add_enabled_ui(criteria.outlaw_filter_available(), |ui| {
+                        system_flag_rows(ui, criteria, &[SystemFlag::Pirate], input_width);
+                    });
+                    criteria.enforce_population_dependencies();
+                    choice_rows(
+                        ui,
+                        criteria,
+                        &[Field::Wealth, Field::Economy, Field::ConflictLevel],
+                        input_width,
+                    );
+                });
+
                 egui::CollapsingHeader::new(
                     RichText::new("Planetary Composition").size(16.0).strong(),
                 )
                 .default_open(true)
                 .show(ui, |ui| {
+                    minimum_count_row(
+                        ui,
+                        "Minimum planets",
+                        "minimum_planets",
+                        &mut criteria.minimum_planets,
+                        6,
+                        input_width,
+                    );
                     system_flag_rows(ui, criteria, &[SystemFlag::ExtremeStorms], input_width);
                     for (field, side, label) in [
                         (
@@ -1016,42 +1220,7 @@ impl App {
                     ] {
                         composition_row(ui, criteria, field, side, label, input_width);
                     }
-                    filter_row(ui, "Minimum planets", input_width, |ui| {
-                        let mut minimum = criteria.minimum_planets.unwrap_or(0);
-                        egui::ComboBox::from_id_salt("minimum")
-                            .width(input_width)
-                            .selected_text(if minimum == 0 {
-                                "Any".into()
-                            } else {
-                                minimum.to_string()
-                            })
-                            .truncate()
-                            .show_ui(ui, |ui| {
-                                ui.selectable_value(&mut minimum, 0, "Any");
-                                for count in 1..=6 {
-                                    ui.selectable_value(&mut minimum, count, count.to_string());
-                                }
-                            });
-                        criteria.minimum_planets = (minimum > 0).then_some(minimum);
-                    });
                 });
-
-                egui::CollapsingHeader::new(RichText::new("System Profile").size(16.0).strong())
-                    .default_open(true)
-                    .show(ui, |ui| {
-                        choice_rows(ui, criteria, &[Field::Conflict], input_width);
-                        system_flag_rows(ui, criteria, &[SystemFlag::Dissonance], input_width);
-                        choice_rows(ui, criteria, &[Field::Race], input_width);
-                        choice_rows(ui, criteria, &[Field::Wealth, Field::Economy], input_width);
-                        water_row(ui, "system_water", &mut criteria.system_water, input_width);
-                        system_flag_rows(ui, criteria, &[SystemFlag::Pirate], input_width);
-                        choice_rows(
-                            ui,
-                            criteria,
-                            &[Field::Population, Field::Anomaly, Field::Star],
-                            input_width,
-                        );
-                    });
             });
     }
     fn fauna_criteria(&mut self, ui: &mut Ui, input_width: f32) {
@@ -1063,7 +1232,9 @@ impl App {
                     .default_open(true)
                     .show(ui, |ui| {
                         choice_rows(ui, criteria, &[Field::Fauna], input_width);
-                        tameable_fauna_row(ui, criteria, input_width);
+                        ui.add_enabled_ui(criteria.fauna_details_available(), |ui| {
+                            tameable_fauna_row(ui, criteria, input_width);
+                        });
                         planet_flag_rows(ui, criteria, &[PlanetFlag::Sandworms], input_width);
                         planet_flag_rows(
                             ui,
@@ -1081,7 +1252,11 @@ impl App {
                 fauna_domain_section(ui, criteria, Domain::Land, input_width);
                 egui::CollapsingHeader::new(RichText::new("Xeno Arena").size(16.0).strong())
                     .default_open(true)
-                    .show(ui, |ui| arena_criteria(ui, criteria, input_width));
+                    .show(ui, |ui| {
+                        ui.add_enabled_ui(criteria.arena_available(), |ui| {
+                            arena_criteria(ui, criteria, input_width)
+                        });
+                    });
             });
     }
     fn planet_criteria(&mut self, ui: &mut Ui, input_width: f32) {
@@ -1093,18 +1268,20 @@ impl App {
                     .default_open(true)
                     .show(ui, |ui| {
                         choice_rows(ui, criteria, &[Field::Flora], input_width);
-                        planet_flag_rows(
-                            ui,
-                            criteria,
-                            &[PlanetFlag::GlowingGrass, PlanetFlag::GlowingFlora],
-                            input_width,
-                        );
-                        choice_rows(
-                            ui,
-                            criteria,
-                            &[Field::Grass, Field::FloraColour],
-                            input_width,
-                        );
+                        ui.add_enabled_ui(criteria.flora_details_available(), |ui| {
+                            planet_flag_rows(
+                                ui,
+                                criteria,
+                                &[PlanetFlag::GlowingGrass, PlanetFlag::GlowingFlora],
+                                input_width,
+                            );
+                            choice_rows(
+                                ui,
+                                criteria,
+                                &[Field::Grass, Field::FloraColour],
+                                input_width,
+                            );
+                        });
                     });
 
                 egui::CollapsingHeader::new(RichText::new("Planet Features").size(16.0).strong())
@@ -1116,7 +1293,27 @@ impl App {
                             &[PlanetFlag::Moons, PlanetFlag::Rings],
                             input_width,
                         );
-                        water_row(ui, "planet_water", &mut criteria.planet_water, input_width);
+                        let system_water = criteria.system_water;
+                        let water_colour = criteria.choices.contains_key(&Field::WaterColour);
+                        let aquatic = criteria.fauna.get(&Domain::Aquatic).is_some_and(|fauna| {
+                            fauna.presence == Some(true) || fauna.has_detail_filters()
+                        });
+                        water_row(
+                            ui,
+                            "planet_water",
+                            &mut criteria.planet_water,
+                            input_width,
+                            |value| match value {
+                                WaterFilter::RequireAny => system_water != WaterFilter::ExcludeAll,
+                                WaterFilter::RequireDeep => !matches!(
+                                    system_water,
+                                    WaterFilter::ExcludeDeep | WaterFilter::ExcludeAll
+                                ),
+                                WaterFilter::ExcludeAll => !water_colour && !aquatic,
+                                _ => true,
+                            },
+                        );
+                        choice_rows(ui, criteria, &[Field::WaterColour], input_width);
                         sentinel_row(ui, criteria, input_width);
                     });
 
@@ -1146,7 +1343,7 @@ impl App {
                             );
                             criteria.resources.selected = selected as u32;
                         });
-                        choice_rows(ui, criteria, &[Field::UniqueResources], input_width);
+                        choice_rows(ui, criteria, &[Field::SpecialtyResources], input_width);
                     });
 
                 egui::CollapsingHeader::new(
@@ -1157,12 +1354,7 @@ impl App {
                     choice_rows(
                         ui,
                         criteria,
-                        &[
-                            Field::Sky,
-                            Field::Horizon,
-                            Field::WaterColour,
-                            Field::WorldColourFilter,
-                        ],
+                        &[Field::Sky, Field::Horizon, Field::WorldColourFilter],
                         input_width,
                     );
                 });
@@ -1170,13 +1362,18 @@ impl App {
                 egui::CollapsingHeader::new(RichText::new("Weather").size(16.0).strong())
                     .default_open(true)
                     .show(ui, |ui| {
-                        planet_flag_rows(ui, criteria, &[PlanetFlag::ExtremeStorms], input_width);
-                        choice_rows(
-                            ui,
-                            criteria,
-                            &[Field::StormFrequency, Field::StormType],
-                            input_width,
-                        );
+                        choice_rows(ui, criteria, &[Field::StormFrequency], input_width);
+                        criteria.enforce_weather_dependencies();
+                        let storms_enabled = !criteria.storm_frequency_is_only_none();
+                        ui.add_enabled_ui(storms_enabled, |ui| {
+                            planet_flag_rows(
+                                ui,
+                                criteria,
+                                &[PlanetFlag::ExtremeStorms],
+                                input_width,
+                            );
+                            choice_rows(ui, criteria, &[Field::StormType], input_width);
+                        });
                     });
             });
     }
@@ -1252,7 +1449,7 @@ impl App {
             |limit| format!("Time limit {:02}:{:02}", limit.hours, limit.minutes),
         );
         ui.small(format!(
-            "System limit {} · Result limit {} · {time_limit} · {} workers · {} ms frame budget",
+            "System limit {} · Result limit {} · {time_limit} · {} workers · {} ms frame budget · Keep game running: {}",
             number(progress.options.systems),
             progress.options.results,
             record
@@ -1260,6 +1457,11 @@ impl App {
                 .workers
                 .map_or_else(|| "Automatic".to_owned(), |workers| workers.to_string()),
             record.execution.frame_budget_ms,
+            if record.execution.keep_game_running {
+                "On"
+            } else {
+                "Off"
+            },
         ));
         ui.add_space(8.0);
         ui.label(RichText::new("Criteria").strong());
@@ -1335,6 +1537,8 @@ impl App {
 
     fn results(&mut self, ui: &mut Ui) {
         let state = self.state.clone();
+        let result_cards = self.settings.interface.result_cards;
+        let palette = self.palette();
         let results = state
             .progress
             .as_ref()
@@ -1343,18 +1547,24 @@ impl App {
             ui.heading("Results");
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 ui.add_enabled_ui(!results.is_empty(), |ui| {
-                    ui.menu_button("Export results", |ui| {
-                        for format in [ExportFormat::Text, ExportFormat::Csv] {
-                            if ui.button(format.label()).clicked() {
-                                match ExportRequest::new(format, results) {
-                                    Ok(request) => self.export_request = Some(request),
-                                    Err(error) => self.error = Some(error),
+                    let (response, _) =
+                        egui::containers::menu::MenuButton::from_button(search_action_button(
+                            egui::Button::new("Export results"),
+                            PRIMARY_SEARCH_ACTION_WIDTH,
+                        ))
+                        .ui(ui, |ui| {
+                            for format in [ExportFormat::Text, ExportFormat::Csv] {
+                                if ui.button(format.label()).clicked() {
+                                    match ExportRequest::new(format, results) {
+                                        Ok(request) => self.export_request = Some(request),
+                                        Err(error) => self.error = Some(error),
+                                    }
+                                    self.notifications.clear_export();
+                                    ui.close();
                                 }
-                                self.notifications.clear_export();
-                                ui.close();
                             }
-                        }
-                    });
+                        });
+                    response.on_hover_text("Export the current results as text or CSV");
                 })
                 .response
                 .on_disabled_hover_text("There are no results to export");
@@ -1372,7 +1582,11 @@ impl App {
                 _ => "Starting the game runtime…",
             });
         }
-        if let Some(progress) = &state.progress {
+        let has_progress = state.progress.is_some();
+        animated_visibility(ui, "search_progress", has_progress, |ui| {
+            let Some(progress) = &state.progress else {
+                return;
+            };
             ui.label(format!(
                 "{} systems checked · {} results · {} elapsed",
                 number(progress.systems),
@@ -1436,10 +1650,15 @@ impl App {
             if let Some(error) = &progress.error {
                 ui.colored_label(self.palette().error, error);
             }
-        } else {
+        });
+        animated_visibility(ui, "search_instructions", !has_progress, |ui| {
             ui.label("Choose your criteria and start a search.");
-        }
-        if !results.is_empty() {
+        });
+        let has_results = !results.is_empty();
+        animated_visibility(ui, "search_result_cards", has_results, |ui| {
+            if !has_results {
+                return;
+            }
             ui.separator();
             let results: Vec<_> = results.iter().collect();
             let gap = ui.spacing().item_spacing.x;
@@ -1466,19 +1685,24 @@ impl App {
                                         RichText::new(format!("{}. {name}", index + 1)).strong(),
                                     );
                                     let portal_code = result.target().portal_code();
-                                    ui.small(result_subtitle(
-                                        result,
-                                        u16::from(coordinates.galaxy) + 1,
-                                    ));
-                                    self.portal_glyphs
-                                    .show(
-                                        ui,
-                                        &portal_code,
-                                        self.palette().on_surface_variant,
-                                    )
-                                    .on_hover_text(format!("Portal code: {portal_code}"));
+                                    if result_cards.location_subtitle {
+                                        ui.label(
+                                            RichText::new(result_subtitle(
+                                                result,
+                                                u16::from(coordinates.galaxy) + 1,
+                                            ))
+                                            .small()
+                                            .color(palette.on_surface_variant),
+                                        );
+                                    }
+                                    if result_cards.portal_glyphs {
+                                        self.portal_glyphs
+                                            .show(ui, &portal_code, palette.on_surface_variant)
+                                            .on_hover_text(format!("Portal code: {portal_code}"));
+                                    }
                                     ui.horizontal_wrapped(|ui| {
-                                        if ui
+                                        if result_cards.set_destination
+                                            && ui
                                             .add_enabled(
                                                 state.availability == Availability::Ready
                                                     && result.destination_names_complete()
@@ -1492,7 +1716,8 @@ impl App {
                                                 target: result.target(),
                                             });
                                         }
-                                        if ui
+                                        if result_cards.copy_portal_code
+                                            && ui
                                             .button("Copy portal code")
                                             .on_hover_text(format!(
                                                 "{}\nUse a portal in Galaxy {}. {}",
@@ -1504,7 +1729,8 @@ impl App {
                                         {
                                             ui.ctx().copy_text(portal_code.clone());
                                         }
-                                        if ui
+                                        if result_cards.copy_galactic_coordinates
+                                            && ui
                                             .button("Copy galactic coords")
                                             .on_hover_text(format!(
                                                 "{}\nIdentifies this system.",
@@ -1524,7 +1750,7 @@ impl App {
                     }
                 });
             }
-        }
+        });
     }
 }
 
@@ -1662,23 +1888,39 @@ impl App {
                 self.settings_sidebar = false;
             }
             UiAction::SetDraftSettings { settings } => {
+                settings.validate().map_err(str::to_owned)?;
                 self.settings = settings;
                 self.selected_preset = None;
             }
             UiAction::SetDraftSearch { search } => {
+                search.validate().map_err(str::to_owned)?;
                 self.settings.search = search;
                 self.selected_preset = None;
             }
             UiAction::SetCriteria { criteria } => {
+                criteria.compile().map_err(str::to_owned)?;
                 self.settings.search.criteria = criteria;
                 self.selected_preset = None;
             }
             UiAction::SetChoiceFilter { field, selected } => {
+                let dependencies = &self.settings.search.criteria;
+                if field == Field::Size && dependencies.derived_planet_size().is_some() {
+                    return Err("Planet size is derived from the selected Gas Giant biome".into());
+                }
+                if field == Field::StormType && dependencies.storm_frequency_is_only_none() {
+                    return Err("Storm type is disabled while Storm frequency is only None".into());
+                }
+                if field == Field::Race && dependencies.race_available_mask() == 0 {
+                    return Err("Dominant lifeform cannot narrow the Population selection".into());
+                }
                 let options: Vec<_> = if field == Field::Subtype {
                     self.settings.search.criteria.subtype_options()
                 } else {
-                    field
-                        .available_options()
+                    self.settings
+                        .search
+                        .criteria
+                        .choice_options(field)
+                        .into_iter()
                         .map(|(index, label)| (1u64 << index, label))
                         .collect()
                 };
@@ -1694,22 +1936,48 @@ impl App {
                         criteria.choices.insert(field, mask);
                     }
                 }
+                criteria.enforce_dependencies();
                 self.selected_preset = None;
             }
             UiAction::SetPlanetRequirement { flag, value } => {
+                if flag.is_sentinel_level_projection() {
+                    return Err("Use the unified Sentinels filter for sentinel levels".into());
+                }
+                if value.is_some()
+                    && !self
+                        .settings
+                        .search
+                        .criteria
+                        .planet_requirement_available(flag)
+                {
+                    return Err(format!(
+                        "{} is unavailable with the current filters",
+                        flag.label()
+                    ));
+                }
                 if let Some(value) = value {
                     self.settings.search.criteria.planets.insert(flag, value);
                 } else {
                     self.settings.search.criteria.planets.remove(&flag);
                 }
+                self.settings.search.criteria.enforce_dependencies();
                 self.selected_preset = None;
             }
             UiAction::SetSystemRequirement { flag, value } => {
+                if flag == SystemFlag::Pirate
+                    && value.is_some()
+                    && !self.settings.search.criteria.outlaw_filter_available()
+                {
+                    return Err(
+                        "Outlaw system cannot narrow the selected population and lifeform".into(),
+                    );
+                }
                 if let Some(value) = value {
                     self.settings.search.criteria.systems.insert(flag, value);
                 } else {
                     self.settings.search.criteria.systems.remove(&flag);
                 }
+                self.settings.search.criteria.enforce_dependencies();
                 self.selected_preset = None;
             }
             UiAction::SetResourceFilter { selected } => {
@@ -1729,11 +1997,30 @@ impl App {
                 self.settings.search.criteria.minimum_planets = minimum;
                 self.selected_preset = None;
             }
+            UiAction::SetMinimumStars { minimum } => {
+                if minimum.is_some_and(|minimum| !(1..=3).contains(&minimum)) {
+                    return Err("Minimum stars must be Any or between 1 and 3".into());
+                }
+                self.settings.search.criteria.minimum_stars = minimum;
+                self.selected_preset = None;
+            }
             UiAction::SetWaterFilter { scope, value } => {
+                if scope == WaterScope::Planet
+                    && !self
+                        .settings
+                        .search
+                        .criteria
+                        .planet_water_option_available(value)
+                {
+                    return Err(
+                        "That planet water option conflicts with the current filters".into(),
+                    );
+                }
                 match scope {
                     WaterScope::System => self.settings.search.criteria.system_water = value,
                     WaterScope::Planet => self.settings.search.criteria.planet_water = value,
                 }
+                self.settings.search.criteria.enforce_dependencies();
                 self.selected_preset = None;
             }
             UiAction::SetCompositionFilter {
@@ -1767,6 +2054,7 @@ impl App {
                     .criteria
                     .composition
                     .set(field, side, mask);
+                self.settings.search.criteria.enforce_dependencies();
                 self.selected_preset = None;
             }
             UiAction::SetFaunaChoices {
@@ -1774,8 +2062,34 @@ impl App {
                 field,
                 selected,
             } => {
-                let options = field
-                    .options(domain)
+                if !self.settings.search.criteria.fauna_domain_available(domain) {
+                    return Err(format!(
+                        "{} filters are unavailable with the current planet filters",
+                        domain.label()
+                    ));
+                }
+                if self
+                    .settings
+                    .search
+                    .criteria
+                    .fauna
+                    .get(&domain)
+                    .is_some_and(|criteria| criteria.presence == Some(false))
+                {
+                    return Err(format!(
+                        "{} filters are disabled while fauna presence is Exclude",
+                        domain.label()
+                    ));
+                }
+                let options = self
+                    .settings
+                    .search
+                    .criteria
+                    .fauna
+                    .get(&domain)
+                    .cloned()
+                    .unwrap_or_default()
+                    .choice_options(domain, field)
                     .into_iter()
                     .map(|(index, label)| (1u64 << index, label));
                 let mask = labels_mask(&selected, options)?;
@@ -1791,17 +2105,33 @@ impl App {
                 } else {
                     criteria.choices.insert(field, mask);
                 }
+                criteria.enforce_domain_dependencies(domain);
                 remove_empty_fauna(&mut self.settings.search.criteria, domain);
                 self.selected_preset = None;
             }
             UiAction::SetFaunaPresence { domain, value } => {
-                self.settings
+                if value.is_some() && !self.settings.search.criteria.fauna_domain_available(domain)
+                {
+                    return Err(format!(
+                        "{} presence is unavailable with the current planet filters",
+                        domain.label()
+                    ));
+                }
+                let criteria = self
+                    .settings
                     .search
                     .criteria
                     .fauna
                     .entry(domain)
-                    .or_default()
-                    .presence = value;
+                    .or_default();
+                if criteria.has_detail_filters() && value != Some(true) {
+                    return Err(format!(
+                        "{} presence is locked to Require until its filters are reset",
+                        domain.label()
+                    ));
+                }
+                criteria.presence = value;
+                criteria.enforce_dependencies();
                 remove_empty_fauna(&mut self.settings.search.criteria, domain);
                 self.selected_preset = None;
             }
@@ -1810,6 +2140,25 @@ impl App {
                 minimum_cm,
                 maximum_cm,
             } => {
+                if !self.settings.search.criteria.fauna_domain_available(domain) {
+                    return Err(format!(
+                        "{} filters are unavailable with the current planet filters",
+                        domain.label()
+                    ));
+                }
+                if self
+                    .settings
+                    .search
+                    .criteria
+                    .fauna
+                    .get(&domain)
+                    .is_some_and(|criteria| criteria.presence == Some(false))
+                {
+                    return Err(format!(
+                        "{} filters are disabled while fauna presence is Exclude",
+                        domain.label()
+                    ));
+                }
                 if minimum_cm.is_some_and(|value| value > 100_000)
                     || maximum_cm.is_some_and(|value| value > 100_000)
                     || matches!((minimum_cm, maximum_cm), (Some(a), Some(b)) if a > b)
@@ -1826,12 +2175,33 @@ impl App {
                     .height;
                 height.minimum_cm = minimum_cm;
                 height.maximum_cm = maximum_cm;
+                self.settings
+                    .search
+                    .criteria
+                    .fauna
+                    .get_mut(&domain)
+                    .expect("fauna criteria was inserted")
+                    .enforce_domain_dependencies(domain);
                 remove_empty_fauna(&mut self.settings.search.criteria, domain);
                 self.selected_preset = None;
             }
             UiAction::SetArenaChoices { field, selected } => {
-                let options = field
-                    .options()
+                if !self.settings.search.criteria.arena_available() {
+                    return Err(
+                        "Xeno Arena filters are unavailable when planet fauna is Dead".into(),
+                    );
+                }
+                if self.settings.search.criteria.arena.presence == Some(false) {
+                    return Err(
+                        "Xeno Arena filters are disabled while tameable fauna is excluded".into(),
+                    );
+                }
+                let options = self
+                    .settings
+                    .search
+                    .criteria
+                    .arena
+                    .choice_options(field)
                     .into_iter()
                     .map(|(index, label)| (1u64 << index, label));
                 let mask = labels_mask(&selected, options)?;
@@ -1845,10 +2215,21 @@ impl App {
                         .choices
                         .insert(field, mask);
                 }
+                self.settings.search.criteria.arena.enforce_dependencies();
                 self.selected_preset = None;
             }
             UiAction::SetArenaPresence { value } => {
+                if value.is_some() && !self.settings.search.criteria.arena_available() {
+                    return Err("Tameable fauna is unavailable when planet fauna is Dead".into());
+                }
+                if self.settings.search.criteria.arena.has_detail_filters() && value != Some(true) {
+                    return Err(
+                        "Tameable fauna is locked to Require until Xeno Arena filters are reset"
+                            .into(),
+                    );
+                }
                 self.settings.search.criteria.arena.presence = value;
+                self.settings.search.criteria.arena.enforce_dependencies();
                 self.selected_preset = None;
             }
             UiAction::SetSystemBudget { systems } => {
@@ -1881,6 +2262,13 @@ impl App {
                 let command_id = self.try_send(Action::ConfigureIntensity { frame_budget_ms })?;
                 return Ok(Some(UiOutput::RuntimeCommand { command_id }));
             }
+            UiAction::SetKeepGameRunning { keep_game_running } => {
+                self.settings.keep_game_running = keep_game_running;
+                let command_id = self.try_send(Action::Configure {
+                    settings: self.settings.clone(),
+                })?;
+                return Ok(Some(UiOutput::RuntimeCommand { command_id }));
+            }
             UiAction::SetTheme { theme } => {
                 self.settings.interface.theme = theme;
                 self.applied_theme = None;
@@ -1904,6 +2292,14 @@ impl App {
                     self.started.elapsed(),
                     &self.settings.interface.notifications,
                 );
+                let command_id = self.try_send(Action::Configure {
+                    settings: self.settings.clone(),
+                })?;
+                return Ok(Some(UiOutput::RuntimeCommand { command_id }));
+            }
+            UiAction::SetResultCards { result_cards } => {
+                result_cards.validate().map_err(str::to_owned)?;
+                self.settings.interface.result_cards = result_cards;
                 let command_id = self.try_send(Action::Configure {
                     settings: self.settings.clone(),
                 })?;
@@ -2340,20 +2736,26 @@ impl App {
         self.apply_theme(ui.ctx());
         let palette = self.palette();
         self.capture_keyboard(ui.ctx());
-        if self.settings_sidebar {
-            if ui.available_width() < 700.0 {
-                egui::Frame::new()
-                    .fill(palette.background)
-                    .inner_margin(16.0)
-                    .show(ui, |ui| self.settings_contents(ui));
-                self.binding_dialog(ui.ctx());
-                return;
-            }
-            egui::Panel::right("search_probes_settings")
-                .exact_size(300.0)
-                .resizable(false)
-                .frame(egui::Frame::new().fill(palette.surface).inner_margin(12.0))
-                .show(ui, |ui| self.settings_contents(ui));
+        let compact_sidebar = ui.available_width() < 700.0;
+        let sidebar_width = if compact_sidebar {
+            ui.available_width()
+        } else {
+            300.0
+        };
+        let sidebar_before = self.settings_sidebar;
+        let mut sidebar_open = sidebar_before;
+        let sidebar = egui::Panel::right("search_probes_settings")
+            .exact_size(sidebar_width)
+            .resizable(false)
+            .frame(egui::Frame::new().fill(palette.surface).inner_margin(12.0))
+            .show_collapsible(ui, &mut sidebar_open, |ui| self.settings_contents(ui));
+        if self.settings_sidebar != sidebar_before {
+            sidebar_open = self.settings_sidebar;
+        }
+        self.settings_sidebar = sidebar_open;
+        if compact_sidebar && sidebar.is_some() && self.settings_sidebar {
+            self.binding_dialog(ui.ctx());
+            return;
         }
         egui::Frame::new()
             .inner_margin(16.0)
@@ -2402,7 +2804,6 @@ impl App {
                 ui.add_space(8.0);
                 egui::Frame::group(ui.style()).show(ui, |ui| {
                     ui.set_width(ui.available_width());
-                    ui.heading(RichText::new("Search").size(17.0).strong());
                     self.search_controls(ui);
                 });
                 ui.add_space(10.0);
@@ -2451,11 +2852,17 @@ fn reconcile_settings(draft: &mut Settings, previous: &Settings, published: &Set
     if draft.interface.notifications == previous.interface.notifications {
         draft.interface.notifications = published.interface.notifications.clone();
     }
+    if draft.interface.result_cards == previous.interface.result_cards {
+        draft.interface.result_cards = published.interface.result_cards;
+    }
     if draft.workers == previous.workers {
         draft.workers = published.workers;
     }
     if draft.frame_budget_ms == previous.frame_budget_ms {
         draft.frame_budget_ms = published.frame_budget_ms;
+    }
+    if draft.keep_game_running == previous.keep_game_running {
+        draft.keep_game_running = published.keep_game_running;
     }
 }
 
@@ -2709,11 +3116,47 @@ fn callout(ui: &mut Ui, palette: Palette, tone: CalloutTone, title: &str, messag
                 .inner_margin(egui::Margin::symmetric(10, 8))
                 .show(ui, |ui| {
                     ui.set_width(ui.available_width());
-                    ui.label(RichText::new(title).strong().color(title_color));
+                    ui.horizontal(|ui| {
+                        ui.label(RichText::new(title).strong().color(title_color));
+                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                            callout_icon(ui, tone, title_color);
+                        });
+                    });
                     ui.label(message);
                 });
         },
     );
+}
+
+fn callout_icon(ui: &mut Ui, tone: CalloutTone, color: egui::Color32) {
+    let (uri, bytes): (&str, &'static [u8]) = match tone {
+        CalloutTone::Success => (
+            "bytes://search-probes/icons/info.svg",
+            include_bytes!("../assets/icons/info.svg"),
+        ),
+        CalloutTone::Warning => (
+            "bytes://search-probes/icons/warning.svg",
+            include_bytes!("../assets/icons/warning.svg"),
+        ),
+    };
+    ui.add(
+        egui::Image::from_bytes(uri, bytes)
+            .fit_to_exact_size(egui::vec2(18.0, 18.0))
+            .tint(color),
+    );
+}
+
+fn animated_visibility(
+    ui: &mut Ui,
+    id: impl std::hash::Hash + std::fmt::Debug,
+    visible: bool,
+    add_contents: impl FnOnce(&mut Ui),
+) {
+    let id = ui.make_persistent_id(id);
+    let mut state =
+        egui::collapsing_header::CollapsingState::load_with_default_open(ui.ctx(), id, visible);
+    state.set_open(visible);
+    state.show_body_unindented(ui, add_contents);
 }
 
 fn filter_control_width(ui: &Ui) -> f32 {
@@ -2811,12 +3254,15 @@ fn choices(
     } else {
         format!("{} selected", mask.count_ones())
     };
-    egui::ComboBox::from_id_salt(id)
-        .selected_text(text)
-        .width(width)
-        .close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside)
-        .truncate()
-        .show_ui(ui, |ui| {
+    let option_count = options.clone().count() + 1;
+    select_menu(
+        ui,
+        id,
+        text,
+        width,
+        option_count,
+        egui::PopupCloseBehavior::CloseOnClickOutside,
+        |ui| {
             if *mask & !available_mask != 0 {
                 ui.label("Choose Any or a listed option to replace the unavailable selection.");
             }
@@ -2834,7 +3280,8 @@ fn choices(
                     }
                 }
             }
-        });
+        },
+    );
 }
 
 fn requirement(
@@ -2843,19 +3290,23 @@ fn requirement(
     value: &mut Option<bool>,
     width: f32,
 ) {
-    egui::ComboBox::from_id_salt(id)
-        .selected_text(match value {
+    select_menu(
+        ui,
+        id,
+        match value {
             None => "Any",
             Some(true) => "Require",
             Some(false) => "Exclude",
-        })
-        .width(width)
-        .truncate()
-        .show_ui(ui, |ui| {
+        },
+        width,
+        3,
+        egui::PopupCloseBehavior::CloseOnClick,
+        |ui| {
             ui.selectable_value(value, None, "Any");
             ui.selectable_value(value, Some(true), "Require");
             ui.selectable_value(value, Some(false), "Exclude");
-        });
+        },
+    );
 }
 
 fn choice_rows(ui: &mut Ui, criteria: &mut Criteria, fields: &[Field], input_width: f32) {
@@ -2869,6 +3320,23 @@ fn choice_row(ui: &mut Ui, criteria: &mut Criteria, field: Field, input_width: f
         subtype_row(ui, criteria, input_width);
         return;
     }
+    if field == Field::Size
+        && let Some(size) = criteria.derived_planet_size()
+    {
+        let mut mask = 1 << size;
+        filter_row(ui, field.label(), input_width, |ui| {
+            ui.add_enabled_ui(false, |ui| {
+                choices(
+                    ui,
+                    ("choice", field),
+                    &mut mask,
+                    criteria.choice_options(field).into_iter(),
+                    input_width,
+                );
+            });
+        });
+        return;
+    }
     let original = if field == Field::Biome {
         criteria
             .biome_choices()
@@ -2877,14 +3345,17 @@ fn choice_row(ui: &mut Ui, criteria: &mut Criteria, field: Field, input_width: f
         criteria.choices.get(&field).copied().unwrap_or(0)
     };
     let mut mask = original;
+    let options = criteria.choice_options(field);
     filter_row(ui, field.label(), input_width, |ui| {
-        choices(
-            ui,
-            ("choice", field),
-            &mut mask,
-            field.available_options(),
-            input_width,
-        );
+        ui.add_enabled_ui(!options.is_empty(), |ui| {
+            choices(
+                ui,
+                ("choice", field),
+                &mut mask,
+                options.into_iter(),
+                input_width,
+            );
+        });
     });
     if mask != original {
         if field == Field::Biome {
@@ -2942,12 +3413,14 @@ fn subtype_choices(
             .join(", ")
     };
     filter_row(ui, label, input_width, |ui| {
-        egui::ComboBox::from_id_salt(id)
-            .selected_text(text)
-            .width(input_width)
-            .close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside)
-            .truncate()
-            .show_ui(ui, |ui| {
+        select_menu(
+            ui,
+            id,
+            text,
+            input_width,
+            options.len() + 1,
+            egui::PopupCloseBehavior::CloseOnClickOutside,
+            |ui| {
                 if ui.selectable_label(*selected == 0, "Any").clicked() {
                     *selected = 0;
                 }
@@ -2964,86 +3437,107 @@ fn subtype_choices(
                 if biomes == 0 {
                     ui.weak("Choose a biome to see its vegetation and formations.");
                 }
-            });
+            },
+        );
     });
 }
 
 fn arena_criteria(ui: &mut Ui, criteria: &mut Criteria, width: f32) {
-    for &field in &[
-        ArenaField::Affinity,
-        ArenaField::Agility,
-        ArenaField::Combat,
-        ArenaField::Health,
-        ArenaField::OverallRank,
-    ] {
-        let mut mask = criteria.arena.choices.get(&field).copied().unwrap_or(0);
-        filter_row(ui, field.label(), width, |ui| {
-            choices(
-                ui,
-                ("arena", field),
-                &mut mask,
-                field.options().into_iter(),
-                width,
-            )
-        });
-        if mask == 0 {
-            criteria.arena.choices.remove(&field);
-        } else {
-            criteria.arena.choices.insert(field, mask);
+    criteria.arena.enforce_dependencies();
+    ui.add_enabled_ui(criteria.arena.presence != Some(false), |ui| {
+        for &field in &[
+            ArenaField::Affinity,
+            ArenaField::Agility,
+            ArenaField::Combat,
+            ArenaField::Health,
+            ArenaField::OverallRank,
+        ] {
+            let mut mask = criteria.arena.choices.get(&field).copied().unwrap_or(0);
+            filter_row(ui, field.label(), width, |ui| {
+                choices(
+                    ui,
+                    ("arena", field),
+                    &mut mask,
+                    criteria.arena.choice_options(field).into_iter(),
+                    width,
+                )
+            });
+            if mask == 0 {
+                criteria.arena.choices.remove(&field);
+            } else {
+                criteria.arena.choices.insert(field, mask);
+            }
         }
-    }
+    });
+    criteria.arena.enforce_dependencies();
 }
 
 fn tameable_fauna_row(ui: &mut Ui, criteria: &mut Criteria, width: f32) {
+    criteria.arena.enforce_dependencies();
+    let details_active = criteria.arena.has_detail_filters();
     filter_row(ui, "Has tameable fauna", width, |ui| {
-        requirement(ui, "arena_presence", &mut criteria.arena.presence, width);
+        ui.add_enabled_ui(!details_active, |ui| {
+            requirement(ui, "arena_presence", &mut criteria.arena.presence, width);
+        });
     });
+    criteria.arena.enforce_dependencies();
 }
 
 fn fauna_domain_section(ui: &mut Ui, criteria: &mut Criteria, domain: Domain, width: f32) {
     egui::CollapsingHeader::new(RichText::new(domain.label()).size(16.0).strong())
         .id_salt(("fauna_criteria_domain", domain))
         .default_open(true)
-        .show(ui, |ui| fauna_domain(ui, criteria, domain, width));
+        .show(ui, |ui| {
+            let enabled = criteria.fauna_domain_available(domain);
+            ui.add_enabled_ui(enabled, |ui| fauna_domain(ui, criteria, domain, width));
+        });
 }
 
 fn fauna_domain(ui: &mut Ui, criteria: &mut Criteria, domain: Domain, width: f32) {
     let mut selected = criteria.fauna.get(&domain).cloned().unwrap_or_default();
-    for &field in &[
-        FaunaField::Activity,
-        FaunaField::Family,
-        FaunaField::Category,
-        FaunaField::Habitat,
-    ] {
-        fauna_field_row(ui, domain, field, &mut selected, width);
-    }
+    selected.enforce_domain_dependencies(domain);
+    let details_active = selected.has_detail_filters();
     filter_row(ui, domain.presence_label(), width, |ui| {
-        requirement(
+        ui.add_enabled_ui(!details_active, |ui| {
+            requirement(
+                ui,
+                ("fauna_presence", domain),
+                &mut selected.presence,
+                width,
+            );
+        });
+    });
+    selected.enforce_domain_dependencies(domain);
+    ui.add_enabled_ui(selected.presence != Some(false), |ui| {
+        for &field in &[
+            FaunaField::Category,
+            FaunaField::Rarity,
+            FaunaField::Activity,
+            FaunaField::Habitat,
+            FaunaField::Hemisphere,
+            FaunaField::Family,
+        ] {
+            fauna_field_row(ui, domain, field, &mut selected, width);
+        }
+        height_bound_row(
             ui,
-            ("fauna_presence", domain),
-            &mut selected.presence,
+            (domain, "maximum"),
+            "Maximum height (m)",
+            &mut selected.height.maximum_cm,
             width,
+            100_000,
+        );
+        height_bound_row(
+            ui,
+            (domain, "minimum"),
+            "Minimum height (m)",
+            &mut selected.height.minimum_cm,
+            width,
+            0,
         );
     });
-    fauna_field_row(ui, domain, FaunaField::Hemisphere, &mut selected, width);
-    height_bound_row(
-        ui,
-        (domain, "maximum"),
-        "Maximum height (m)",
-        &mut selected.height.maximum_cm,
-        width,
-        100_000,
-    );
-    height_bound_row(
-        ui,
-        (domain, "minimum"),
-        "Minimum height (m)",
-        &mut selected.height.minimum_cm,
-        width,
-        0,
-    );
-    fauna_field_row(ui, domain, FaunaField::Rarity, &mut selected, width);
-    if selected.presence.is_none() && selected.choices.is_empty() && !selected.height.active() {
+    selected.enforce_domain_dependencies(domain);
+    if selected.presence.is_none() && !selected.has_detail_filters() {
         criteria.fauna.remove(&domain);
     } else {
         criteria.fauna.insert(domain, selected);
@@ -3057,7 +3551,7 @@ fn fauna_field_row(
     selected: &mut FaunaCriteria,
     width: f32,
 ) {
-    let options = field.options(domain);
+    let options = selected.choice_options(domain, field);
     if options.is_empty() {
         return;
     }
@@ -3110,17 +3604,61 @@ fn height_bound_row(
     });
 }
 
-fn water_row(ui: &mut Ui, id: &str, water: &mut WaterFilter, input_width: f32) {
+fn water_row(
+    ui: &mut Ui,
+    id: &str,
+    water: &mut WaterFilter,
+    input_width: f32,
+    available: impl Fn(WaterFilter) -> bool,
+) {
     filter_row(ui, "Has water", input_width, |ui| {
-        egui::ComboBox::from_id_salt(id)
-            .width(input_width)
-            .selected_text(water.label())
-            .truncate()
-            .show_ui(ui, |ui| {
+        select_menu(
+            ui,
+            id,
+            water.label(),
+            input_width,
+            WaterFilter::ALL.len(),
+            egui::PopupCloseBehavior::CloseOnClick,
+            |ui| {
                 for &value in WaterFilter::ALL {
-                    ui.selectable_value(water, value, value.label());
+                    ui.add_enabled_ui(available(value), |ui| {
+                        ui.selectable_value(water, value, value.label());
+                    });
                 }
-            });
+            },
+        );
+    });
+}
+
+fn minimum_count_row(
+    ui: &mut Ui,
+    label: &str,
+    id: &str,
+    value: &mut Option<u8>,
+    maximum: u8,
+    input_width: f32,
+) {
+    filter_row(ui, label, input_width, |ui| {
+        let mut minimum = value.unwrap_or(0);
+        select_menu(
+            ui,
+            id,
+            if minimum == 0 {
+                "Any".into()
+            } else {
+                minimum.to_string()
+            },
+            input_width,
+            usize::from(maximum) + 1,
+            egui::PopupCloseBehavior::CloseOnClick,
+            |ui| {
+                ui.selectable_value(&mut minimum, 0, "Any");
+                for count in 1..=maximum {
+                    ui.selectable_value(&mut minimum, count, count.to_string());
+                }
+            },
+        );
+        *value = (minimum > 0).then_some(minimum);
     });
 }
 
@@ -3164,7 +3702,9 @@ fn planet_flag_rows(ui: &mut Ui, criteria: &mut Criteria, flags: &[PlanetFlag], 
     for &flag in flags {
         let mut value = criteria.planets.get(&flag).copied();
         filter_row(ui, flag.label(), input_width, |ui| {
-            requirement(ui, ("planet", flag), &mut value, input_width);
+            ui.add_enabled_ui(criteria.planet_requirement_available(flag), |ui| {
+                requirement(ui, ("planet", flag), &mut value, input_width);
+            });
         });
         if let Some(value) = value {
             criteria.planets.insert(flag, value);
@@ -3196,7 +3736,7 @@ fn sentinel_row(ui: &mut Ui, criteria: &mut Criteria, input_width: f32) {
             ui,
             "sentinels",
             &mut selected,
-            Field::Sentinels.available_options(),
+            criteria.choice_options(Field::Sentinels).into_iter(),
             input_width,
         );
     });
@@ -3245,8 +3785,9 @@ fn history_criteria(criteria: &Criteria) -> Result<Vec<(Section, Vec<String>)>, 
 
 fn section_label(section: Section) -> &'static str {
     match section {
-        Section::Composition => "System composition",
-        Section::Profile => "System profile",
+        Section::SystemFeatures => "System features",
+        Section::SystemDemographics => "System demographics",
+        Section::SystemComposition => "Planetary composition",
         Section::PlanetType => "Planet type",
         Section::Flora => "Flora",
         Section::SkyAtmospherics => "Sky & atmospherics",
@@ -3277,6 +3818,7 @@ fn search_phase(phase: Phase, finish: Option<Finish>) -> &'static str {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use search_probes_model::settings::ResultCardSettings;
 
     #[test]
     fn elapsed_time_is_stable_beyond_one_hour() {
@@ -3293,17 +3835,18 @@ mod tests {
         criteria.systems.insert(SystemFlag::Pirate, false);
         criteria.choices.insert(Field::Star, (1 << 0) | (1 << 2));
         let groups = history_criteria(&criteria).unwrap();
-        assert_eq!(groups.len(), 2);
-        assert_eq!(groups[0].0, Section::Profile);
-        assert!(groups[0].1.iter().any(|value| value == "Not Outlaw system"));
+        assert_eq!(groups.len(), 3);
+        assert_eq!(groups[0].0, Section::SystemFeatures);
         assert!(
             groups[0]
                 .1
                 .iter()
                 .any(|value| value.contains("Star colour:") && value.contains(" | "))
         );
+        assert_eq!(groups[1].0, Section::SystemDemographics);
+        assert!(groups[1].1.iter().any(|value| value == "Not Outlaw system"));
         assert_eq!(
-            groups[1],
+            groups[2],
             (Section::PlanetFeatures, vec!["Has rings".into()])
         );
     }
@@ -3348,6 +3891,7 @@ mod tests {
                 "UI Hotkey",
                 "Notifications",
                 "Screen placement",
+                "Result cards",
             ] {
                 assert!(
                     texts.iter().any(|text| text == title),
@@ -3397,6 +3941,20 @@ mod tests {
         controls
             .submit_ui(
                 generation,
+                UiAction::SetResultCards {
+                    result_cards: ResultCardSettings {
+                        location_subtitle: false,
+                        portal_glyphs: false,
+                        set_destination: false,
+                        copy_portal_code: true,
+                        copy_galactic_coordinates: false,
+                    },
+                },
+            )
+            .unwrap();
+        controls
+            .submit_ui(
+                generation,
                 UiAction::ShowToast {
                     toast: TestToast::ResultFound { count: 2 },
                 },
@@ -3426,6 +3984,16 @@ mod tests {
         assert_eq!(state.ui.page, UiPage::History);
         assert!(!state.ui.settings_sidebar);
         assert_eq!(state.ui.draft_settings.interface.theme, UiTheme::NoMansSky);
+        assert_eq!(
+            state.ui.draft_settings.interface.result_cards,
+            ResultCardSettings {
+                location_subtitle: false,
+                portal_glyphs: false,
+                set_destination: false,
+                copy_portal_code: true,
+                copy_galactic_coordinates: false,
+            }
+        );
         assert_eq!(state.ui.toasts.len(), 1);
         assert_eq!(state.ui.toasts[0].message, "Found 2 matching results.");
         assert_eq!(
@@ -3447,6 +4015,213 @@ mod tests {
                 .planets
                 .get(&PlanetFlag::Rings),
             Some(&true)
+        );
+    }
+
+    #[test]
+    fn semantic_filter_actions_enforce_visible_dependency_rules() {
+        let context = egui::Context::default();
+        let controls = Arc::new(Controls::new(State::new(Settings::default())));
+        let mut app = App::new(&context, controls);
+        let mut overlay = |_| Ok(());
+
+        app.apply_agent_action(
+            &context,
+            UiAction::SetChoiceFilter {
+                field: Field::StormType,
+                selected: vec!["Blizzard".into()],
+            },
+            &mut overlay,
+        )
+        .unwrap();
+        app.apply_agent_action(
+            &context,
+            UiAction::SetPlanetRequirement {
+                flag: PlanetFlag::ExtremeStorms,
+                value: Some(true),
+            },
+            &mut overlay,
+        )
+        .unwrap();
+        app.apply_agent_action(
+            &context,
+            UiAction::SetChoiceFilter {
+                field: Field::StormFrequency,
+                selected: vec!["None".into()],
+            },
+            &mut overlay,
+        )
+        .unwrap();
+        assert!(
+            !app.settings
+                .search
+                .criteria
+                .choices
+                .contains_key(&Field::StormType)
+        );
+        assert!(
+            !app.settings
+                .search
+                .criteria
+                .planets
+                .contains_key(&PlanetFlag::ExtremeStorms)
+        );
+        assert!(
+            app.apply_agent_action(
+                &context,
+                UiAction::SetChoiceFilter {
+                    field: Field::StormType,
+                    selected: vec!["Blizzard".into()],
+                },
+                &mut overlay,
+            )
+            .is_err()
+        );
+        assert!(
+            app.apply_agent_action(
+                &context,
+                UiAction::SetPlanetRequirement {
+                    flag: PlanetFlag::ExtremeSentinels,
+                    value: Some(true),
+                },
+                &mut overlay,
+            )
+            .is_err()
+        );
+
+        app.apply_agent_action(
+            &context,
+            UiAction::SetChoiceFilter {
+                field: Field::Race,
+                selected: vec!["Gek".into()],
+            },
+            &mut overlay,
+        )
+        .unwrap();
+        app.apply_agent_action(
+            &context,
+            UiAction::SetSystemRequirement {
+                flag: SystemFlag::Pirate,
+                value: Some(false),
+            },
+            &mut overlay,
+        )
+        .unwrap();
+        for field in [Field::Wealth, Field::Economy, Field::ConflictLevel] {
+            app.apply_agent_action(
+                &context,
+                UiAction::SetChoiceFilter {
+                    field,
+                    selected: vec![field.available_options().next().unwrap().1.into()],
+                },
+                &mut overlay,
+            )
+            .unwrap();
+        }
+        app.apply_agent_action(
+            &context,
+            UiAction::SetChoiceFilter {
+                field: Field::Population,
+                selected: vec!["Empty".into()],
+            },
+            &mut overlay,
+        )
+        .unwrap();
+        assert!(
+            !app.settings
+                .search
+                .criteria
+                .choices
+                .contains_key(&Field::Race)
+        );
+        assert!(
+            !app.settings
+                .search
+                .criteria
+                .systems
+                .contains_key(&SystemFlag::Pirate)
+        );
+        for field in [Field::Wealth, Field::Economy, Field::ConflictLevel] {
+            assert!(!app.settings.search.criteria.choices.contains_key(&field));
+            assert!(
+                app.apply_agent_action(
+                    &context,
+                    UiAction::SetChoiceFilter {
+                        field,
+                        selected: vec![field.available_options().next().unwrap().1.into()],
+                    },
+                    &mut overlay,
+                )
+                .is_err()
+            );
+        }
+        assert!(
+            app.apply_agent_action(
+                &context,
+                UiAction::SetSystemRequirement {
+                    flag: SystemFlag::Pirate,
+                    value: Some(true),
+                },
+                &mut overlay,
+            )
+            .is_err()
+        );
+
+        app.apply_agent_action(
+            &context,
+            UiAction::SetFaunaChoices {
+                domain: Domain::Land,
+                field: FaunaField::Rarity,
+                selected: vec!["Rare".into()],
+            },
+            &mut overlay,
+        )
+        .unwrap();
+        assert_eq!(
+            app.settings.search.criteria.fauna[&Domain::Land].presence,
+            Some(true)
+        );
+        assert!(
+            app.apply_agent_action(
+                &context,
+                UiAction::SetFaunaPresence {
+                    domain: Domain::Land,
+                    value: None,
+                },
+                &mut overlay,
+            )
+            .is_err()
+        );
+        app.apply_agent_action(
+            &context,
+            UiAction::SetFaunaChoices {
+                domain: Domain::Land,
+                field: FaunaField::Rarity,
+                selected: Vec::new(),
+            },
+            &mut overlay,
+        )
+        .unwrap();
+        app.apply_agent_action(
+            &context,
+            UiAction::SetFaunaPresence {
+                domain: Domain::Land,
+                value: Some(false),
+            },
+            &mut overlay,
+        )
+        .unwrap();
+        assert!(
+            app.apply_agent_action(
+                &context,
+                UiAction::SetFaunaHeight {
+                    domain: Domain::Land,
+                    minimum_cm: Some(100),
+                    maximum_cm: None,
+                },
+                &mut overlay,
+            )
+            .is_err()
         );
     }
 
@@ -3494,12 +4269,17 @@ mod tests {
             second: None,
         };
         published.interface.notifications.automatic_resume = false;
+        published.interface.result_cards.location_subtitle = false;
         reconcile_settings(&mut draft, &previous, &published);
         assert_eq!(draft.interface.theme, UiTheme::NoMansSky);
         assert_eq!(draft.interface.hotkey, published.interface.hotkey);
         assert_eq!(
             draft.interface.notifications,
             published.interface.notifications
+        );
+        assert_eq!(
+            draft.interface.result_cards,
+            published.interface.result_cards
         );
     }
 

@@ -1,5 +1,6 @@
 use crate::{
     control_worker, discovery_hook,
+    game_pause::GamePauseControl,
     game_state::{Epoch, Snapshot},
     gameplay_hook, guide_hook,
     identity::Image,
@@ -69,6 +70,7 @@ struct Runtime {
     navigation: Navigation,
     navigation_polled: Option<Instant>,
     publication_gate: PublicationGate<GameplayPublication>,
+    game_pause: GamePauseControl,
 }
 
 pub fn initialize() -> Result<(), String> {
@@ -120,6 +122,11 @@ fn attach(image: Image, controls: Arc<Controls>, settings: Settings) -> Result<(
     let base = image.base();
     mission_text_hook::set_presets(&settings.presets)
         .map_err(|error| format!("Cannot name Guide presets: {error}"))?;
+    let mut game_pause = GamePauseControl::new(base)
+        .map_err(|error| format!("Cannot control NMS pause behavior: {error}"))?;
+    game_pause
+        .sync(settings.keep_game_running)
+        .map_err(|error| format!("Cannot apply NMS pause behavior: {error}"))?;
     let runtime = Runtime {
         image,
         controls: controls.clone(),
@@ -133,6 +140,7 @@ fn attach(image: Image, controls: Arc<Controls>, settings: Settings) -> Result<(
         navigation: Navigation::default(),
         navigation_polled: None,
         publication_gate: PublicationGate::new(GAMEPLAY_PUBLICATION_INTERVAL),
+        game_pause,
     };
     let hooks: Result<(), String> = (|| {
         unsafe { lifecycle_hook::enable(base) }
@@ -284,8 +292,10 @@ pub(crate) fn retire_application_sources(menu: bool) -> Result<(), &'static str>
 
 /// Called by the verified application shutdown transition, outside the loader lock.
 pub(crate) fn shutdown_application() -> Result<(), &'static str> {
+    let mut pause_restore = Ok(());
     if let Some(runtime) = RUNTIME.get() {
         let mut runtime = runtime.lock()?;
+        pause_restore = runtime.game_pause.restore();
         runtime.controls.cancel.store(true, Ordering::Release);
         runtime.scheduler.session.cancel();
         runtime.publish_search();
@@ -301,7 +311,7 @@ pub(crate) fn shutdown_application() -> Result<(), &'static str> {
         });
     }
     control_worker::finish();
-    Ok(())
+    pause_restore
 }
 
 impl Runtime {
@@ -367,6 +377,10 @@ impl Runtime {
             Availability::Failed | Availability::Unsupported | Availability::Stopped
         ) {
             return;
+        }
+        if let Err(error) = self.game_pause.maintain() {
+            self.controls
+                .update(|state| state.error = Some(error.to_owned()));
         }
         let transition = lifecycle_hook::epoch();
         let session = lifecycle_hook::session();
@@ -612,6 +626,10 @@ impl Runtime {
                     snapshot.address,
                     settings.execution(),
                 )?;
+                if let Err(error) = self.game_pause.sync(settings.keep_game_running) {
+                    self.scheduler.session.fail(error);
+                    return Err(error);
+                }
                 if self.settings.presets != settings.presets {
                     mission_text_hook::set_presets(&settings.presets)?;
                 }
@@ -657,6 +675,7 @@ impl Runtime {
                 });
             }
             Action::Configure { settings } => {
+                self.game_pause.sync(settings.keep_game_running)?;
                 if self.settings.presets != settings.presets {
                     mission_text_hook::set_presets(&settings.presets)?;
                 }

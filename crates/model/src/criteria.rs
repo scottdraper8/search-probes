@@ -39,7 +39,7 @@ fields! {
     Star => ("Star colour",STAR_TYPES,System),
     Wealth => ("Economy strength",WEALTH_CLASSES,System),
     Economy => ("Economy type",TRADING_CLASSES,System),
-    Conflict => ("Conflict",CONFLICT_LEVELS,System),
+    ConflictLevel => ("Conflict level",CONFLICT_LEVELS,System),
     Population => ("Population",POPULATION_STATES,System),
     Race => ("Dominant lifeform",RACE_ENUM,System),
     Anomaly => ("Space anomaly",ANOMALIES,System),
@@ -59,7 +59,7 @@ fields! {
     Sky => ("Daytime sky colour",GRASS_COLOURS,Colour),
     WaterColour => ("Water colour",GRASS_COLOURS,Colour),
     WorldColourFilter => ("World colour filter",WORLD_FILTERS,ScreenFilter),
-    UniqueResources => ("Unique resources",UNIQUE_RESOURCES,Hints),
+    SpecialtyResources => ("Specialty resources",SPECIALTY_RESOURCES,Hints),
 }
 
 impl Field {
@@ -99,8 +99,8 @@ impl Field {
         if self == Self::WorldColourFilter {
             return WORLD_FILTER_VALUES.get(choice).copied();
         }
-        if self == Self::UniqueResources {
-            return Some(UNIQUE_RESOURCE_SET | (1 << choice));
+        if self == Self::SpecialtyResources {
+            return Some(SPECIALTY_RESOURCE_SET | (1 << choice));
         }
         if self == Self::Terrain {
             return Some(FEATURE_SET | (1 << choice));
@@ -147,7 +147,7 @@ impl Field {
                 })
                 .collect();
         }
-        if matches!(self, Self::Terrain | Self::UniqueResources) {
+        if matches!(self, Self::Terrain | Self::SpecialtyResources) {
             return self
                 .options()
                 .iter()
@@ -203,9 +203,24 @@ flags! { PlanetFlag {
 
 flags! { SystemFlag {
     Pirate => ("Outlaw system",System),
-    Dissonance => ("Dissonance",Query),
+    Dissonance => ("Has dissonance",Query),
     ExtremeStorms => ("Contains extreme storms",Weather),
 }}
+
+impl PlanetFlag {
+    pub const SENTINEL_LEVEL_PROJECTIONS: &[Self] = &[
+        Self::Sentinels,
+        Self::ExtremeSentinels,
+        Self::CorruptSentinels,
+    ];
+
+    pub const fn is_sentinel_level_projection(self) -> bool {
+        matches!(
+            self,
+            Self::Sentinels | Self::ExtremeSentinels | Self::CorruptSentinels
+        )
+    }
+}
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -255,8 +270,9 @@ pub enum WaterPresence {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Section {
-    Composition,
-    Profile,
+    SystemFeatures,
+    SystemDemographics,
+    SystemComposition,
     PlanetType,
     Flora,
     SkyAtmospherics,
@@ -271,8 +287,9 @@ pub enum Section {
 }
 impl Section {
     pub const ALL: &[Self] = &[
-        Self::Composition,
-        Self::Profile,
+        Self::SystemFeatures,
+        Self::SystemDemographics,
+        Self::SystemComposition,
         Self::PlanetType,
         Self::Flora,
         Self::SkyAtmospherics,
@@ -289,18 +306,15 @@ impl Section {
 impl Field {
     pub fn section(self) -> Section {
         match self {
-            Self::Star
-            | Self::Wealth
-            | Self::Economy
-            | Self::Conflict
-            | Self::Population
-            | Self::Race
-            | Self::Anomaly => Section::Profile,
+            Self::Star | Self::Anomaly => Section::SystemFeatures,
+            Self::Wealth | Self::Economy | Self::ConflictLevel | Self::Population | Self::Race => {
+                Section::SystemDemographics
+            }
             Self::Biome | Self::Subtype | Self::Size | Self::Terrain => Section::PlanetType,
             Self::Flora | Self::Grass | Self::FloraColour => Section::Flora,
-            Self::Sentinels => Section::PlanetFeatures,
+            Self::Sentinels | Self::WaterColour => Section::PlanetFeatures,
             Self::Fauna => Section::GeneralFauna,
-            Self::ResourceRichness | Self::UniqueResources => Section::Resources,
+            Self::ResourceRichness | Self::SpecialtyResources => Section::Resources,
             Self::StormType | Self::StormFrequency => Section::Weather,
             _ => Section::SkyAtmospherics,
         }
@@ -426,6 +440,7 @@ pub struct Criteria {
     pub systems: BTreeMap<SystemFlag, bool>,
     pub resources: Resources,
     pub minimum_planets: Option<u8>,
+    pub minimum_stars: Option<u8>,
     pub composition: Composition,
     pub system_water: WaterFilter,
     pub planet_water: WaterFilter,
@@ -448,12 +463,12 @@ impl Choices {
         self.mask
     }
     pub fn accepts(self, native_value: u32) -> bool {
-        if self.field == Field::UniqueResources {
-            return native_value & UNIQUE_RESOURCE_SET != 0
+        if self.field == Field::SpecialtyResources {
+            return native_value & SPECIALTY_RESOURCE_SET != 0
                 && Resources {
                     selected: self.mask as u32,
                 }
-                .accepts(native_value & !UNIQUE_RESOURCE_SET);
+                .accepts(native_value & !SPECIALTY_RESOURCE_SET);
         }
         if self.field == Field::Terrain {
             return native_value & FEATURE_SET != 0
@@ -504,6 +519,7 @@ pub enum Predicate {
     System(SystemFlag, bool),
     Resources(Resources),
     MinimumPlanets(u8),
+    MinimumStars(u8),
     Water(WaterFilter),
     Contains(PlanetSelection, bool),
     Fauna(crate::fauna::Selection),
@@ -518,12 +534,15 @@ impl Predicate {
             Self::Choice(choices) => choices.field.section(),
             Self::Planet(flag, _) => flag.section(),
             Self::System(SystemFlag::ExtremeStorms, _) | Self::MinimumPlanets(_) => {
-                Section::Composition
+                Section::SystemComposition
             }
-            Self::System(_, _) | Self::Contains(PlanetSelection::Water(_), _) => Section::Profile,
+            Self::MinimumStars(_)
+            | Self::System(SystemFlag::Dissonance, _)
+            | Self::Contains(PlanetSelection::Water(_), _) => Section::SystemFeatures,
+            Self::System(SystemFlag::Pirate, _) => Section::SystemDemographics,
             Self::Resources(_) => Section::Resources,
             Self::Water(_) => Section::PlanetFeatures,
-            Self::Contains(_, _) => Section::Composition,
+            Self::Contains(_, _) => Section::SystemComposition,
         }
     }
     pub fn stage(self) -> Stage {
@@ -533,7 +552,7 @@ impl Predicate {
             Self::Planet(flag, _) => flag.stage(),
             Self::System(flag, _) => flag.stage(),
             Self::Resources(_) => Stage::Query,
-            Self::MinimumPlanets(_) => Stage::System,
+            Self::MinimumPlanets(_) | Self::MinimumStars(_) => Stage::System,
             Self::Water(_) => Stage::Query,
             Self::Contains(selection, _) => selection.stage(),
         }
@@ -576,6 +595,7 @@ impl Predicate {
                 )
             ),
             Self::MinimumPlanets(minimum) => format!("At least {minimum} planets"),
+            Self::MinimumStars(minimum) => format!("At least {minimum} stars"),
             Self::Water(rule) => format!("Water: {}", rule.label()),
             Self::Contains(selection, value) => {
                 let detail = match selection {
@@ -666,6 +686,427 @@ pub struct Plan {
 }
 
 impl Criteria {
+    const INHABITED: u64 = 1 << 0;
+    const EMPTY: u64 = 1 << 1;
+    const ABANDONED: u64 = 1 << 2;
+    const GAS_GIANT: u64 = 1 << 15;
+    const GIANT: u64 = 1 << 4;
+    const CORRUPTED_SENTINELS: u64 = 1 << 3;
+    const NORMAL_ECONOMY_LEVELS: u64 = 0b111;
+    const PIRATE_ECONOMY_LEVEL: u64 = 1 << 3;
+
+    fn option_mask(field: Field) -> u64 {
+        field
+            .available_options()
+            .fold(0, |mask, (index, _)| mask | 1 << index)
+    }
+
+    fn selected_or_all(&self, field: Field) -> u64 {
+        self.choices
+            .get(&field)
+            .copied()
+            .filter(|mask| *mask != 0)
+            .unwrap_or_else(|| Self::option_mask(field))
+    }
+
+    pub fn storm_frequency_is_only_none(&self) -> bool {
+        self.choices
+            .get(&Field::StormFrequency)
+            .is_some_and(|mask| *mask == 1)
+    }
+
+    fn choice_is_only(&self, field: Field, option: usize) -> bool {
+        self.choices.get(&field) == Some(&(1 << option))
+    }
+
+    pub fn flora_details_available(&self) -> bool {
+        !self.choice_is_only(Field::Flora, 0)
+    }
+
+    pub fn fauna_details_available(&self) -> bool {
+        !self.choice_is_only(Field::Fauna, 0)
+    }
+
+    pub fn fauna_domain_available(&self, domain: crate::fauna::Domain) -> bool {
+        self.fauna_details_available()
+            && (domain != crate::fauna::Domain::Aquatic || !self.target_planet_must_be_dry())
+    }
+
+    pub fn arena_available(&self) -> bool {
+        self.fauna_details_available()
+    }
+
+    pub fn enforce_weather_dependencies(&mut self) {
+        if self.storm_frequency_is_only_none() {
+            self.choices.remove(&Field::StormType);
+            self.planets.remove(&PlanetFlag::ExtremeStorms);
+        }
+        if self.systems.get(&SystemFlag::ExtremeStorms) == Some(&false) {
+            self.planets.remove(&PlanetFlag::ExtremeStorms);
+        }
+    }
+
+    fn population_candidates(&self) -> u64 {
+        let mut candidates = self.selected_or_all(Field::Population);
+        if let Some(races) = self.choices.get(&Field::Race).copied() {
+            let mut supported = 0;
+            if races & 0b111 != 0 {
+                supported |= Self::INHABITED | Self::ABANDONED;
+            }
+            if races & (1 << 7) != 0 {
+                supported |= Self::EMPTY;
+            }
+            candidates &= supported;
+        }
+        candidates
+    }
+
+    pub fn population_allows_inhabited(&self) -> bool {
+        self.population_candidates() & Self::INHABITED != 0
+    }
+
+    pub fn race_available_mask(&self) -> u64 {
+        let populations = self.selected_or_all(Field::Population);
+        if populations == Self::EMPTY {
+            // Empty already implies the sole available value, None, so a second
+            // filter cannot narrow the result.
+            return 0;
+        }
+        let mut available = 0;
+        if populations & (Self::INHABITED | Self::ABANDONED) != 0 {
+            available |= 0b111;
+        }
+        if populations & Self::EMPTY != 0 {
+            available |= 1 << 7;
+        }
+        available
+    }
+
+    pub fn outlaw_filter_available(&self) -> bool {
+        self.population_allows_inhabited()
+    }
+
+    fn demographic_choice_mask(&self, field: Field) -> u64 {
+        if !self.population_allows_inhabited() {
+            return 0;
+        }
+        let outlaw = self.systems.get(&SystemFlag::Pirate).copied();
+        let wealth = self.choices.get(&Field::Wealth).copied().unwrap_or(0);
+        match field {
+            Field::Wealth => match outlaw {
+                Some(true) => Self::PIRATE_ECONOMY_LEVEL,
+                Some(false) => Self::NORMAL_ECONOMY_LEVELS,
+                None => Self::NORMAL_ECONOMY_LEVELS | Self::PIRATE_ECONOMY_LEVEL,
+            },
+            Field::Economy => {
+                let wealth_allows_normal = wealth == 0 || wealth & Self::NORMAL_ECONOMY_LEVELS != 0;
+                if outlaw == Some(true) || !wealth_allows_normal {
+                    0
+                } else {
+                    Self::option_mask(Field::Economy)
+                }
+            }
+            Field::ConflictLevel => {
+                let wealth_allows_normal = wealth == 0 || wealth & Self::NORMAL_ECONOMY_LEVELS != 0;
+                let wealth_allows_pirate = wealth == 0 || wealth & Self::PIRATE_ECONOMY_LEVEL != 0;
+                let economy_selected = self
+                    .choices
+                    .get(&Field::Economy)
+                    .is_some_and(|mask| *mask != 0);
+                let normal = outlaw != Some(true) && wealth_allows_normal;
+                let pirate = outlaw != Some(false) && !economy_selected && wealth_allows_pirate;
+                (if normal {
+                    Self::NORMAL_ECONOMY_LEVELS
+                } else {
+                    0
+                }) | (if pirate {
+                    Self::PIRATE_ECONOMY_LEVEL
+                } else {
+                    0
+                })
+            }
+            _ => Self::option_mask(field),
+        }
+    }
+
+    pub fn enforce_population_dependencies(&mut self) {
+        let allowed_races = self.race_available_mask();
+        if let Some(mask) = self.choices.get_mut(&Field::Race) {
+            *mask &= allowed_races;
+        }
+        if self.choices.get(&Field::Race) == Some(&0) {
+            self.choices.remove(&Field::Race);
+        }
+        if !self.outlaw_filter_available() {
+            self.systems.remove(&SystemFlag::Pirate);
+        }
+        for field in [Field::Wealth, Field::Economy, Field::ConflictLevel] {
+            let allowed = self.demographic_choice_mask(field);
+            if let Some(mask) = self.choices.get_mut(&field) {
+                *mask &= allowed;
+            }
+            if self.choices.get(&field) == Some(&0) {
+                self.choices.remove(&field);
+            }
+        }
+    }
+
+    pub fn planet_biome_is_only_gas_giant(&self) -> bool {
+        self.biome_choices() == Some(Self::GAS_GIANT)
+    }
+
+    pub fn derived_planet_size(&self) -> Option<usize> {
+        self.planet_biome_is_only_gas_giant().then_some(4)
+    }
+
+    fn biome_option_contains(option: usize, actual: usize) -> bool {
+        option == actual || (option == 16 && (8..=10).contains(&actual))
+    }
+
+    fn target_biome_contains(selected: u64, actual: usize) -> bool {
+        selected == 0
+            || selected & (1 << actual) != 0
+            || ((8..=10).contains(&actual) && selected & (1 << 16) != 0)
+    }
+
+    fn system_excludes_biome_subtype_pair(&self, biome: usize, subtype: usize) -> bool {
+        let biomes = self.composition.biomes.exclude;
+        let subtypes = self.composition.subtypes.exclude;
+        if biomes == 0 && subtypes == 0 {
+            return false;
+        }
+        let biome_matches = biomes == 0 || Self::target_biome_contains(biomes, biome);
+        let subtype_matches = subtypes == 0 || subtypes & (1 << subtype) != 0;
+        biome_matches && subtype_matches
+    }
+
+    fn available_target_biome_mask(&self) -> u64 {
+        let selected_subtypes = self.choices.get(&Field::Subtype).copied().unwrap_or(0);
+        Field::Biome
+            .available_options()
+            .filter(|(option, _)| {
+                if *option == 15 && self.composition.sizes.exclude & Self::GIANT != 0 {
+                    return false;
+                }
+                (0..16).any(|actual| {
+                    Self::biome_option_contains(*option, actual)
+                        && (0..29).any(|subtype| {
+                            biome_subtype_present(actual, subtype)
+                                && (selected_subtypes == 0
+                                    || selected_subtypes & (1 << subtype) != 0)
+                                && !self.system_excludes_biome_subtype_pair(actual, subtype)
+                        })
+                })
+            })
+            .fold(0, |mask, (option, _)| mask | 1 << option)
+    }
+
+    fn available_target_subtype_mask(&self) -> u64 {
+        let selected_biomes = self.biome_choices().unwrap_or(0);
+        (0..29)
+            .filter(|subtype| {
+                Field::Biome.available_options().any(|(option, _)| {
+                    (selected_biomes == 0 || selected_biomes & (1 << option) != 0)
+                        && (0..16).any(|actual| {
+                            Self::biome_option_contains(option, actual)
+                                && biome_subtype_present(actual, *subtype)
+                                && !self.system_excludes_biome_subtype_pair(actual, *subtype)
+                        })
+                })
+            })
+            .fold(0, |mask, subtype| mask | 1 << subtype)
+    }
+
+    pub fn available_choice_mask(&self, field: Field) -> u64 {
+        let mut available = Self::option_mask(field);
+        match field {
+            Field::Race => return self.race_available_mask(),
+            Field::Wealth | Field::Economy | Field::ConflictLevel => {
+                return self.demographic_choice_mask(field);
+            }
+            Field::Biome => return self.available_target_biome_mask(),
+            Field::Subtype => return self.available_target_subtype_mask(),
+            Field::Size => available &= !self.composition.sizes.exclude,
+            Field::Sentinels => {
+                if self.systems.get(&SystemFlag::Dissonance) == Some(&false) {
+                    available &= !Self::CORRUPTED_SENTINELS;
+                }
+            }
+            Field::StormType if self.storm_frequency_is_only_none() => return 0,
+            Field::WaterColour if self.target_planet_must_be_dry() => return 0,
+            Field::Grass | Field::FloraColour if !self.flora_details_available() => return 0,
+            _ => {}
+        }
+        available
+    }
+
+    pub fn choice_options(&self, field: Field) -> Vec<(usize, &'static str)> {
+        let available = self.available_choice_mask(field);
+        field
+            .available_options()
+            .filter(|(index, _)| available & (1 << index) != 0)
+            .collect()
+    }
+
+    pub fn planet_requirement_available(&self, flag: PlanetFlag) -> bool {
+        match flag {
+            PlanetFlag::ExtremeStorms => {
+                !self.storm_frequency_is_only_none()
+                    && self.systems.get(&SystemFlag::ExtremeStorms) != Some(&false)
+            }
+            PlanetFlag::Dissonant | PlanetFlag::CorruptSentinels => {
+                if self.systems.get(&SystemFlag::Dissonance) == Some(&false) {
+                    return false;
+                }
+                if flag == PlanetFlag::CorruptSentinels {
+                    return self.sentinel_requirement_can_narrow(flag);
+                }
+                true
+            }
+            PlanetFlag::Sentinels | PlanetFlag::ExtremeSentinels => {
+                self.sentinel_requirement_can_narrow(flag)
+            }
+            PlanetFlag::GlowingGrass | PlanetFlag::GlowingFlora => self.flora_details_available(),
+            PlanetFlag::PlayerAttackingFauna => self.fauna_details_available(),
+            _ => true,
+        }
+    }
+
+    fn sentinel_requirement_can_narrow(&self, flag: PlanetFlag) -> bool {
+        let levels =
+            self.selected_or_all(Field::Sentinels) & self.available_choice_mask(Field::Sentinels);
+        let true_levels = match flag {
+            PlanetFlag::Sentinels => 0b1110,
+            PlanetFlag::ExtremeSentinels => 0b0100,
+            PlanetFlag::CorruptSentinels => 0b1000,
+            _ => return true,
+        };
+        levels & true_levels != 0 && levels & !true_levels != 0
+    }
+
+    pub fn target_planet_must_be_dry(&self) -> bool {
+        self.planet_water == WaterFilter::ExcludeAll || self.system_water == WaterFilter::ExcludeAll
+    }
+
+    pub fn planet_water_option_available(&self, value: WaterFilter) -> bool {
+        match value {
+            WaterFilter::RequireAny => self.system_water != WaterFilter::ExcludeAll,
+            WaterFilter::RequireDeep => !matches!(
+                self.system_water,
+                WaterFilter::ExcludeDeep | WaterFilter::ExcludeAll
+            ),
+            WaterFilter::ExcludeAll => {
+                !self.choices.contains_key(&Field::WaterColour)
+                    && !self
+                        .fauna
+                        .get(&crate::fauna::Domain::Aquatic)
+                        .is_some_and(|fauna| {
+                            fauna.presence == Some(true) || fauna.has_detail_filters()
+                        })
+            }
+            _ => true,
+        }
+    }
+
+    pub fn system_water_option_available(&self, value: WaterFilter) -> bool {
+        match value {
+            WaterFilter::ExcludeDeep => self.planet_water != WaterFilter::RequireDeep,
+            WaterFilter::ExcludeAll => {
+                !matches!(
+                    self.planet_water,
+                    WaterFilter::RequireAny | WaterFilter::RequireDeep
+                ) && !self.choices.contains_key(&Field::WaterColour)
+                    && !self
+                        .fauna
+                        .get(&crate::fauna::Domain::Aquatic)
+                        .is_some_and(|fauna| {
+                            fauna.presence == Some(true) || fauna.has_detail_filters()
+                        })
+            }
+            _ => true,
+        }
+    }
+
+    fn enforce_cross_scope_dependencies(&mut self) {
+        for field in [
+            Field::Biome,
+            Field::Subtype,
+            Field::Size,
+            Field::Sentinels,
+            Field::WaterColour,
+        ] {
+            let allowed = self.available_choice_mask(field);
+            if let Some(mask) = self.choices.get_mut(&field) {
+                *mask &= allowed;
+            }
+            if self.choices.get(&field) == Some(&0) {
+                self.choices.remove(&field);
+            }
+        }
+        if self.planet_biome_is_only_gas_giant() {
+            self.choices.remove(&Field::Size);
+        }
+        if self.systems.get(&SystemFlag::Dissonance) == Some(&false) {
+            for flag in [PlanetFlag::Dissonant, PlanetFlag::CorruptSentinels] {
+                self.planets.remove(&flag);
+            }
+        }
+        for flag in [
+            PlanetFlag::Sentinels,
+            PlanetFlag::ExtremeSentinels,
+            PlanetFlag::CorruptSentinels,
+            PlanetFlag::GlowingGrass,
+            PlanetFlag::GlowingFlora,
+            PlanetFlag::PlayerAttackingFauna,
+        ] {
+            if !self.planet_requirement_available(flag) {
+                self.planets.remove(&flag);
+            }
+        }
+        if !self.flora_details_available() {
+            for field in [Field::Grass, Field::FloraColour] {
+                self.choices.remove(&field);
+            }
+            for flag in [PlanetFlag::GlowingGrass, PlanetFlag::GlowingFlora] {
+                self.planets.remove(&flag);
+            }
+        }
+        if !self.fauna_details_available() {
+            self.fauna.clear();
+            self.arena = crate::arena::ArenaCriteria::default();
+            self.planets.remove(&PlanetFlag::PlayerAttackingFauna);
+        }
+        match self.system_water {
+            WaterFilter::ExcludeAll => {
+                self.planet_water = WaterFilter::Any;
+            }
+            WaterFilter::ExcludeDeep
+                if matches!(
+                    self.planet_water,
+                    WaterFilter::RequireDeep | WaterFilter::ExcludeDeep
+                ) =>
+            {
+                self.planet_water = WaterFilter::Any;
+            }
+            _ => {}
+        }
+        if self.target_planet_must_be_dry() {
+            self.fauna.remove(&crate::fauna::Domain::Aquatic);
+        }
+    }
+
+    pub fn enforce_dependencies(&mut self) {
+        self.arena.enforce_dependencies();
+        for (&domain, fauna) in &mut self.fauna {
+            fauna.enforce_domain_dependencies(domain);
+        }
+        self.enforce_sentinel_dependencies();
+        self.enforce_cross_scope_dependencies();
+        self.enforce_weather_dependencies();
+        self.enforce_population_dependencies();
+        self.enforce_cross_scope_dependencies();
+    }
+
     pub fn biome_choices(&self) -> Option<u64> {
         let selected = self.choices.get(&Field::Biome).copied().unwrap_or(0);
         if selected >> BIOMES.len() != 0 {
@@ -687,6 +1128,9 @@ impl Criteria {
         if self.biome_choices() != Some(mask) {
             self.choices.remove(&Field::Subtype);
         }
+        if mask == Self::GAS_GIANT {
+            self.choices.remove(&Field::Size);
+        }
         if mask == 0 {
             self.choices.remove(&Field::Biome);
         } else {
@@ -698,7 +1142,14 @@ impl Criteria {
         let Some(selected) = self.biome_choices() else {
             return Vec::new();
         };
+        let available = self.available_target_subtype_mask();
         subtype_options_for(selected)
+            .into_iter()
+            .filter_map(|(mask, label)| {
+                let mask = mask & available;
+                (mask != 0).then_some((mask, label))
+            })
+            .collect()
     }
 
     pub fn sentinel_choices(&self) -> Option<u64> {
@@ -730,17 +1181,22 @@ impl Criteria {
     }
 
     pub fn set_sentinel_choices(&mut self, mask: u64) {
-        for flag in [
-            PlanetFlag::Sentinels,
-            PlanetFlag::ExtremeSentinels,
-            PlanetFlag::CorruptSentinels,
-        ] {
+        for &flag in PlanetFlag::SENTINEL_LEVEL_PROJECTIONS {
             self.planets.remove(&flag);
         }
         if mask == 0 {
             self.choices.remove(&Field::Sentinels);
         } else {
             self.choices.insert(Field::Sentinels, mask);
+        }
+    }
+
+    fn enforce_sentinel_dependencies(&mut self) {
+        let has_direct_flags = PlanetFlag::SENTINEL_LEVEL_PROJECTIONS
+            .iter()
+            .any(|flag| self.planets.contains_key(flag));
+        if has_direct_flags && let Some(mask) = self.sentinel_choices() {
+            self.set_sentinel_choices(mask);
         }
     }
 
@@ -789,6 +1245,113 @@ impl Criteria {
     }
 
     pub fn compile(&self) -> Result<Plan, &'static str> {
+        let has_sentinel_projections = PlanetFlag::SENTINEL_LEVEL_PROJECTIONS
+            .iter()
+            .any(|flag| self.planets.contains_key(flag));
+        if has_sentinel_projections && self.sentinel_choices().is_none() {
+            return Err("sentinel filters have no possible shared level");
+        }
+        if has_sentinel_projections {
+            return Err("use the unified Sentinels filter instead of sentinel level projections");
+        }
+        if self.storm_frequency_is_only_none()
+            && (self.choices.contains_key(&Field::StormType)
+                || self.planets.contains_key(&PlanetFlag::ExtremeStorms))
+        {
+            return Err("storm type and extreme storms require a storm frequency other than None");
+        }
+        if self
+            .choices
+            .get(&Field::Race)
+            .is_some_and(|mask| mask & !self.race_available_mask() != 0)
+        {
+            return Err("dominant lifeform is incompatible with the population selection");
+        }
+        if self.systems.contains_key(&SystemFlag::Pirate) && !self.outlaw_filter_available() {
+            return Err("outlaw system cannot narrow the selected population and lifeform");
+        }
+        for field in [Field::Wealth, Field::Economy, Field::ConflictLevel] {
+            if self
+                .choices
+                .get(&field)
+                .is_some_and(|mask| mask & !self.demographic_choice_mask(field) != 0)
+            {
+                return Err(
+                    "economy and conflict filters are incompatible with the selected demographics",
+                );
+            }
+        }
+        if !self.flora_details_available()
+            && (self.choices.contains_key(&Field::Grass)
+                || self.choices.contains_key(&Field::FloraColour)
+                || [PlanetFlag::GlowingGrass, PlanetFlag::GlowingFlora]
+                    .into_iter()
+                    .any(|flag| self.planets.contains_key(&flag)))
+        {
+            return Err("flora appearance filters require planet flora");
+        }
+        if !self.fauna_details_available()
+            && (!self.fauna.is_empty()
+                || self.arena.presence.is_some()
+                || self.arena.has_detail_filters()
+                || self.planets.contains_key(&PlanetFlag::PlayerAttackingFauna))
+        {
+            return Err("fauna detail filters require planet fauna");
+        }
+        for flag in [
+            PlanetFlag::Sentinels,
+            PlanetFlag::ExtremeSentinels,
+            PlanetFlag::CorruptSentinels,
+            PlanetFlag::GlowingGrass,
+            PlanetFlag::GlowingFlora,
+            PlanetFlag::PlayerAttackingFauna,
+        ] {
+            if self.planets.contains_key(&flag) && !self.planet_requirement_available(flag) {
+                return Err("planet requirement cannot narrow the current filter values");
+            }
+        }
+        if self.systems.get(&SystemFlag::ExtremeStorms) == Some(&false)
+            && self.planets.get(&PlanetFlag::ExtremeStorms) == Some(&true)
+        {
+            return Err(
+                "a target planet cannot require extreme storms in a system that excludes them",
+            );
+        }
+        if self.systems.get(&SystemFlag::Dissonance) == Some(&false)
+            && (self.planets.get(&PlanetFlag::Dissonant) == Some(&true)
+                || self.planets.get(&PlanetFlag::CorruptSentinels) == Some(&true)
+                || self
+                    .choices
+                    .get(&Field::Sentinels)
+                    .is_some_and(|mask| mask & Self::CORRUPTED_SENTINELS != 0))
+        {
+            return Err(
+                "a target planet cannot require dissonance or corrupted sentinels in a system that excludes dissonance",
+            );
+        }
+        if self.planet_biome_is_only_gas_giant() && self.choices.contains_key(&Field::Size) {
+            return Err("a Gas Giant target already has the derived Giant size");
+        }
+        for field in [
+            Field::Biome,
+            Field::Subtype,
+            Field::Size,
+            Field::WaterColour,
+        ] {
+            if self
+                .choices
+                .get(&field)
+                .is_some_and(|mask| mask & !self.available_choice_mask(field) != 0)
+            {
+                return Err("target planet choice conflicts with a system-wide exclusion");
+            }
+        }
+        if !self.planet_water_option_available(self.planet_water) {
+            return Err("target planet water filter conflicts with another target constraint");
+        }
+        if !self.system_water_option_available(self.system_water) {
+            return Err("system water exclusion conflicts with the target planet filters");
+        }
         let mut plan = Plan {
             system: Vec::new(),
             planet: Vec::new(),
@@ -866,6 +1429,12 @@ impl Criteria {
                 return Err("planet count must be between one and eight");
             }
             plan.system.push(Predicate::MinimumPlanets(minimum));
+        }
+        if let Some(minimum) = self.minimum_stars {
+            if !(1..=3).contains(&minimum) {
+                return Err("star count must be between one and three");
+            }
+            plan.system.push(Predicate::MinimumStars(minimum));
         }
         if self.resources.selected >> RESOURCE_IDS.len() != 0 {
             return Err("unknown resource choice");

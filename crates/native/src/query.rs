@@ -13,6 +13,7 @@ type Lifecycle = unsafe extern "system" fn(*mut u8);
 type Classify = unsafe extern "system" fn(*mut u8, u64);
 type Solar = unsafe extern "system" fn(*mut u8, *mut u8, *mut u8, *mut u8);
 type Planet = unsafe extern "system" fn(*mut u8, *mut u8, *mut u8, u64, bool);
+type StarCount = unsafe extern "system" fn(*const u8) -> u32;
 
 pub struct Bindings {
     construct: Lifecycle,
@@ -20,6 +21,7 @@ pub struct Bindings {
     classify: Classify,
     solar: Solar,
     planet: Planet,
+    star_count: StarCount,
     _thread_bound: PhantomData<Rc<()>>,
 }
 
@@ -92,6 +94,14 @@ impl Bindings {
                         0xc8, 0xce, 0xdc, 0x01, 0x48, 0x2b, 0xe0, 0x49, 0x8b, 0xf0,
                     ],
                 )?),
+                star_count: std::mem::transmute::<usize, StarCount>(check(
+                    base,
+                    0x14167be30,
+                    &[
+                        0xf3, 0x0f, 0x10, 0x0d, 0xa8, 0xb6, 0x57, 0x03, 0x33, 0xc0, 0xf3, 0x0f,
+                        0x10, 0x91,
+                    ],
+                )?),
                 _thread_bound: PhantomData,
             })
         }
@@ -106,6 +116,7 @@ pub struct Query<'a> {
     bindings: &'a Bindings,
     address: Address,
     count: usize,
+    star_count: u8,
     generated: u8,
 }
 
@@ -154,6 +165,7 @@ impl<'a> Query<'a> {
             bindings,
             address: address.system(),
             count: 0,
+            star_count: 0,
             generated: 0,
         };
         let ptr = result.storage.0.as_mut_ptr();
@@ -172,6 +184,11 @@ impl<'a> Query<'a> {
             {
                 return Err("native query metadata ownership changed");
             }
+            let star_count = (bindings.star_count)(ptr.add(METADATA_OFFSET));
+            if !(1..=3).contains(&star_count) {
+                return Err("native star count outside 1..3");
+            }
+            result.star_count = star_count as u8;
             let count = ptr
                 .add(0x760)
                 .cast::<i32>()
@@ -190,6 +207,9 @@ impl<'a> Query<'a> {
 
     pub fn planet_count(&self) -> usize {
         self.count
+    }
+    pub fn star_count(&self) -> u8 {
+        self.star_count
     }
     pub fn bytes(&self) -> &[u8] {
         &self.storage.0

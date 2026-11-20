@@ -25,6 +25,7 @@ pub struct Facts {
     known_system_flags: u16,
     resources: Option<u32>,
     planet_count: Option<u8>,
+    star_count: Option<u8>,
     water: Option<WaterPresence>,
     extreme_storm_profile: Option<bool>,
     fauna: Option<std::sync::Arc<[crate::fauna::Species]>>,
@@ -102,6 +103,7 @@ pub struct FactSnapshot {
     pub system_flags: BTreeMap<SystemFlag, bool>,
     pub resources: Option<Vec<String>>,
     pub planet_count: Option<u8>,
+    pub star_count: Option<u8>,
     pub water: Option<WaterPresence>,
     pub fauna_count: Option<usize>,
     pub arena_count: Option<usize>,
@@ -225,6 +227,7 @@ impl From<&Facts> for FactSnapshot {
             system_flags,
             resources,
             planet_count: facts.planet_count(),
+            star_count: facts.star_count(),
             water: facts.water(),
             fauna_count: facts.fauna().map(<[_]>::len),
             arena_count: facts.arena().map(<[_]>::len),
@@ -357,6 +360,12 @@ impl Facts {
     pub fn planet_count(&self) -> Option<u8> {
         self.planet_count
     }
+    pub fn set_star_count(&mut self, count: u8) {
+        self.star_count = Some(count);
+    }
+    pub fn star_count(&self) -> Option<u8> {
+        self.star_count
+    }
 
     pub fn set_fauna(&mut self, species: Vec<crate::fauna::Species>) {
         self.fauna = Some(species.into());
@@ -425,6 +434,9 @@ impl Facts {
         if let Some(value) = new.planet_count {
             self.planet_count = Some(value);
         }
+        if let Some(value) = new.star_count {
+            self.star_count = Some(value);
+        }
     }
 
     pub fn evaluate(&self, predicate: Predicate) -> Verdict {
@@ -442,8 +454,26 @@ impl Facts {
             Predicate::Contains(_, _) => None,
             Predicate::Choice(choices) if choices.field() == Field::Economy => {
                 return all([
+                    verdict(
+                        self.get(Field::Population)
+                            .map(|population| population == 0),
+                    ),
                     verdict(self.system_flag(SystemFlag::Pirate).map(|pirate| !pirate)),
                     verdict(self.get(Field::Economy).map(|value| choices.accepts(value))),
+                ]);
+            }
+            Predicate::Choice(choices)
+                if matches!(choices.field(), Field::Wealth | Field::ConflictLevel) =>
+            {
+                return all([
+                    verdict(
+                        self.get(Field::Population)
+                            .map(|population| population == 0),
+                    ),
+                    verdict(
+                        self.get(choices.field())
+                            .map(|value| choices.accepts(value)),
+                    ),
                 ]);
             }
             Predicate::Choice(choices) if choices.field() == Field::WaterColour => {
@@ -511,6 +541,7 @@ impl Facts {
             }
             Predicate::Resources(rule) => self.resources.map(|value| rule.accepts(value)),
             Predicate::MinimumPlanets(minimum) => self.planet_count.map(|count| count >= minimum),
+            Predicate::MinimumStars(minimum) => self.star_count.map(|count| count >= minimum),
         };
         match accepted {
             Some(true) => Verdict::Match,

@@ -220,11 +220,58 @@ pub struct Selection {
     pub height: HeightRange,
 }
 impl FaunaCriteria {
+    pub fn has_detail_filters(&self) -> bool {
+        !self.choices.is_empty() || self.height.active()
+    }
+
+    pub fn enforce_dependencies(&mut self) {
+        if self.presence == Some(false) {
+            self.choices.clear();
+            self.height = HeightRange::default();
+        } else if self.has_detail_filters() {
+            self.presence = Some(true);
+        }
+    }
+
+    pub fn choice_options(&self, domain: Domain, field: FaunaField) -> Vec<(usize, &'static str)> {
+        let categories = self
+            .choices
+            .get(&FaunaField::Category)
+            .copied()
+            .unwrap_or(0);
+        field
+            .options(domain)
+            .into_iter()
+            .filter(|(index, _)| {
+                field != FaunaField::Family
+                    || categories == 0
+                    || categories & (1 << Family::ALL[*index].category()) != 0
+            })
+            .collect()
+    }
+
+    pub fn enforce_domain_dependencies(&mut self, domain: Domain) {
+        self.enforce_dependencies();
+        let allowed_families = self
+            .choice_options(domain, FaunaField::Family)
+            .into_iter()
+            .fold(0, |mask, (index, _)| mask | 1 << index);
+        if let Some(families) = self.choices.get_mut(&FaunaField::Family) {
+            *families &= allowed_families;
+        }
+        if self.choices.get(&FaunaField::Family) == Some(&0) {
+            self.choices.remove(&FaunaField::Family);
+        }
+    }
+
     pub fn compile(&self, domain: Domain) -> Result<Option<Selection>, &'static str> {
+        if self.has_detail_filters() && self.presence != Some(true) {
+            return Err("fauna detail filters require fauna presence");
+        }
         let mut masks = [0; FaunaField::ALL.len()];
         for (&field, &mask) in &self.choices {
-            let allowed = field
-                .options(domain)
+            let allowed = self
+                .choice_options(domain, field)
                 .into_iter()
                 .fold(0, |bits, (n, _)| bits | 1u64 << n);
             if mask & !allowed != 0 {

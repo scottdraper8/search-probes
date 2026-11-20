@@ -62,11 +62,67 @@ pub struct Selection {
     pub masks: [u64; ArenaField::ALL.len()],
 }
 impl ArenaCriteria {
+    pub fn has_detail_filters(&self) -> bool {
+        !self.choices.is_empty()
+    }
+
+    pub fn enforce_dependencies(&mut self) {
+        if self.presence == Some(false) {
+            self.choices.clear();
+        } else if self.has_detail_filters() {
+            self.presence = Some(true);
+        }
+        let allowed_overall = self
+            .choice_options(ArenaField::OverallRank)
+            .into_iter()
+            .fold(0, |mask, (index, _)| mask | 1 << index);
+        if let Some(overall) = self.choices.get_mut(&ArenaField::OverallRank) {
+            *overall &= allowed_overall;
+        }
+        if self.choices.get(&ArenaField::OverallRank) == Some(&0) {
+            self.choices.remove(&ArenaField::OverallRank);
+        }
+    }
+
+    pub fn choice_options(&self, field: ArenaField) -> Vec<(usize, &'static str)> {
+        field
+            .options()
+            .into_iter()
+            .filter(|(option, _)| {
+                field != ArenaField::OverallRank
+                    || (0..4).any(|combat| {
+                        (0..4).any(|agility| {
+                            (0..4).any(|health| {
+                                let ranks = Ranks {
+                                    combat,
+                                    agility,
+                                    health,
+                                };
+                                ranks.overall() as usize == *option
+                                    && self.rank_accepts(ArenaField::Combat, combat)
+                                    && self.rank_accepts(ArenaField::Agility, agility)
+                                    && self.rank_accepts(ArenaField::Health, health)
+                            })
+                        })
+                    })
+            })
+            .collect()
+    }
+
+    fn rank_accepts(&self, field: ArenaField, rank: u8) -> bool {
+        self.choices
+            .get(&field)
+            .is_none_or(|mask| mask & (1 << rank) != 0)
+    }
+
     pub fn compile(&self) -> Result<Vec<Selection>, &'static str> {
+        if self.has_detail_filters() && self.presence != Some(true) {
+            return Err("Arena detail filters require tameable fauna");
+        }
         let mut masks = [0; ArenaField::ALL.len()];
         for (&field, &mask) in &self.choices {
-            let allowed = field
-                .options()
+            let allowed = self
+                .choice_options(field)
                 .into_iter()
                 .fold(0, |bits, (n, _)| bits | 1 << n);
             if mask & !allowed != 0 {

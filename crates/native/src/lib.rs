@@ -23,6 +23,8 @@ mod flora_appearance;
 mod flora_geometry;
 mod game_assets;
 #[cfg(windows)]
+mod game_pause;
+#[cfg(windows)]
 pub mod game_state;
 #[cfg(windows)]
 pub mod gameplay_hook;

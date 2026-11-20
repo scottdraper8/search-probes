@@ -5,7 +5,7 @@ use crate::{
         CompositionField, Criteria, Field, PlanetFlag, SelectionSide, SystemFlag, WaterFilter,
     },
     fauna::{Domain, FaunaField},
-    settings::{NotificationSettings, SearchOptions, Settings, TimeLimit},
+    settings::{NotificationSettings, ResultCardSettings, SearchOptions, Settings, TimeLimit},
     theme::UiTheme,
 };
 use serde::{Deserialize, Serialize};
@@ -22,6 +22,7 @@ pub const UI_ACTIONS: &[(&str, &[&str])] = &[
     ("set_system_requirement", &["flag", "value"]),
     ("set_resource_filter", &["selected"]),
     ("set_minimum_planets", &["minimum"]),
+    ("set_minimum_stars", &["minimum"]),
     ("set_water_filter", &["scope", "value"]),
     ("set_composition_filter", &["field", "side", "selected"]),
     ("set_fauna_choices", &["domain", "field", "selected"]),
@@ -34,9 +35,11 @@ pub const UI_ACTIONS: &[(&str, &[&str])] = &[
     ("set_time_limit", &["time_limit"]),
     ("set_workers", &["workers"]),
     ("set_frame_budget", &["frame_budget_ms"]),
+    ("set_keep_game_running", &["keep_game_running"]),
     ("set_theme", &["theme"]),
     ("set_hotkey", &["hotkey"]),
     ("set_notifications", &["notifications"]),
+    ("set_result_cards", &["result_cards"]),
     ("set_hotkey_dialog", &["open"]),
     ("set_hotkey_capture", &["device"]),
     ("select_preset", &["index"]),
@@ -156,6 +159,9 @@ pub enum UiAction {
     SetMinimumPlanets {
         minimum: Option<u8>,
     },
+    SetMinimumStars {
+        minimum: Option<u8>,
+    },
     SetWaterFilter {
         scope: WaterScope,
         value: WaterFilter,
@@ -201,6 +207,9 @@ pub enum UiAction {
     SetFrameBudget {
         frame_budget_ms: u8,
     },
+    SetKeepGameRunning {
+        keep_game_running: bool,
+    },
     SetTheme {
         theme: UiTheme,
     },
@@ -209,6 +218,9 @@ pub enum UiAction {
     },
     SetNotifications {
         notifications: NotificationSettings,
+    },
+    SetResultCards {
+        result_cards: ResultCardSettings,
     },
     SetHotkeyDialog {
         open: bool,
@@ -350,7 +362,7 @@ mod tests {
     fn action_payloads_reject_unknown_fields() {
         assert!(
             serde_json::from_str::<UiAction>(
-                r#"{"type":"set_page","page":"history","legacy":true}"#
+                r#"{"type":"set_page","page":"history","unexpected":true}"#
             )
             .is_err()
         );
