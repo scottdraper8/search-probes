@@ -1,15 +1,15 @@
 use crate::{
     address::Address,
-    cache::CachedMatch,
-    criteria::{Criteria, Plan, Predicate, ResourceMode, Section, Stage},
+    criteria::{Criteria, Plan, Predicate, Section, Stage},
     facts::{FactSnapshot, Facts, Verdict},
-    session::Progress,
+    session::{Finish, Progress, SearchRecord},
     settings::{Settings, validate_frame_budget},
     target::Target,
 };
 use serde::{Deserialize, Serialize};
 
-pub const MAX_STATE_BYTES: usize = 1_048_576;
+/// Includes twenty bounded searches with up to one hundred fully named results each.
+pub const MAX_STATE_BYTES: usize = 8 * 1_048_576;
 pub const MAX_PENDING_COMMANDS: usize = 64;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -29,7 +29,7 @@ pub enum Action {
     Configure { settings: Settings },
     ConfigureIntensity { frame_budget_ms: u8 },
     InspectCurrent {},
-    Navigate { target: Target },
+    Navigate { search_id: u64, target: Target },
 }
 
 impl Command {
@@ -43,7 +43,12 @@ impl Command {
             Action::ConfigureIntensity { frame_budget_ms } => {
                 validate_frame_budget(*frame_budget_ms)
             }
-            Action::Navigate { target } => target.validate(),
+            Action::Navigate { search_id, target } => {
+                if *search_id == 0 {
+                    return Err("navigation has no search identity");
+                }
+                target.validate()
+            }
             _ => Ok(()),
         }
     }
@@ -67,6 +72,28 @@ pub enum SearchPause {
     Loading,
     OtherGalaxy,
     User,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "type", rename_all = "snake_case", deny_unknown_fields)]
+pub enum LifecycleEventKind {
+    Started,
+    ResultsFound { count: usize },
+    AutomaticPause { cause: SearchPause },
+    AutomaticResume { cause: SearchPause },
+    Finished { finish: Finish },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct LifecycleEvent {
+    pub sequence: u64,
+    pub published_ms: u64,
+    pub search_id: u64,
+    pub elapsed_ms: u64,
+    pub systems: u64,
+    pub results: usize,
+    pub kind: LifecycleEventKind,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -112,7 +139,6 @@ pub struct CriterionEvaluation {
 pub struct SectionEvaluation {
     pub scope: CriterionScope,
     pub section: Section,
-    pub mode: ResourceMode,
     pub verdict: Verdict,
 }
 
@@ -132,6 +158,8 @@ pub struct CurrentWorld {
     pub criteria: Criteria,
     pub system: FactSnapshot,
     pub planet: Option<FactSnapshot>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub planet_observations: Option<crate::observations::PlanetObservations>,
     pub system_verdict: Verdict,
     pub planet_verdict: Option<Verdict>,
     pub target_verdict: Verdict,
@@ -147,9 +175,13 @@ impl CurrentWorld {
         plan: &Plan,
         system: &Facts,
         planets: &[Facts],
+        planet_observations: Option<crate::observations::PlanetObservations>,
     ) -> Result<Self, &'static str> {
         if command_id == 0 {
             return Err("current-world inspection has no command identity");
+        }
+        if let Some(observations) = &planet_observations {
+            observations.validate_address(address)?;
         }
         let planet_index = match address.coordinates().planet {
             0 => None,
@@ -205,7 +237,6 @@ impl CurrentWorld {
                 section_evaluations.push(SectionEvaluation {
                     scope: CriterionScope::System,
                     section,
-                    mode: plan.match_modes[section as usize],
                     verdict: system_sections[&section],
                 });
             }
@@ -217,7 +248,6 @@ impl CurrentWorld {
                 section_evaluations.push(SectionEvaluation {
                     scope: CriterionScope::Planet,
                     section,
-                    mode: plan.match_modes[section as usize],
                     verdict: planet_sections
                         .as_ref()
                         .map_or(Verdict::Unknown, |sections| sections[&section]),
@@ -232,6 +262,7 @@ impl CurrentWorld {
             criteria,
             system: FactSnapshot::from(system),
             planet: planet_facts.map(FactSnapshot::from),
+            planet_observations,
             system_verdict,
             planet_verdict,
             target_verdict,
@@ -248,9 +279,9 @@ pub struct State {
     pub availability: Availability,
     pub player: Option<Address>,
     pub settings: Settings,
-    pub progress: Option<Progress>,
+    pub progress: Option<std::sync::Arc<Progress>>,
+    pub search_history: Vec<std::sync::Arc<SearchRecord>>,
     pub search_pause: Option<SearchPause>,
-    pub results: Vec<CachedMatch>,
     pub metrics: Metrics,
     pub cached_systems: usize,
     pub last_command: u64,
@@ -264,13 +295,6 @@ pub struct State {
 }
 
 impl State {
-    pub fn publish_progress(&mut self, progress: Option<Progress>) {
-        if let Some(progress) = progress.as_ref() {
-            self.results = progress.results.clone();
-        }
-        self.progress = progress;
-    }
-
     pub fn new(settings: Settings) -> Self {
         Self {
             generation: 1,
@@ -278,8 +302,8 @@ impl State {
             player: None,
             settings,
             progress: None,
+            search_history: Vec::new(),
             search_pause: None,
-            results: Vec::new(),
             metrics: Metrics::default(),
             cached_systems: 0,
             last_command: 0,
@@ -311,22 +335,62 @@ mod tests {
     }
 
     #[test]
-    fn publishing_a_new_empty_search_clears_previous_results() {
-        let origin = address();
-        let mut state = State::new(Settings::default());
-        state.results.push(CachedMatch {
-            address: origin,
-            kind: TargetKind::System,
-            system_name: Some("Old result".into()),
-            planet_name: None,
-            fauna: None,
-        });
+    fn fully_populated_bounded_history_fits_the_published_state_limit() {
+        use crate::{
+            cache::{CachedMatch, FaunaMatch, MAX_NAME_BYTES},
+            fauna::{Domain, NameIdentity},
+            session::{MAX_SEARCH_HISTORY, Session},
+            settings::MAX_RESULTS,
+        };
+        let settings = Settings::default();
+        let mut session = Session::default();
+        session
+            .start(settings.search.clone(), address(), settings.execution())
+            .unwrap();
+        let mut record = (*session.history()[0]).clone();
+        let name: Box<str> = "\u{0001}".repeat(MAX_NAME_BYTES).into();
+        let result = CachedMatch {
+            address: address().planet(0).unwrap(),
+            kind: TargetKind::Fauna,
+            system_name: Some(name.clone()),
+            planet_name: Some(name.clone()),
+            fauna: Some(FaunaMatch {
+                role: 0,
+                name_identity: NameIdentity {
+                    species_seed: u64::MAX,
+                    genus_seed: u64::MAX,
+                },
+                name: Some(name),
+                domain: Domain::Land,
+                cave: false,
+            }),
+        };
+        std::sync::Arc::make_mut(&mut record.progress).results = vec![result; MAX_RESULTS];
+        let mut state = State::new(settings);
+        state.progress = Some(record.progress.clone());
+        state.search_history = (1..=MAX_SEARCH_HISTORY)
+            .map(|id| {
+                let mut record = record.clone();
+                std::sync::Arc::make_mut(&mut record.progress).id = id as u64;
+                std::sync::Arc::new(record)
+            })
+            .collect();
+        let bytes = serde_json::to_vec(&state).unwrap();
+        assert!(bytes.len() > 1_048_576);
+        assert!(bytes.len() < MAX_STATE_BYTES);
+    }
 
-        state.publish_progress(Some(Progress {
+    #[test]
+    fn state_has_one_canonical_result_collection() {
+        let mut state = State::new(Settings::default());
+        state.progress = Some(std::sync::Arc::new(Progress {
+            id: 1,
+            elapsed_ms: 0,
+            user_paused: false,
             phase: Phase::Running,
             finish: None,
             options: SearchOptions::default(),
-            origin,
+            origin: address(),
             systems: 0,
             cached_systems: 0,
             unresolved_arena_planets: 0,
@@ -335,7 +399,9 @@ mod tests {
             error: None,
         }));
 
-        assert!(state.results.is_empty());
+        let value = serde_json::to_value(state).unwrap();
+        assert!(value.get("results").is_none());
+        assert!(value["progress"].get("results").is_some());
     }
 
     #[test]

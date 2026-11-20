@@ -1,7 +1,4 @@
-use crate::{
-    criteria::{ResourceMode, Section},
-    facts::Verdict,
-};
+use crate::{criteria::Section, facts::Verdict};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
@@ -221,14 +218,9 @@ pub struct Selection {
     pub presence: Option<bool>,
     pub masks: [u64; FaunaField::ALL.len()],
     pub height: HeightRange,
-    pub mode: ResourceMode,
 }
 impl FaunaCriteria {
-    pub fn compile(
-        &self,
-        domain: Domain,
-        mode: ResourceMode,
-    ) -> Result<Option<Selection>, &'static str> {
+    pub fn compile(&self, domain: Domain) -> Result<Option<Selection>, &'static str> {
         let mut masks = [0; FaunaField::ALL.len()];
         for (&field, &mask) in &self.choices {
             let allowed = field
@@ -255,7 +247,6 @@ impl FaunaCriteria {
                     presence: self.presence,
                     masks,
                     height: self.height,
-                    mode,
                 }),
         )
     }
@@ -291,7 +282,6 @@ impl Selection {
 
     fn fields_match(self, species: &Species) -> bool {
         let mut all = true;
-        let mut any = false;
         for (index, value) in [
             species.family as usize,
             species.family.category() as usize,
@@ -306,18 +296,13 @@ impl Selection {
             if self.masks[index] != 0 {
                 let accepted = self.masks[index] & (1u64 << value) != 0;
                 all &= accepted;
-                any |= accepted;
             }
         }
         if self.height.active() {
             let accepted = self.height.matches(species.heights_cm);
             all &= accepted;
-            any |= accepted;
         }
-        match self.mode {
-            ResourceMode::All => all,
-            ResourceMode::Any => any,
-        }
+        all
     }
 
     /// Return the concrete animals that make an accepted positive fauna selection useful as an
@@ -325,14 +310,11 @@ impl Selection {
     /// witness.
     pub fn witnesses(self, species: &[Species]) -> Vec<&Species> {
         let has_fields = self.masks.iter().any(|mask| *mask != 0) || self.height.active();
-        let presence_matches = self.presence == Some(true)
-            && species.iter().any(|species| species.domain == self.domain);
         species
             .iter()
             .filter(|species| species.domain == self.domain)
             .filter(|species| {
-                (self.mode == ResourceMode::Any && presence_matches)
-                    || (has_fields && self.fields_match(species))
+                (has_fields && self.fields_match(species))
                     || (!has_fields && self.presence == Some(true))
             })
             .collect()
@@ -347,10 +329,7 @@ impl Selection {
             .iter()
             .filter(|species| species.domain == self.domain)
             .any(|species| self.fields_match(species));
-        let accepted = match self.mode {
-            ResourceMode::All => presence.unwrap_or(true) && (!has_fields || found),
-            ResourceMode::Any => presence.unwrap_or(false) || (has_fields && found),
-        };
+        let accepted = presence.unwrap_or(true) && (!has_fields || found);
         if accepted {
             Verdict::Match
         } else {
@@ -389,7 +368,6 @@ mod tests {
             presence: None,
             masks,
             height: HeightRange::default(),
-            mode: ResourceMode::All,
         };
         let species = [
             animal(4, Family::Cats, Domain::Land),
@@ -411,7 +389,6 @@ mod tests {
             presence: Some(false),
             masks: [0; FaunaField::ALL.len()],
             height: HeightRange::default(),
-            mode: ResourceMode::All,
         };
         let species = [animal(2, Family::Cattle, Domain::Land)];
 

@@ -273,15 +273,25 @@ impl Painter {
         hwnd: usize,
     ) -> Result<Option<vk::Semaphore>> {
         let mut ui = UI.get().unwrap().lock().map_err(|_| "UI poisoned")?;
+        let context = ui.context.clone();
+        ui.app.prepare_frame(&context);
         let elapsed = ui.started.elapsed().as_secs_f64();
         let binding = ui.app.settings().interface.hotkey;
         let capture_device = ui.app.binding_capture_device();
-        let Some(frame) = input::take(hwnd, self.extent, elapsed, binding, capture_device) else {
+        let Some(frame) = input::take(
+            hwnd,
+            self.extent,
+            elapsed,
+            binding,
+            capture_device,
+            ui.app.has_notifications(),
+        ) else {
             return Ok(None);
         };
         for (controller, button, pressed) in frame.controller {
             ui.app.controller_input(controller, button, pressed);
         }
+        let interactive = frame.mode.captures_input();
         let raw = frame.raw;
         let index = index as usize;
         if index >= self.framebuffers.len() {
@@ -313,19 +323,22 @@ impl Painter {
             }
             self.textures_loaded = true;
         }
-        let context = ui.context.clone();
-        ui.app.refresh();
         let mut output = context.run_ui(raw, |root| {
-            egui::Window::new("Search Probes")
-                .id(egui::Id::new("search_probes_overlay"))
-                .default_size([1100.0, 840.0])
-                .min_size([380.0, 240.0])
-                .resizable(true)
-                .collapsible(false)
-                .show(root.ctx(), |ui_root| ui.app.ui(ui_root));
+            if interactive {
+                egui::Window::new("Search Probes")
+                    .id(egui::Id::new("search_probes_overlay"))
+                    .default_size([1100.0, 840.0])
+                    .min_size([380.0, 240.0])
+                    .resizable(true)
+                    .collapsible(false)
+                    .show(root.ctx(), |ui_root| ui.app.ui(ui_root));
+            }
+            ui.app.show_notifications(root.ctx());
         });
-        input::output(hwnd, &output.platform_output);
-        if let Some(request) = ui.app.take_export_request() {
+        if interactive {
+            input::output(hwnd, &output.platform_output);
+        }
+        if interactive && let Some(request) = ui.app.take_export_request() {
             let result = export::save(hwnd, &request);
             ui.app.finish_export(result);
             context.request_repaint();

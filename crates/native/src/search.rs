@@ -14,7 +14,28 @@ use search_probes_model::{
     facts::Verdict,
     weather,
 };
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::{
+    sync::atomic::{AtomicBool, Ordering},
+    time::Instant,
+};
+
+/// Cooperatively stops native work only at boundaries where owned native temporaries can drop.
+pub struct Stop<'a> {
+    cancel: &'a AtomicBool,
+    deadline: Option<Instant>,
+}
+
+impl<'a> Stop<'a> {
+    pub fn new(cancel: &'a AtomicBool, deadline: Option<Instant>) -> Self {
+        Self { cancel, deadline }
+    }
+    pub fn requested(&self) -> bool {
+        self.cancel.load(Ordering::Acquire)
+            || self
+                .deadline
+                .is_some_and(|deadline| Instant::now() >= deadline)
+    }
+}
 
 #[derive(Debug, Clone, Copy, Default)]
 pub struct Work {
@@ -47,6 +68,7 @@ pub struct Match {
 pub struct Outcome {
     pub snapshot: Snapshot,
     pub matches: Vec<Match>,
+    pub planet_observations: Option<search_probes_model::observations::PlanetObservations>,
     /// Exact-query scalar inputs for Arena predicates still needing model/placement refinement.
     /// Native temporary planet/role objects are already gone when this result reaches the scheduler.
     pub pending_arena: Vec<crate::arena_inputs::Planet>,
@@ -58,6 +80,15 @@ pub struct Outcome {
 enum Operation {
     Search,
     Inspect(Option<usize>),
+}
+
+impl Operation {
+    fn validate_plan(self, plan: &Plan) -> Result<(), &'static str> {
+        match self {
+            Self::Search => search_probes_model::settings::validate_search_plan(plan),
+            Self::Inspect(_) => Ok(()),
+        }
+    }
 }
 
 impl Outcome {
@@ -117,7 +148,7 @@ impl<'cache> Generator<'cache> {
         address: Address,
         plan: &Plan,
         difficulty: usize,
-        cancel: &AtomicBool,
+        cancel: &Stop<'_>,
         cached: Option<&SystemRecord>,
     ) -> Result<Outcome, &'static str> {
         unsafe { self.execute(address, plan, difficulty, cancel, cached, Operation::Search) }
@@ -132,7 +163,7 @@ impl<'cache> Generator<'cache> {
         address: Address,
         plan: &Plan,
         difficulty: usize,
-        cancel: &AtomicBool,
+        cancel: &Stop<'_>,
     ) -> Result<Outcome, &'static str> {
         let target = match address.coordinates().planet {
             0 => None,
@@ -155,10 +186,14 @@ impl<'cache> Generator<'cache> {
         address: Address,
         plan: &Plan,
         difficulty: usize,
-        cancel: &AtomicBool,
+        cancel: &Stop<'_>,
         cached: Option<&SystemRecord>,
         operation: Operation,
     ) -> Result<Outcome, &'static str> {
+        operation.validate_plan(plan)?;
+        if cancel.requested() {
+            return Err("search stopped before system generation");
+        }
         if difficulty > 3 {
             return Err("invalid combat difficulty");
         }
@@ -166,6 +201,7 @@ impl<'cache> Generator<'cache> {
         let mut outcome = Outcome {
             snapshot: Snapshot::solar(query.bytes())?,
             matches: Vec::new(),
+            planet_observations: None,
             pending_arena: Vec::new(),
             work: Work {
                 systems: 1,
@@ -200,7 +236,9 @@ impl<'cache> Generator<'cache> {
         {
             return Ok(outcome);
         }
-        if plan.requirements.objects && self.objects.is_none() {
+        if (plan.requirements.objects || matches!(operation, Operation::Inspect(Some(_))))
+            && self.objects.is_none()
+        {
             self.objects = Some(unsafe { ObjectTables::from_verified_image(self.base) }?);
         }
         let generator = self.planet.as_mut_ptr();
@@ -213,7 +251,7 @@ impl<'cache> Generator<'cache> {
             .iter()
             .any(|rule| matches!(rule, Predicate::System(SystemFlag::ExtremeStorms, _)));
         for index in 0..outcome.snapshot.count {
-            if cancel.load(Ordering::Relaxed) {
+            if cancel.requested() {
                 outcome.cancelled = true;
                 break;
             }
@@ -379,7 +417,9 @@ impl<'cache> Generator<'cache> {
                             return Ok(());
                         }
                     }
-                    let flora_needed = needed.colours & 2 != 0;
+                    // Recipe enumeration cannot yet establish planet-wide occurrence or
+                    // exclusion, so search cannot use it to resolve the predicate.
+                    let flora_needed = inspect_target;
                     let grass = if needed.colours & 1 != 0 {
                         let captured = capture::capture(live, generator, capture::colour(0))?;
                         outcome.work.colour_captures += 1;
@@ -399,7 +439,11 @@ impl<'cache> Generator<'cache> {
                     } else {
                         None
                     };
-                    if let Some(objects) = self.objects.as_ref().filter(|_| needed.objects) {
+                    if let Some(objects) = self
+                        .objects
+                        .as_ref()
+                        .filter(|_| needed.objects || inspect_target)
+                    {
                         let need_glow = [PlanetFlag::GlowingGrass, PlanetFlag::GlowingFlora]
                             .into_iter().enumerate().fold(0, |mask, (bit, flag)| {
                                 mask | if plan.planet.iter().any(|predicate|
@@ -408,22 +452,30 @@ impl<'cache> Generator<'cache> {
                             });
                         let mut flora_models = Vec::new();
                         let need_glow = need_glow | if flora_needed { 4 } else { 0 };
-                        let flags = objects.flags(live, self.object_summaries, need_glow, Some(&mut flora_models))?;
-                        if flags.missing_tables != 0 {
+                        let flags = objects.flags(live, self.object_summaries, need_glow, Some(&mut flora_models), cancel)?;
+                        if flags.missing_tables != 0 && (!inspect_target || needed.objects) {
                             return Err("an object table could not be loaded");
                         }
-                        if let Some(layers) = facts.terrain_layers() {
+                        if let Some(layers) = facts.terrain_layers()
+                            && (flags.missing_tables == 0 || flags.floating_islands != 0)
+                        {
                             facts.set(Field::Terrain, search_probes_model::terrain::FEATURE_SET | layers
                                 | if flags.floating_islands != 0 { search_probes_model::terrain::FLOATING_ISLANDS } else { 0 });
                         }
-                        if need_glow & 1 != 0 { facts.set_planet_flag(PlanetFlag::GlowingGrass, flags.glowing_grass); }
-                        if need_glow & 2 != 0 { facts.set_planet_flag(PlanetFlag::GlowingFlora, flags.glowing_flora); }
-                        facts.set_planet_flag(PlanetFlag::TitanWorms, flags.titan_worms);
+                        if need_glow & 1 != 0 && (flags.missing_tables == 0 || flags.glowing_grass) {
+                            facts.set_planet_flag(PlanetFlag::GlowingGrass, flags.glowing_grass);
+                        }
+                        if need_glow & 2 != 0 && (flags.missing_tables == 0 || flags.glowing_flora) {
+                            facts.set_planet_flag(PlanetFlag::GlowingFlora, flags.glowing_flora);
+                        }
+                        if flags.missing_tables == 0 || flags.titan_worms {
+                            facts.set_planet_flag(PlanetFlag::TitanWorms, flags.titan_worms);
+                        }
                         outcome.work.object_scans += 1;
                         if !inspect_target && plan.planet_match(facts) == Verdict::NoMatch {
                             return Ok(());
                         }
-                        if let Some(grass) = grass {
+                        if let Some(grass) = grass.filter(|_| flags.missing_tables == 0) {
                             let colours = if flags.ground_grass == 0 {
                                 search_probes_model::vocabulary::GRASS_COLOUR_SET
                             } else {
@@ -444,18 +496,28 @@ impl<'cache> Generator<'cache> {
                                 // default mode instead of reading that unrelated storage.
                                 palette_mode: 0,
                             };
-                            let wanted = plan.planet.iter().find_map(|predicate| match predicate {
-                                search_probes_model::criteria::Predicate::Choice(choices)
-                                    if choices.field() == Field::FloraColour => Some(choices.mask() as u32),
-                                _ => None,
-                            }).ok_or("flora acquisition has no colour criterion")?;
-                            let observation=crate::flora_appearance::colours(&flora_models,&context,filter,wanted)?;
-                            facts.observe_flora_colours(observation.colours, observation.known);
-                            if observation.complete {
-                                facts.set(Field::FloraColour,observation.colours);
+                            let inventory = crate::flora_appearance::inventory(
+                                &flora_models,
+                                &context,
+                                filter,
+                                // The first selected table option does not yet prove all
+                                // eligible planet recipes have been enumerated.
+                                false,
+                                cancel,
+                            )?;
+                            facts.observe_flora_colours(0, inventory.predicate_exclusions());
+                            if inspect_target {
+                                outcome.planet_observations = Some(search_probes_model::observations::PlanetObservations {
+                                    address: address.planet(index)?,
+                                    acquisition: search_probes_model::observations::ObservationAcquisition::CurrentWorldGeneratedQuery,
+                                    surface_models: inventory,
+                                });
                             }
                             outcome.work.colour_captures+=1;
                         }
+                    }
+                    if inspect_target {
+                        return Ok(());
                     }
                     match plan.planet_match(facts) {
                         Verdict::Unknown if plan.unresolved_arena_ranks(facts) => {
@@ -470,12 +532,8 @@ impl<'cache> Generator<'cache> {
                         Verdict::Unknown => {
                             return Err("selected planet criterion has no acquired value");
                         }
-                        Verdict::NoMatch if !inspect_target => return Ok(()),
-                        Verdict::NoMatch => {}
+                        Verdict::NoMatch => return Ok(()),
                         Verdict::Match => {}
-                    }
-                    if inspect_target {
-                        return Ok(());
                     }
                     let name = capture::capture(live, generator, capture::NAME)?.name;
                     let len = name
@@ -512,5 +570,40 @@ impl<'cache> Generator<'cache> {
             Verdict::Match => {}
         }
         Ok(outcome)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::time::Duration;
+
+    #[test]
+    fn flora_colour_is_rejected_before_search_generation_but_allowed_for_inspection() {
+        let mut criteria = search_probes_model::criteria::Criteria::default();
+        criteria.choices.insert(Field::FloraColour, 1);
+        let plan = criteria.compile().unwrap();
+        assert_eq!(
+            Operation::Search.validate_plan(&plan),
+            Err(search_probes_model::settings::FLORA_COLOUR_SEARCH_ERROR)
+        );
+        assert!(Operation::Inspect(Some(0)).validate_plan(&plan).is_ok());
+        assert!(Operation::Inspect(None).validate_plan(&plan).is_ok());
+        criteria.choices.clear();
+        assert!(
+            Operation::Search
+                .validate_plan(&criteria.compile().unwrap())
+                .is_ok()
+        );
+    }
+
+    #[test]
+    fn cooperative_stop_observes_both_deadlines_and_user_cancellation() {
+        let cancel = AtomicBool::new(false);
+        assert!(!Stop::new(&cancel, None).requested());
+        assert!(Stop::new(&cancel, Some(Instant::now() - Duration::from_secs(1))).requested());
+        assert!(!Stop::new(&cancel, Some(Instant::now() + Duration::from_secs(60))).requested());
+        cancel.store(true, Ordering::Release);
+        assert!(Stop::new(&cancel, None).requested());
     }
 }

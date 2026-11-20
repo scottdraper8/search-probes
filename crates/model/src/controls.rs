@@ -1,5 +1,8 @@
 use crate::{
-    runtime::{Action, Availability, Command, MAX_PENDING_COMMANDS, SearchPause, State},
+    runtime::{
+        Action, Availability, Command, LifecycleEvent, LifecycleEventKind, MAX_PENDING_COMMANDS,
+        SearchPause, State,
+    },
     session::Phase,
     storage,
 };
@@ -13,24 +16,71 @@ use std::{
     time::{Duration, Instant},
 };
 
-#[derive(Default)]
-struct SearchClock {
-    elapsed: Duration,
-    running_since: Option<Instant>,
+/// Bounds recurring state publication while allowing user-visible transitions through immediately.
+pub struct PublicationGate<T> {
+    interval: Duration,
+    last: Option<(Instant, T)>,
 }
 
-impl SearchClock {
-    fn elapsed(&self, now: Instant) -> Duration {
-        self.elapsed
-            + self
-                .running_since
-                .map_or(Duration::ZERO, |started| now.duration_since(started))
+impl<T: PartialEq> PublicationGate<T> {
+    pub fn new(interval: Duration) -> Self {
+        Self {
+            interval,
+            last: None,
+        }
     }
 
-    fn observe(&mut self, now: Instant, running: bool) -> u64 {
-        self.elapsed = self.elapsed(now);
-        self.running_since = running.then_some(now);
-        self.elapsed.as_millis().min(u64::MAX as u128) as u64
+    pub fn should_publish(&mut self, now: Instant, publication: T, force: bool) -> bool {
+        let changed = self
+            .last
+            .as_ref()
+            .is_none_or(|(_, previous)| previous != &publication);
+        let due = self
+            .last
+            .as_ref()
+            .is_none_or(|(last, _)| now.saturating_duration_since(*last) >= self.interval);
+        if force || changed || due {
+            self.last = Some((now, publication));
+            true
+        } else {
+            false
+        }
+    }
+
+    pub fn invalidate(&mut self) {
+        self.last = None;
+    }
+}
+
+#[derive(Default)]
+struct EventJournal {
+    next: u64,
+    events: VecDeque<LifecycleEvent>,
+}
+
+impl EventJournal {
+    fn push(
+        &mut self,
+        progress: &crate::session::Progress,
+        kind: LifecycleEventKind,
+        published_ms: u64,
+    ) {
+        let Some(next) = self.next.checked_add(1) else {
+            return;
+        };
+        self.next = next;
+        self.events.push_back(LifecycleEvent {
+            sequence: next,
+            published_ms,
+            search_id: progress.id,
+            elapsed_ms: progress.elapsed_ms,
+            systems: progress.systems,
+            results: progress.results.len(),
+            kind,
+        });
+        while self.events.len() > 64 {
+            self.events.pop_front();
+        }
     }
 }
 
@@ -48,7 +98,9 @@ pub struct Controls {
     commands: Mutex<Commands>,
     transition: AtomicU64,
     session: AtomicU64,
-    search_clock: Mutex<SearchClock>,
+    events: Mutex<EventJournal>,
+    started: Instant,
+    revision: AtomicU64,
 }
 
 impl Controls {
@@ -59,34 +111,107 @@ impl Controls {
             commands: Mutex::new(Commands::default()),
             transition: AtomicU64::new(0),
             session: AtomicU64::new(0),
-            search_clock: Mutex::new(SearchClock::default()),
+            events: Mutex::new(EventJournal::default()),
+            started: Instant::now(),
+            revision: AtomicU64::new(1),
         }
     }
     pub fn snapshot(&self) -> State {
         self.state.lock().unwrap_or_else(|e| e.into_inner()).clone()
     }
-    pub fn update(&self, operation: impl FnOnce(&mut State)) {
-        self.update_at(None, operation);
-    }
-    fn update_at(&self, now: Option<Instant>, operation: impl FnOnce(&mut State)) {
-        let mut state = self.state.lock().unwrap_or_else(|e| e.into_inner());
-        operation(&mut state);
-        let running = state.availability == Availability::Ready
-            && state.search_pause.is_none()
-            && state
-                .progress
-                .as_ref()
-                .is_some_and(|progress| progress.phase == Phase::Running);
-        state.metrics.elapsed_ms = self
-            .search_clock
+    pub fn availability(&self) -> Availability {
+        self.state
             .lock()
             .unwrap_or_else(|e| e.into_inner())
-            .observe(now.unwrap_or_else(Instant::now), running);
+            .availability
     }
-    pub fn reset_search_clock(&self) {
+    /// Presentation consumers can poll without copying unchanged results and retained records.
+    pub fn snapshot_if_changed(&self, last_revision: u64) -> Option<(u64, State)> {
+        let state = self.state.lock().unwrap_or_else(|e| e.into_inner());
+        let revision = self.revision.load(Ordering::Acquire);
+        (revision != last_revision).then(|| (revision, state.clone()))
+    }
+    pub fn update(&self, operation: impl FnOnce(&mut State)) {
         let mut state = self.state.lock().unwrap_or_else(|e| e.into_inner());
-        *self.search_clock.lock().unwrap_or_else(|e| e.into_inner()) = SearchClock::default();
-        state.metrics.elapsed_ms = 0;
+        let before = state.progress.as_ref().map(|progress| {
+            (
+                progress.id,
+                progress.phase,
+                progress.user_paused,
+                progress.results.len(),
+            )
+        });
+        let prior_pause = state.search_pause;
+        operation(&mut state);
+        self.revision.fetch_add(1, Ordering::Release);
+        let Some(progress) = state.progress.as_ref() else {
+            return;
+        };
+        let mut events = self.events.lock().unwrap_or_else(|e| e.into_inner());
+        let new_search = before.is_none_or(|(id, _, _, _)| id != progress.id);
+        if new_search {
+            events.push(progress, LifecycleEventKind::Started, self.uptime_ms());
+        } else if let Some((_, _, _, prior_results)) = before
+            && progress.results.len() > prior_results
+        {
+            events.push(
+                progress,
+                LifecycleEventKind::ResultsFound {
+                    count: progress.results.len() - prior_results,
+                },
+                self.uptime_ms(),
+            );
+        }
+        if progress.phase != Phase::Running {
+            if (new_search || before.is_some_and(|(_, phase, _, _)| phase == Phase::Running))
+                && let Some(finish) = progress.finish
+            {
+                events.push(
+                    progress,
+                    LifecycleEventKind::Finished { finish },
+                    self.uptime_ms(),
+                );
+            }
+        } else if !new_search
+            && !progress.user_paused
+            && before.is_some_and(|(_, _, paused, _)| !paused)
+        {
+            let automatic = |pause| match pause {
+                Some(SearchPause::Loading | SearchPause::OtherGalaxy) => pause,
+                _ => None,
+            };
+            match (automatic(prior_pause), automatic(state.search_pause)) {
+                (None, Some(cause)) => {
+                    events.push(
+                        progress,
+                        LifecycleEventKind::AutomaticPause { cause },
+                        self.uptime_ms(),
+                    );
+                }
+                (Some(cause), None) => {
+                    events.push(
+                        progress,
+                        LifecycleEventKind::AutomaticResume { cause },
+                        self.uptime_ms(),
+                    );
+                }
+                (None, None) | (Some(_), Some(_)) => {}
+            }
+        }
+    }
+    /// Independent consumers retain their own sequence cursor. The bounded journal is not drained.
+    pub fn lifecycle_events_after(&self, sequence: u64) -> Vec<LifecycleEvent> {
+        self.events
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .events
+            .iter()
+            .filter(|event| event.sequence > sequence)
+            .cloned()
+            .collect()
+    }
+    pub fn uptime_ms(&self) -> u64 {
+        self.started.elapsed().as_millis().min(u128::from(u64::MAX)) as u64
     }
     pub fn submit(&self, generation: u64, action: Action) -> Result<u64, &'static str> {
         let state = self.state.lock().map_err(|_| "runtime state poisoned")?;
@@ -177,8 +302,8 @@ impl Controls {
             state.search_pause = Some(SearchPause::Loading);
             if new_session {
                 state.progress = None;
+                state.search_history.clear();
                 state.search_command = None;
-                state.results.clear();
                 state.cached_systems = 0;
                 state.search_pause = None;
             }
@@ -192,6 +317,156 @@ mod tests {
     use std::sync::atomic::{AtomicU64, Ordering};
 
     static DIRECTORY_ID: AtomicU64 = AtomicU64::new(0);
+
+    #[test]
+    fn unchanged_presentation_snapshots_do_not_clone_state_and_updates_advance_revision() {
+        let controls = Controls::new(State::new(crate::settings::Settings::default()));
+        let (revision, initial) = controls.snapshot_if_changed(0).unwrap();
+        assert!(controls.snapshot_if_changed(revision).is_none());
+        controls.update(|state| state.error = Some("new state".into()));
+        let (next, updated) = controls.snapshot_if_changed(revision).unwrap();
+        assert!(next > revision);
+        assert!(initial.error.is_none());
+        assert_eq!(updated.error.as_deref(), Some("new state"));
+        assert!(controls.snapshot_if_changed(next).is_none());
+    }
+
+    #[test]
+    fn publication_gate_bounds_recurring_updates_but_not_transitions() {
+        let start = Instant::now();
+        let mut gate = PublicationGate::new(Duration::from_millis(100));
+        assert!(gate.should_publish(start, 1_u8, false));
+        assert!(!gate.should_publish(start + Duration::from_millis(10), 1, false));
+        assert!(gate.should_publish(start + Duration::from_millis(20), 2, false));
+        assert!(!gate.should_publish(start + Duration::from_millis(30), 2, false));
+        assert!(gate.should_publish(start + Duration::from_millis(31), 2, true));
+        assert!(!gate.should_publish(start + Duration::from_millis(130), 2, false));
+        assert!(gate.should_publish(start + Duration::from_millis(131), 2, false));
+        gate.invalidate();
+        assert!(gate.should_publish(start + Duration::from_millis(132), 2, false));
+    }
+
+    #[test]
+    fn presentation_snapshots_share_progress_and_history_payloads() {
+        use crate::{
+            address::{Address, Coordinates},
+            session::Session,
+            settings::Settings,
+        };
+        let settings = Settings::default();
+        let origin = Address::new(Coordinates {
+            x: 1,
+            y: 2,
+            z: 3,
+            galaxy: 0,
+            system: 1,
+            planet: 0,
+        })
+        .unwrap();
+        let mut session = Session::default();
+        session
+            .start(settings.search.clone(), origin, settings.execution())
+            .unwrap();
+        let (progress, history) = session.publication();
+        let progress = progress.unwrap();
+        let history_progress = history.last().unwrap().progress.clone();
+        let mut state = State::new(settings);
+        state.progress = Some(progress.clone());
+        state.search_history = history;
+        let controls = Controls::new(state);
+
+        let (_, snapshot) = controls.snapshot_if_changed(0).unwrap();
+        assert!(std::sync::Arc::ptr_eq(
+            snapshot.progress.as_ref().unwrap(),
+            &progress
+        ));
+        assert!(std::sync::Arc::ptr_eq(
+            &snapshot.search_history.last().unwrap().progress,
+            &history_progress
+        ));
+    }
+
+    #[test]
+    fn lifecycle_journal_records_automatic_causes_and_terminal_outcomes_without_manual_pause_events()
+     {
+        use crate::{
+            address::{Address, Coordinates},
+            runtime::LifecycleEventKind,
+            session::Session,
+            settings::Settings,
+        };
+        let settings = Settings::default();
+        let controls = Controls::new(State::new(settings.clone()));
+        let origin = Address::new(Coordinates {
+            x: 1,
+            y: 2,
+            z: 3,
+            galaxy: 0,
+            system: 1,
+            planet: 0,
+        })
+        .unwrap();
+        let mut session = Session::default();
+        session
+            .start(settings.search.clone(), origin, settings.execution())
+            .unwrap();
+        let publish = |session: &Session, pause| {
+            controls.update(|state| {
+                state.progress = session.progress().cloned().map(std::sync::Arc::new);
+                state.search_pause = pause;
+            })
+        };
+        publish(&session, None);
+        session.set_paused(true).unwrap();
+        publish(&session, Some(SearchPause::User));
+        session.set_available(false);
+        publish(&session, Some(SearchPause::Loading));
+        session.set_available(true);
+        publish(&session, Some(SearchPause::User));
+        session.set_paused(false).unwrap();
+        publish(&session, None);
+        assert_eq!(controls.lifecycle_events_after(0).len(), 1);
+        session.set_available(false);
+        publish(&session, Some(SearchPause::Loading));
+        publish(&session, Some(SearchPause::Loading));
+        publish(&session, Some(SearchPause::OtherGalaxy));
+        session.set_available(true);
+        publish(&session, None);
+        session.cancel();
+        publish(&session, None);
+        publish(&session, None);
+        let events = controls.lifecycle_events_after(0);
+        assert_eq!(events.len(), 4);
+        assert_eq!(
+            events[1].kind,
+            LifecycleEventKind::AutomaticPause {
+                cause: SearchPause::Loading
+            }
+        );
+        assert_eq!(
+            events[2].kind,
+            LifecycleEventKind::AutomaticResume {
+                cause: SearchPause::OtherGalaxy
+            }
+        );
+        assert_eq!(
+            events[3].kind,
+            LifecycleEventKind::Finished {
+                finish: crate::session::Finish::Cancelled
+            }
+        );
+        assert!(
+            events
+                .iter()
+                .all(|event| event.published_ms <= controls.uptime_ms())
+        );
+        assert_eq!(
+            controls.lifecycle_events_after(events[3].sequence),
+            events[4..]
+        );
+        // Reading does not drain events needed by another consumer.
+        assert_eq!(controls.lifecycle_events_after(0), events);
+    }
 
     fn test_directory() -> std::path::PathBuf {
         std::env::temp_dir().join(format!(

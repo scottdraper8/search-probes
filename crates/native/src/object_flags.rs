@@ -70,14 +70,19 @@ impl ObjectTables {
         summaries: &ObjectTableCache,
         need_glow: u8,
         mut flora_models: Option<&mut Vec<crate::flora_appearance::Spawn>>,
+        cancel: &crate::search::Stop<'_>,
     ) -> Result<ObjectFlags, &'static str> {
         if planet.is_null() {
             return Err("null planet object source");
         }
         let mut result = ObjectFlags::default();
+        let mut flora_owned_bytes = 0usize;
         unsafe {
             let (sources, count) = dynamic_array(planet.add(0x3210), 4096)?;
             for index in 0..count {
+                if cancel.requested() {
+                    return Err("planet object traversal cancelled");
+                }
                 let source = sources.add(index * 0x58);
                 if source.add(0x53).read() != 0 {
                     continue;
@@ -107,7 +112,7 @@ impl ObjectTables {
                         .any(|w| w.eq_ignore_ascii_case(part))
                 });
                 let glow = if surface { need_glow } else { 0 };
-                let facts = summaries.resolve(key, glow, || self.load(filename, glow))?;
+                let facts = summaries.resolve(key, glow, || self.load(filename, glow, cancel))?;
                 if let Some(facts) = facts {
                     result.loaded_tables += 1;
                     result.titan_worms |= facts.titan_worms;
@@ -127,9 +132,22 @@ impl ObjectTables {
                     if glow & 4 != 0
                         && let Some(models) = flora_models.as_deref_mut()
                     {
+                        if models.len().saturating_add(facts.flora_models.len()) > 16_384 {
+                            return Err("planet surface model count exceeds bound");
+                        }
+                        for spawn in facts.flora_models.iter() {
+                            flora_owned_bytes = flora_owned_bytes
+                                .checked_add(spawn.owned_bytes())
+                                .and_then(|bytes| bytes.checked_add(key.len()))
+                                .and_then(|bytes| bytes.checked_add(std::mem::size_of_val(spawn)))
+                                .filter(|&bytes| bytes <= MAX_OWNED_BYTES)
+                                .ok_or("planet surface model data exceeds byte bound")?;
+                        }
                         let ground_index = source.add(0x4c).cast::<i32>().read_unaligned();
                         models.extend(facts.flora_models.iter().cloned().map(|mut spawn| {
                             spawn.source_ground_index = ground_index;
+                            spawn.source_index = index;
+                            spawn.source_table = key.to_vec();
                             spawn
                         }));
                     }
@@ -148,6 +166,7 @@ impl ObjectTables {
         &self,
         filename: *const u8,
         glow: u8,
+        cancel: &crate::search::Stop<'_>,
     ) -> Result<Option<TableFacts>, &'static str> {
         let pointer = unsafe { (self.acquire)(self.cache, filename, false) };
         if pointer.is_null() {
@@ -170,6 +189,9 @@ impl ObjectTables {
                 .checked_add(count as u32)
                 .ok_or("object record count overflow")?;
             for index in 0..count {
+                if cancel.requested() {
+                    return Err("planet object traversal cancelled");
+                }
                 let object = unsafe { objects.add(index * 0x168) };
                 facts.floating_islands |= unsafe { floating_island(object) }?;
                 facts.titan_worms |= unsafe { titan_worm(object) }?;
@@ -179,7 +201,9 @@ impl ObjectTables {
                     let path = unsafe { model_path(object) }?;
                     if !path.is_empty() {
                         if glow & 4 != 0 && grass == 0 {
-                            let spawn = unsafe { flora_spawn(object, path) };
+                            let mut spawn = unsafe { flora_spawn(object, path) };
+                            spawn.object_array = offset;
+                            spawn.object_index = index;
                             flora_bytes = flora_bytes
                                 .checked_add(spawn.owned_bytes() + std::mem::size_of_val(&spawn))
                                 .filter(|&bytes| bytes <= MAX_OWNED_BYTES)
@@ -201,8 +225,6 @@ impl ObjectTables {
                 }
             }
         }
-        flora_models.sort_unstable();
-        flora_models.dedup();
         facts.flora_models = flora_models.into();
         Ok(Some(facts))
     }

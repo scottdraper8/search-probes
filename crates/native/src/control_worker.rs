@@ -5,19 +5,26 @@ use search_probes_model::{
 };
 use std::{
     path::PathBuf,
-    sync::{Arc, atomic::Ordering},
-    thread,
+    sync::{Arc, Mutex, atomic::Ordering},
+    thread::{self, JoinHandle},
     time::{Duration, Instant},
 };
 
+static WORKER: Mutex<Option<JoinHandle<()>>> = Mutex::new(None);
+
 pub fn start(controls: Arc<Controls>, directory: PathBuf) -> Result<(), String> {
-    thread::Builder::new()
+    // Establish exclusive artifact ownership synchronously before starting any publisher.
+    let agent = search_probes_model::agent_control::AgentControl::open(&directory)
+        .map_err(|error| format!("Cannot own runtime artifacts: {error}"))?;
+    let worker = thread::Builder::new()
         .name("Search Probes persistence".into())
         .spawn(move || {
-            let agent = search_probes_model::agent_control::AgentControl::open(&directory);
             let mut agent_polled = Instant::now();
             let mut published = Instant::now();
             loop {
+                if controls.availability() == Availability::Stopped {
+                    break;
+                }
                 controls.observe_transition(
                     crate::lifecycle_hook::epoch(),
                     crate::lifecycle_hook::session(),
@@ -33,10 +40,7 @@ pub fn start(controls: Arc<Controls>, directory: PathBuf) -> Result<(), String> 
                     crate::runtime::report_startup_failure(&error);
                 }
                 if agent_polled.elapsed() >= Duration::from_millis(50) {
-                    let result = match &agent {
-                        Ok(agent) => agent.poll(&controls),
-                        Err(error) => Err(std::io::Error::other(error.to_string())),
-                    };
+                    let result = agent.poll(&controls);
                     if let Err(error) = result {
                         controls.update(|state| {
                             state.error = Some(format!("Agent command interface: {error}"))
@@ -62,23 +66,27 @@ pub fn start(controls: Arc<Controls>, directory: PathBuf) -> Result<(), String> 
                             16384,
                         );
                     }
-                    if let Ok(agent) = &agent {
-                        let _ = agent.publish();
-                    }
+                    let _ = agent.publish();
                     published = Instant::now();
                 }
-                if controls
-                    .state
-                    .lock()
-                    .unwrap_or_else(|e| e.into_inner())
-                    .availability
-                    == Availability::Stopped
-                {
+                if controls.availability() == Availability::Stopped {
                     break;
                 }
                 thread::sleep(Duration::from_millis(10));
             }
+            if let Err(error) = agent.cleanup() {
+                controls.update(|state| {
+                    state.error = Some(format!("Cannot clean runtime artifacts: {error}"))
+                });
+            }
         })
         .map_err(|e| e.to_string())?;
+    *WORKER.lock().map_err(|_| "persistence worker poisoned")? = Some(worker);
     Ok(())
+}
+
+pub fn finish() {
+    if let Some(worker) = WORKER.lock().unwrap_or_else(|e| e.into_inner()).take() {
+        let _ = worker.join();
+    }
 }

@@ -861,6 +861,7 @@ dependencies = [
  "egui",
  "png",
  "search-probes-model",
+ "serde_json",
 ]
 
 [[package]]
