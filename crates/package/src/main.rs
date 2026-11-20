@@ -101,7 +101,6 @@ fn game_release_version() -> Result<&'static str> {
 
 fn package_manifest(files: BTreeMap<String, Value>) -> Result<Value> {
     Ok(json!({
-        "format": 1,
         "product": "Search Probes",
         "version": game_release_version()?,
         "game_version": supported::GAME_VERSION,
@@ -175,8 +174,7 @@ fn verify(path: &Path) -> Result<()> {
     let mut archive = zip::ZipArchive::new(fs::File::open(path)?)?;
     let saved: Value = serde_json::from_slice(archive.comment())?;
     let actual = archive_manifest(&mut archive)?;
-    if saved["format"] != 1
-        || saved["product"] != "Search Probes"
+    if saved["product"] != "Search Probes"
         || saved["version"] != game_release_version()?
         || saved["game_version"] != supported::GAME_VERSION
         || saved["steam_build"] != supported::STEAM_BUILD
@@ -245,6 +243,14 @@ fn package(workspace: &Path, output: &Path) -> Result<()> {
     copy(
         &binaries.join("search_probes.dll"),
         &temporary.join("Binaries/SearchProbes/SearchProbes.dll"),
+    )?;
+    copy(
+        &binaries.join("SearchProbesControl.exe"),
+        &temporary.join("Binaries/SearchProbes/SearchProbesControl.exe"),
+    )?;
+    copy(
+        &workspace.join("crates/control/USAGE.md"),
+        &temporary.join("Binaries/SearchProbes/SearchProbesControl.md"),
     )?;
     let assets = workspace.join("assets");
     for file in files(&assets)? {

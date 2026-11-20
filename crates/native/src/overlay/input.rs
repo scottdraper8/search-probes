@@ -222,6 +222,18 @@ pub fn release() {
     restore_game_input(game, focused);
 }
 
+pub fn visible() -> bool {
+    INPUT
+        .lock()
+        .unwrap_or_else(|error| error.into_inner())
+        .visible
+}
+
+pub fn set_visible(visible: bool) -> Result<(), String> {
+    INPUT.lock().map_err(|_| "overlay input poisoned")?.visible = visible;
+    Ok(())
+}
+
 fn dpi_scale(window: HWND) -> f32 {
     (unsafe { GetDpiForWindow(window) } as f32 / 96.0).max(1.0)
 }

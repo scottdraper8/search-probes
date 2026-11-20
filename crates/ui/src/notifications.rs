@@ -4,6 +4,7 @@
 use crate::theme::Palette;
 use egui::{Align2, RichText, Vec2};
 use search_probes_model::settings::{NotificationSettings, ToastPlacement};
+use search_probes_model::ui_control::ToastSnapshot;
 use std::{collections::VecDeque, time::Duration};
 
 const LIFETIME: Duration = Duration::from_secs(4);
@@ -80,6 +81,23 @@ pub(crate) struct Notifications {
 }
 
 impl Notifications {
+    fn text(content: &Content) -> (String, String) {
+        match content {
+            Content::Search(notification) => {
+                (notification.title().to_owned(), notification.message())
+            }
+            Content::Export { subject, path } => (
+                match *subject {
+                    "Search" => "Search exported",
+                    "Presets" => "Presets exported",
+                    _ => "Results exported",
+                }
+                .to_owned(),
+                format!("Exported {} to {path}", subject.to_lowercase()),
+            ),
+        }
+    }
+
     pub fn update(&mut self, now: Duration, preferences: &NotificationSettings) {
         self.toasts.retain(|toast| {
             now < toast.expires
@@ -165,6 +183,25 @@ impl Notifications {
             .retain(|toast| matches!(toast.content, Content::Export { .. }));
     }
 
+    pub fn clear(&mut self) {
+        self.toasts.clear();
+    }
+
+    pub fn snapshot(&self) -> Vec<ToastSnapshot> {
+        self.toasts
+            .iter()
+            .map(|toast| {
+                let (title, message) = Self::text(&toast.content);
+                ToastSnapshot {
+                    title,
+                    message,
+                    created_ms: toast.created.as_millis().min(u128::from(u64::MAX)) as u64,
+                    expires_ms: toast.expires.as_millis().min(u128::from(u64::MAX)) as u64,
+                }
+            })
+            .collect()
+    }
+
     pub fn exported(&mut self, subject: &'static str, mut path: String, now: Duration) {
         bound_message(&mut path);
         self.clear_export();
@@ -195,19 +232,7 @@ impl Notifications {
             .show(ctx, |ui| {
                 ui.set_width(width);
                 for toast in self.toasts.iter().rev().take(maximum) {
-                    let (title, message) = match &toast.content {
-                        Content::Search(notification) => {
-                            (notification.title(), notification.message())
-                        }
-                        Content::Export { subject, path } => (
-                            match *subject {
-                                "Search" => "Search exported",
-                                "Presets" => "Presets exported",
-                                _ => "Results exported",
-                            },
-                            format!("Exported {} to {path}", subject.to_lowercase()),
-                        ),
-                    };
+                    let (title, message) = Self::text(&toast.content);
                     egui::Frame::new()
                         .fill(palette.surface)
                         .stroke(egui::Stroke::new(1.0, palette.outline))

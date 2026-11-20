@@ -320,19 +320,21 @@ impl PlanetFlag {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum SelectionSide {
     Include,
     Exclude,
 }
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum CompositionField {
     Biomes,
     Subtypes,
     Sizes,
 }
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(default, deny_unknown_fields)]
+#[serde(deny_unknown_fields)]
 pub struct ExclusiveSelections {
     pub include: u64,
     pub exclude: u64,
@@ -358,7 +360,7 @@ impl ExclusiveSelections {
     }
 }
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(default, deny_unknown_fields)]
+#[serde(deny_unknown_fields)]
 pub struct Composition {
     pub biomes: ExclusiveSelections,
     pub subtypes: ExclusiveSelections,
@@ -417,7 +419,7 @@ impl Resources {
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(default, deny_unknown_fields)]
+#[serde(deny_unknown_fields)]
 pub struct Criteria {
     pub choices: BTreeMap<Field, u64>,
     pub planets: BTreeMap<PlanetFlag, bool>,

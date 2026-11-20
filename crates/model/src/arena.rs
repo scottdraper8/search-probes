@@ -50,7 +50,7 @@ impl ArenaField {
     }
 }
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(default, deny_unknown_fields)]
+#[serde(deny_unknown_fields)]
 pub struct ArenaCriteria {
     pub presence: Option<bool>,
     pub choices: BTreeMap<ArenaField, u64>,

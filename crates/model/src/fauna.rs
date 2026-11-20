@@ -185,7 +185,7 @@ impl FaunaField {
     }
 }
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
-#[serde(default, deny_unknown_fields)]
+#[serde(deny_unknown_fields)]
 pub struct HeightRange {
     pub minimum_cm: Option<u32>,
     pub maximum_cm: Option<u32>,
@@ -205,7 +205,7 @@ impl HeightRange {
     }
 }
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(default, deny_unknown_fields)]
+#[serde(deny_unknown_fields)]
 pub struct FaunaCriteria {
     pub presence: Option<bool>,
     pub choices: BTreeMap<FaunaField, u64>,

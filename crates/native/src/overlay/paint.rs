@@ -274,7 +274,8 @@ impl Painter {
     ) -> Result<Option<vk::Semaphore>> {
         let mut ui = UI.get().unwrap().lock().map_err(|_| "UI poisoned")?;
         let context = ui.context.clone();
-        ui.app.prepare_frame(&context);
+        ui.app
+            .prepare_frame(&context, input::visible(), input::set_visible);
         let elapsed = ui.started.elapsed().as_secs_f64();
         let binding = ui.app.settings().interface.hotkey;
         let capture_device = ui.app.binding_capture_device();

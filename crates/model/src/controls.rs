@@ -5,6 +5,7 @@ use crate::{
     },
     session::Phase,
     storage,
+    ui_control::{UiAction, UiCommand, UiState},
 };
 use std::{
     collections::VecDeque,
@@ -92,10 +93,17 @@ struct Commands {
     ready: VecDeque<Command>,
 }
 
+#[derive(Default)]
+struct UiCommands {
+    next: u64,
+    incoming: VecDeque<UiCommand>,
+}
+
 pub struct Controls {
     pub state: Mutex<State>,
     pub cancel: AtomicBool,
     commands: Mutex<Commands>,
+    ui_commands: Mutex<UiCommands>,
     transition: AtomicU64,
     session: AtomicU64,
     events: Mutex<EventJournal>,
@@ -109,6 +117,7 @@ impl Controls {
             state: Mutex::new(state),
             cancel: AtomicBool::new(false),
             commands: Mutex::new(Commands::default()),
+            ui_commands: Mutex::new(UiCommands::default()),
             transition: AtomicU64::new(0),
             session: AtomicU64::new(0),
             events: Mutex::new(EventJournal::default()),
@@ -199,6 +208,15 @@ impl Controls {
             }
         }
     }
+    /// Publish rendered-interface state without advancing the presentation revision when the
+    /// semantic UI snapshot did not change.
+    pub fn publish_ui(&self, ui: UiState) {
+        let mut state = self.state.lock().unwrap_or_else(|e| e.into_inner());
+        if state.ui != ui {
+            state.ui = ui;
+            self.revision.fetch_add(1, Ordering::Release);
+        }
+    }
     /// Independent consumers retain their own sequence cursor. The bounded journal is not drained.
     pub fn lifecycle_events_after(&self, sequence: u64) -> Vec<LifecycleEvent> {
         self.events
@@ -237,6 +255,37 @@ impl Controls {
         queue.next = id;
         queue.incoming.push_back(command);
         Ok(id)
+    }
+    pub fn submit_ui(&self, generation: u64, action: UiAction) -> Result<u64, &'static str> {
+        let state = self.state.lock().map_err(|_| "runtime state poisoned")?;
+        if generation != state.generation {
+            return Err("UI command belongs to an expired game state");
+        }
+        let mut queue = self
+            .ui_commands
+            .lock()
+            .map_err(|_| "UI command queue poisoned")?;
+        if queue.incoming.len() >= MAX_PENDING_COMMANDS {
+            return Err("The interface is not accepting commands. Wait for it to resume.");
+        }
+        let id = queue
+            .next
+            .checked_add(1)
+            .ok_or("UI command identity exhausted")?;
+        queue.next = id;
+        queue.incoming.push_back(UiCommand {
+            generation,
+            id,
+            action,
+        });
+        Ok(id)
+    }
+    pub fn pop_ui(&self) -> Option<UiCommand> {
+        self.ui_commands
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .incoming
+            .pop_front()
     }
     pub fn prepare(&self, directory: &Path) {
         let mut queue = self.commands.lock().unwrap_or_else(|e| e.into_inner());
