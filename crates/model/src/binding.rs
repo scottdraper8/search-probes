@@ -269,8 +269,8 @@ pub enum InputBinding {
 impl Default for InputBinding {
     fn default() -> Self {
         Self::Keyboard {
-            first: KeyboardKey::F7,
-            second: None,
+            first: KeyboardKey::ControlLeft,
+            second: Some(KeyboardKey::Comma),
         }
     }
 }

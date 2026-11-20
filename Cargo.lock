@@ -851,6 +851,7 @@ name = "search-probes-runtime"
 version = "0.2.0"
 dependencies = [
  "search-probes-native",
+ "windows-sys",
 ]
 
 [[package]]

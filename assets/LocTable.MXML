@@ -303,23 +303,23 @@
     </Property>
     <Property name="Table" value="TkLocalisationEntry">
       <Property name="Id" value="SQN_SP_GUIDE_DESC" />
-      <Property name="BrazilianPortuguese" value="The saved preset runs while you play. Press F7 for progress and results." />
-      <Property name="Dutch" value="The saved preset runs while you play. Press F7 for progress and results." />
-      <Property name="English" value="The saved preset runs while you play. Press F7 for progress and results." />
-      <Property name="French" value="The saved preset runs while you play. Press F7 for progress and results." />
-      <Property name="German" value="The saved preset runs while you play. Press F7 for progress and results." />
-      <Property name="Italian" value="The saved preset runs while you play. Press F7 for progress and results." />
-      <Property name="Japanese" value="The saved preset runs while you play. Press F7 for progress and results." />
-      <Property name="Korean" value="The saved preset runs while you play. Press F7 for progress and results." />
-      <Property name="LatinAmericanSpanish" value="The saved preset runs while you play. Press F7 for progress and results." />
-      <Property name="Polish" value="The saved preset runs while you play. Press F7 for progress and results." />
-      <Property name="Portuguese" value="The saved preset runs while you play. Press F7 for progress and results." />
-      <Property name="Russian" value="The saved preset runs while you play. Press F7 for progress and results." />
-      <Property name="SimplifiedChinese" value="The saved preset runs while you play. Press F7 for progress and results." />
-      <Property name="Spanish" value="The saved preset runs while you play. Press F7 for progress and results." />
-      <Property name="TencentChinese" value="The saved preset runs while you play. Press F7 for progress and results." />
-      <Property name="TraditionalChinese" value="The saved preset runs while you play. Press F7 for progress and results." />
-      <Property name="USEnglish" value="The saved preset runs while you play. Press F7 for progress and results." />
+      <Property name="BrazilianPortuguese" value="The saved preset runs while you play. Press Ctrl + comma for progress and results." />
+      <Property name="Dutch" value="The saved preset runs while you play. Press Ctrl + comma for progress and results." />
+      <Property name="English" value="The saved preset runs while you play. Press Ctrl + comma for progress and results." />
+      <Property name="French" value="The saved preset runs while you play. Press Ctrl + comma for progress and results." />
+      <Property name="German" value="The saved preset runs while you play. Press Ctrl + comma for progress and results." />
+      <Property name="Italian" value="The saved preset runs while you play. Press Ctrl + comma for progress and results." />
+      <Property name="Japanese" value="The saved preset runs while you play. Press Ctrl + comma for progress and results." />
+      <Property name="Korean" value="The saved preset runs while you play. Press Ctrl + comma for progress and results." />
+      <Property name="LatinAmericanSpanish" value="The saved preset runs while you play. Press Ctrl + comma for progress and results." />
+      <Property name="Polish" value="The saved preset runs while you play. Press Ctrl + comma for progress and results." />
+      <Property name="Portuguese" value="The saved preset runs while you play. Press Ctrl + comma for progress and results." />
+      <Property name="Russian" value="The saved preset runs while you play. Press Ctrl + comma for progress and results." />
+      <Property name="SimplifiedChinese" value="The saved preset runs while you play. Press Ctrl + comma for progress and results." />
+      <Property name="Spanish" value="The saved preset runs while you play. Press Ctrl + comma for progress and results." />
+      <Property name="TencentChinese" value="The saved preset runs while you play. Press Ctrl + comma for progress and results." />
+      <Property name="TraditionalChinese" value="The saved preset runs while you play. Press Ctrl + comma for progress and results." />
+      <Property name="USEnglish" value="The saved preset runs while you play. Press Ctrl + comma for progress and results." />
     </Property>
     <Property name="Table" value="TkLocalisationEntry">
       <Property name="Id" value="SQN_SP_SLOT1" />
