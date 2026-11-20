@@ -82,6 +82,15 @@ enum Operation {
     Inspect(Option<usize>),
 }
 
+impl Operation {
+    fn validate_plan(self, plan: &Plan) -> Result<(), &'static str> {
+        match self {
+            Self::Search => search_probes_model::settings::validate_search_plan(plan),
+            Self::Inspect(_) => Ok(()),
+        }
+    }
+}
+
 impl Outcome {
     pub fn into_record(
         self,
@@ -181,6 +190,7 @@ impl<'cache> Generator<'cache> {
         cached: Option<&SystemRecord>,
         operation: Operation,
     ) -> Result<Outcome, &'static str> {
+        operation.validate_plan(plan)?;
         if cancel.requested() {
             return Err("search stopped before system generation");
         }
@@ -567,6 +577,25 @@ impl<'cache> Generator<'cache> {
 mod tests {
     use super::*;
     use std::time::Duration;
+
+    #[test]
+    fn flora_colour_is_rejected_before_search_generation_but_allowed_for_inspection() {
+        let mut criteria = search_probes_model::criteria::Criteria::default();
+        criteria.choices.insert(Field::FloraColour, 1);
+        let plan = criteria.compile().unwrap();
+        assert_eq!(
+            Operation::Search.validate_plan(&plan),
+            Err(search_probes_model::settings::FLORA_COLOUR_SEARCH_ERROR)
+        );
+        assert!(Operation::Inspect(Some(0)).validate_plan(&plan).is_ok());
+        assert!(Operation::Inspect(None).validate_plan(&plan).is_ok());
+        criteria.choices.clear();
+        assert!(
+            Operation::Search
+                .validate_plan(&criteria.compile().unwrap())
+                .is_ok()
+        );
+    }
 
     #[test]
     fn cooperative_stop_observes_both_deadlines_and_user_cancellation() {

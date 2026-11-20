@@ -11,8 +11,8 @@ use search_probes_model::{
     binding::{BindingDevice, ControllerButton, InputBinding, KeyboardKey},
     cache::CachedMatch,
     criteria::{
-        CompositionField, Criteria, Field, PlanetFlag, SelectionSide, SystemFlag, WaterFilter,
-        subtype_options_for,
+        CompositionField, Criteria, Field, PlanetFlag, Section, SelectionSide, SystemFlag,
+        WaterFilter, subtype_options_for,
     },
     fauna::{Domain, FaunaCriteria, FaunaField},
     runtime::{Action, Availability, LifecycleEventKind, SearchPause, State},
@@ -158,6 +158,7 @@ pub struct App {
     binding_window: bool,
     binding_capture: Option<BindingCapture>,
     export_request: Option<ExportRequest>,
+    pending_export_subject: Option<&'static str>,
     notifications: Notifications,
     started: Instant,
     settings_sidebar: bool,
@@ -202,6 +203,7 @@ impl App {
             binding_window: false,
             binding_capture: None,
             export_request: None,
+            pending_export_subject: None,
             notifications: Notifications::default(),
             started: Instant::now(),
             settings_sidebar: false,
@@ -471,7 +473,10 @@ impl App {
             state.search_pause,
             Some(SearchPause::Loading | SearchPause::OtherGalaxy)
         );
-        let valid = self.settings.validate();
+        let valid = self
+            .settings
+            .validate()
+            .and_then(|_| self.settings.search.validate_search());
         ui.horizontal_wrapped(|ui| {
             if ui
                 .add_enabled(
@@ -1201,6 +1206,31 @@ impl App {
                 .map_or_else(|| "Automatic".to_owned(), |workers| workers.to_string()),
             record.execution.frame_budget_ms,
         ));
+        ui.add_space(8.0);
+        ui.label(RichText::new("Criteria").strong());
+        match history_criteria(&progress.options.criteria) {
+            Ok(groups) if groups.is_empty() => {
+                ui.label("No filters — every generated system is eligible.");
+            }
+            Ok(groups) => {
+                ui.small(
+                    "All filter groups must match; any selected value within one filter may match.",
+                );
+                for (section, descriptions) in groups {
+                    ui.add_space(4.0);
+                    ui.label(RichText::new(section_label(section)).strong());
+                    for description in descriptions {
+                        ui.label(format!("• {description}"));
+                    }
+                }
+            }
+            Err(error) => {
+                ui.colored_label(
+                    self.palette().error,
+                    format!("Criteria unavailable: {error}"),
+                );
+            }
+        }
         if let Some(error) = &progress.error {
             ui.colored_label(self.palette().error, error);
         }
@@ -1209,65 +1239,62 @@ impl App {
             ui.label("This search has no results.");
             return;
         }
-        egui::ScrollArea::vertical()
-            .id_salt("search_history_results")
-            .show(ui, |ui| {
-                for (index, result) in progress.results.iter().enumerate() {
-                    egui::Frame::group(ui.style()).show(ui, |ui| {
-                        ui.set_width(ui.available_width());
-                        ui.label(
-                            RichText::new(format!(
-                                "{}. {}",
-                                index + 1,
-                                result.title().unwrap_or("Name unavailable")
-                            ))
-                            .strong(),
-                        );
-                        ui.small(result.address.galactic_coordinates());
-                        ui.horizontal_wrapped(|ui| {
-                            if ui
-                                .add_enabled(
-                                    self.state.availability == Availability::Ready
-                                        && result.destination_names_complete()
-                                        && self.state.player.is_some_and(|player| {
-                                            player.coordinates().galaxy
-                                                == result.address.coordinates().galaxy
-                                        }),
-                                    egui::Button::new("Set destination"),
-                                )
-                                .clicked()
-                            {
-                                self.send(Action::Navigate {
-                                    search_id: progress.id,
-                                    target: result.target(),
-                                });
-                            }
-                            if ui.button("Copy portal code").clicked() {
-                                ui.ctx().copy_text(result.target().portal_code());
-                            }
+        for (index, result) in progress.results.iter().enumerate() {
+            egui::Frame::group(ui.style()).show(ui, |ui| {
+                ui.set_width(ui.available_width());
+                ui.label(
+                    RichText::new(format!(
+                        "{}. {}",
+                        index + 1,
+                        result.title().unwrap_or("Name unavailable")
+                    ))
+                    .strong(),
+                );
+                ui.small(result.address.galactic_coordinates());
+                ui.horizontal_wrapped(|ui| {
+                    if ui
+                        .add_enabled(
+                            self.state.availability == Availability::Ready
+                                && result.destination_names_complete()
+                                && self.state.player.is_some_and(|player| {
+                                    player.coordinates().galaxy
+                                        == result.address.coordinates().galaxy
+                                }),
+                            egui::Button::new("Set destination"),
+                        )
+                        .clicked()
+                    {
+                        self.send(Action::Navigate {
+                            search_id: progress.id,
+                            target: result.target(),
                         });
-                    });
-                    ui.add_space(6.0);
-                }
+                    }
+                    if ui.button("Copy portal code").clicked() {
+                        ui.ctx().copy_text(result.target().portal_code());
+                    }
+                });
             });
+            ui.add_space(6.0);
+        }
     }
 
     fn results(&mut self, ui: &mut Ui) {
         let state = self.state.clone();
+        let results = state
+            .progress
+            .as_ref()
+            .map_or(&[][..], |progress| progress.results.as_slice());
         ui.horizontal(|ui| {
             ui.heading("Results");
-            if state.progress.is_some() || !state.results.is_empty() {
+            if state.progress.is_some() {
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     ui.menu_button("Export", |ui| {
                         for format in [ExportFormat::Text, ExportFormat::Csv] {
                             if ui
-                                .add_enabled(
-                                    !state.results.is_empty(),
-                                    egui::Button::new(format.label()),
-                                )
+                                .add_enabled(!results.is_empty(), egui::Button::new(format.label()))
                                 .clicked()
                             {
-                                match ExportRequest::new(format, &state.results) {
+                                match ExportRequest::new(format, results) {
                                     Ok(request) => self.export_request = Some(request),
                                     Err(error) => self.error = Some(error),
                                 }
@@ -1377,12 +1404,12 @@ impl App {
             if let Some(error) = &progress.error {
                 ui.colored_label(self.palette().error, error);
             }
-        } else if state.results.is_empty() {
+        } else {
             ui.label("Choose your criteria and start a search.");
         }
-        if !state.results.is_empty() {
+        if !results.is_empty() {
             ui.separator();
-            let results: Vec<_> = state.results.iter().collect();
+            let results: Vec<_> = results.iter().collect();
             let gap = ui.spacing().item_spacing.x;
             let available = ui.available_width();
             let columns = ((available + gap) / (RESULT_CARD_MIN_WIDTH + gap))
@@ -1476,19 +1503,23 @@ impl App {
     }
 
     pub fn take_export_request(&mut self) -> Option<ExportRequest> {
-        self.export_request.take()
+        let request = self.export_request.take()?;
+        self.pending_export_subject = Some(request.subject());
+        Some(request)
     }
 
     pub fn finish_export(&mut self, result: Result<Option<String>, String>) {
+        let subject = self.pending_export_subject.take().unwrap_or("Results");
         match result {
             Ok(Some(path)) => {
                 self.error = None;
-                self.notifications.exported(path, self.started.elapsed());
+                self.notifications
+                    .exported(subject, path, self.started.elapsed());
             }
             Ok(None) => {}
             Err(error) => {
                 self.notifications.clear_export();
-                self.error = Some(format!("Cannot export results: {error}"));
+                self.error = Some(format!("Cannot export {}: {error}", subject.to_lowercase()));
             }
         }
     }
@@ -1720,7 +1751,9 @@ impl App {
                             self.page = Page::Search;
                         }
                     });
-                    self.history(ui);
+                    egui::ScrollArea::vertical()
+                        .id_salt("search_history")
+                        .show(ui, |ui| self.history(ui));
                     return;
                 }
 
@@ -2555,6 +2588,42 @@ fn elapsed(milliseconds: u64) -> String {
     format!("{hours:02}:{minutes:02}:{seconds:02}")
 }
 
+fn history_criteria(criteria: &Criteria) -> Result<Vec<(Section, Vec<String>)>, &'static str> {
+    let plan = criteria.compile()?;
+    let predicates: Vec<_> = plan.system.iter().chain(&plan.planet).copied().collect();
+    Ok(Section::ALL
+        .iter()
+        .copied()
+        .filter_map(|section| {
+            let descriptions: Vec<_> = predicates
+                .iter()
+                .copied()
+                .filter(|predicate| predicate.section() == section)
+                .map(|predicate| predicate.description())
+                .collect();
+            (!descriptions.is_empty()).then_some((section, descriptions))
+        })
+        .collect())
+}
+
+fn section_label(section: Section) -> &'static str {
+    match section {
+        Section::Composition => "System composition",
+        Section::Profile => "System profile",
+        Section::PlanetType => "Planet type",
+        Section::Flora => "Flora",
+        Section::SkyAtmospherics => "Sky & atmospherics",
+        Section::PlanetFeatures => "Planet features",
+        Section::GeneralFauna => "General fauna",
+        Section::AquaticFauna => "Aquatic fauna",
+        Section::LandFauna => "Land fauna",
+        Section::AirborneFauna => "Airborne fauna",
+        Section::XenoArena => "Xeno Arena",
+        Section::Resources => "Resources",
+        Section::Weather => "Weather",
+    }
+}
+
 fn search_phase(phase: Phase, finish: Option<Finish>) -> &'static str {
     match (phase, finish) {
         (Phase::Running, _) => "Running",
@@ -2577,6 +2646,29 @@ mod tests {
         assert_eq!(elapsed(0), "00:00:00");
         assert_eq!(elapsed(3_661_999), "01:01:01");
         assert_eq!(elapsed(359_940_000), "99:59:00");
+    }
+
+    #[test]
+    fn history_criteria_groups_actual_predicates_and_keeps_no_filter_state_explicit() {
+        assert!(history_criteria(&Criteria::default()).unwrap().is_empty());
+        let mut criteria = Criteria::default();
+        criteria.planets.insert(PlanetFlag::Rings, true);
+        criteria.systems.insert(SystemFlag::Pirate, false);
+        criteria.choices.insert(Field::Star, (1 << 0) | (1 << 2));
+        let groups = history_criteria(&criteria).unwrap();
+        assert_eq!(groups.len(), 2);
+        assert_eq!(groups[0].0, Section::Profile);
+        assert!(groups[0].1.iter().any(|value| value == "Not Outlaw system"));
+        assert!(
+            groups[0]
+                .1
+                .iter()
+                .any(|value| value.contains("Star colour:") && value.contains(" | "))
+        );
+        assert_eq!(
+            groups[1],
+            (Section::PlanetFeatures, vec!["Has rings".into()])
+        );
     }
 
     fn rendered_texts(app: &mut App, context: &egui::Context, size: egui::Vec2) -> Vec<String> {
@@ -2635,6 +2727,39 @@ mod tests {
     }
 
     #[test]
+    fn history_page_renders_retained_filter_details_and_no_filter_state() {
+        fn render(criteria: Criteria) -> Vec<String> {
+            let context = egui::Context::default();
+            let mut settings = Settings::default();
+            settings.search.criteria = criteria;
+            let mut session = search_probes_model::session::Session::default();
+            let origin = search_probes_model::address::Address::from_raw(0).unwrap();
+            session
+                .start(settings.search.clone(), origin, settings.execution())
+                .unwrap();
+            let mut state = State::new(settings);
+            state.search_history = session.history();
+            let controls = Arc::new(Controls::new(state));
+            let mut app = App::new(&context, controls);
+            app.page = Page::History;
+            rendered_texts(&mut app, &context, egui::vec2(1100.0, 840.0))
+        }
+
+        let unfiltered = render(Criteria::default());
+        assert!(
+            unfiltered
+                .iter()
+                .any(|text| text == "No filters — every generated system is eligible.")
+        );
+
+        let mut filtered = Criteria::default();
+        filtered.planets.insert(PlanetFlag::Rings, true);
+        let filtered = render(filtered);
+        assert!(filtered.iter().any(|text| text == "Planet features"));
+        assert!(filtered.iter().any(|text| text == "• Has rings"));
+    }
+
+    #[test]
     fn interface_reconciliation_preserves_pending_theme_while_accepting_published_hotkey() {
         let previous = Settings::default();
         let mut draft = previous.clone();
@@ -2663,9 +2788,14 @@ mod tests {
         assert!(!app.has_notifications());
         app.finish_export(Ok(Some("results.csv".into())));
         assert!(app.has_notifications());
+        app.export_request = Some(ExportRequest::presets_json(&Settings::default()).unwrap());
+        assert_eq!(app.take_export_request().unwrap().subject(), "Presets");
         app.finish_export(Err("disk full".into()));
         assert!(!app.has_notifications());
-        assert!(app.error.as_deref().unwrap().contains("disk full"));
+        assert_eq!(
+            app.error.as_deref(),
+            Some("Cannot export presets: disk full")
+        );
     }
 
     fn result(kind: TargetKind) -> CachedMatch {

@@ -17,6 +17,15 @@ use std::{
 };
 
 type Result<T> = std::result::Result<T, &'static str>;
+const STOPPED: &str = "planet observation cancelled";
+
+fn check_stop(cancel: &crate::search::Stop<'_>) -> Result<()> {
+    if cancel.requested() {
+        return Err(STOPPED);
+    }
+    Ok(())
+}
+
 type OptionalLayers = [BTreeSet<(Vec<u8>, Vec<u8>)>; 2];
 type TextureRecipeKey = (usize, usize, usize);
 type TextureRecipe = Arc<[[f64; 4]]>;
@@ -147,14 +156,20 @@ impl PreparedMaterial {
                 })
                 .sum::<usize>()
     }
-    fn recipe(&self, combination: usize) -> Vec<[f64; 4]> {
+    fn recipe(
+        &self,
+        combination: usize,
+        cancel: &crate::search::Stop<'_>,
+    ) -> Result<Vec<[f64; 4]>> {
+        check_stop(cancel)?;
         if let Some(colour) = self.constant {
-            return vec![colour; 1024];
+            return Ok(vec![colour; 1024]);
         }
         let mut choice = combination;
         let mut pixels = vec![[0.; 4]; 1024];
         let mut base = true;
         for (layer_index, layer) in self.layers.iter().enumerate() {
+            check_stop(cancel)?;
             let count = layer.len() + usize::from(self.optional[layer_index]);
             let selected = choice % count;
             choice /= count;
@@ -163,6 +178,7 @@ impl PreparedMaterial {
             }
             let option = &layer[selected];
             for (pixel, source) in pixels.iter_mut().zip(option) {
+                check_stop(cancel)?;
                 for channel in 0..3 {
                     pixel[channel] = if base {
                         source[channel]
@@ -177,9 +193,10 @@ impl PreparedMaterial {
             base = false;
         }
         if base {
-            return Vec::new();
+            return Ok(Vec::new());
         }
         for pixel in &mut pixels {
+            check_stop(cancel)?;
             for channel in pixel.iter_mut().take(3) {
                 let diffuse = channel.powf(1. / 2.2);
                 *channel = if self.srgb {
@@ -189,7 +206,8 @@ impl PreparedMaterial {
                 };
             }
         }
-        pixels
+        check_stop(cancel)?;
+        Ok(pixels)
     }
 }
 #[derive(Default)]
@@ -231,16 +249,18 @@ impl TexturePreparation {
         material_key: (usize, usize),
         prepared: &PreparedMaterial,
         combination: usize,
-    ) -> TextureRecipe {
+        cancel: &crate::search::Stop<'_>,
+    ) -> Result<TextureRecipe> {
+        check_stop(cancel)?;
         let key = (material_key.0, material_key.1, combination);
         if let Some(pixels) = self.recipes.get(&key) {
-            return pixels.clone();
+            return Ok(pixels.clone());
         }
-        let pixels: Arc<[[f64; 4]]> = prepared.recipe(combination).into();
+        let pixels: Arc<[[f64; 4]]> = prepared.recipe(combination, cancel)?.into();
         if self.reserve(std::mem::size_of_val(pixels.as_ref()) + 128) {
             self.recipes.insert(key, pixels.clone());
         }
-        pixels
+        Ok(pixels)
     }
 }
 
@@ -712,9 +732,7 @@ impl Model {
         let mut possible = 0;
         let mut known = if self.materials.is_empty() { 0 } else { 0x7ff };
         for (index, material) in self.materials.iter().enumerate() {
-            if cancel.requested() {
-                return Err("planet observation cancelled");
-            }
+            check_stop(cancel)?;
             let observed = material.observe_prepared(
                 ObservationRequest {
                     context,
@@ -731,6 +749,7 @@ impl Model {
             possible |= observed.possible;
             known &= observed.known;
         }
+        check_stop(cancel)?;
         Ok(Observation {
             colours,
             known,
@@ -862,7 +881,9 @@ impl Material {
         context: &Context,
         spawn: &Spawn,
         optional_layers: &std::collections::BTreeSet<(Vec<u8>, Vec<u8>)>,
+        cancel: &crate::search::Stop<'_>,
     ) -> Result<PreparedMaterial> {
+        check_stop(cancel)?;
         if let Some(colour) = self.constant {
             if colour.iter().any(|value| !value.is_finite()) {
                 return Err("invalid flora constant colour");
@@ -903,6 +924,7 @@ impl Material {
                 .iter()
                 .enumerate()
                 .try_fold(1usize, |count, (index, layer)| {
+                    check_stop(cancel)?;
                     count
                         .checked_mul(layer.len() + usize::from(optional[index]))
                         .filter(|count| *count <= 4096)
@@ -911,9 +933,11 @@ impl Material {
         let prepared: Vec<Vec<Vec<[f64; 5]>>> = layers
             .iter()
             .map(|layer| {
+                check_stop(cancel)?;
                 layer
                     .iter()
                     .map(|&option| {
+                        check_stop(cancel)?;
                         let alternative = option.alternative;
                         let palette = option.palette;
                         let force = self.procedural && spawn.match_ground_colour;
@@ -943,12 +967,13 @@ impl Material {
                         }
                         let target_hsv = appearance::texture_hsv(target);
                         let average_hsv = appearance::texture_hsv(option.average);
-                        Ok(option
+                        option
                             .texture
                             .pixels
                             .iter()
                             .zip(&option.texture.recolour)
                             .map(|(source, prepared)| {
+                                check_stop(cancel)?;
                                 let rgb = [source[0], source[1], source[2]];
                                 let rgb = if alternative < 7 || force {
                                     if option.multiply {
@@ -966,19 +991,20 @@ impl Material {
                                     raw * (1. - recolour_weight)
                                         + rgb[channel].powf(2.2) * recolour_weight
                                 });
-                                [
+                                Ok([
                                     rgb[0],
                                     rgb[1],
                                     rgb[2],
                                     (source[3] - 0.004).clamp(0., 1.) * 1.0040160417556763,
                                     source[3],
-                                ]
+                                ])
                             })
-                            .collect())
+                            .collect::<Result<_>>()
                     })
                     .collect::<Result<_>>()
             })
             .collect::<Result<_>>()?;
+        check_stop(cancel)?;
         Ok(PreparedMaterial {
             constant: None,
             layers: prepared,
@@ -1000,18 +1026,14 @@ impl Material {
             sampler,
             cancel,
         } = request;
-        if cancel.requested() {
-            return Err("planet observation cancelled");
-        }
+        check_stop(cancel)?;
         let key = (self as *const Self as usize, sampler);
         let prepared = preparation.material(key, || {
-            self.prepare_variants(context, spawn, optional_layers)
+            self.prepare_variants(context, spawn, optional_layers, cancel)
         })?;
         for combination in 0..prepared.combinations {
-            if cancel.requested() {
-                return Err("planet observation cancelled");
-            }
-            let pixels = preparation.recipe(key, &prepared, combination);
+            check_stop(cancel)?;
+            let pixels = preparation.recipe(key, &prepared, combination, cancel)?;
             if pixels.is_empty() {
                 return Err("flora recipe produced no pixels");
             }
@@ -1019,7 +1041,7 @@ impl Material {
                 break;
             }
         }
-        Ok(())
+        check_stop(cancel)
     }
     fn observe_prepared(
         &self,
@@ -1027,6 +1049,7 @@ impl Material {
         preparation: &mut Preparation,
         cancel: &crate::search::Stop<'_>,
     ) -> Result<Observation> {
+        check_stop(cancel)?;
         let ObservationRequest {
             context,
             lut,
@@ -1068,6 +1091,7 @@ impl Material {
                 },
                 &mut preparation.textures,
                 |pixels| {
+                    check_stop(cancel)?;
                     if secondary.len() >= 4096 {
                         return Err("flora secondary variant bound exceeded");
                     }
@@ -1096,6 +1120,7 @@ impl Material {
             &mut preparation.textures,
             |primary| {
                 let mut classify = |pixels: &[[f64; 4]]| -> Result<bool> {
+                    check_stop(cancel)?;
                     evaluated = true;
                     let total: f64 = pixels
                         .iter()
@@ -1107,6 +1132,7 @@ impl Material {
                     let mut decided = 0u32;
                     let mut predominant = 0u32;
                     for (pixel, sample) in pixels.iter().zip(samples) {
+                        check_stop(cancel)?;
                         let weight = self.surface_weight(pixel[3], sample);
                         if weight <= 0. {
                             continue;
@@ -1166,9 +1192,7 @@ impl Material {
                     return classify(&primary);
                 }
                 for overlay in &secondary {
-                    if cancel.requested() {
-                        return Err("planet observation cancelled");
-                    }
+                    check_stop(cancel)?;
                     let pixels: Vec<[f64; 4]> = primary
                         .iter()
                         .zip(overlay)
@@ -1190,6 +1214,7 @@ impl Material {
                 Ok(true)
             },
         )?;
+        check_stop(cancel)?;
         let known = if evaluated { requested } else { 0 };
         Ok(Observation {
             colours: GRASS_COLOUR_SET
@@ -1316,14 +1341,17 @@ fn observe_spawn(
     wanted: u32,
     cancel: &crate::search::Stop<'_>,
 ) -> Result<Observation> {
+    check_stop(cancel)?;
     let (model, lut, key, cached) = cache
         .lock()
         .map_err(|_| "flora appearance cache poisoned")?
         .prepare(spawn, context, filter, wanted)?;
+    check_stop(cancel)?;
     if let Some(cached) = cached {
         return Ok(cached);
     }
     let observed = model.observe(spawn, context, &lut.unwrap(), wanted, cancel)?;
+    check_stop(cancel)?;
     cache
         .lock()
         .map_err(|_| "flora appearance cache poisoned")?
@@ -1338,16 +1366,28 @@ pub fn inventory(
     enumeration_complete: bool,
     cancel: &crate::search::Stop<'_>,
 ) -> Result<SurfaceModels> {
-    const MAX_INVENTORY_JSON_BYTES: usize = 512 * 1024;
+    check_stop(cancel)?;
     let cache = cache()?;
+    collect_inventory(models, enumeration_complete, cancel, |spawn| {
+        observe_spawn(cache, spawn, context, filter, 0, cancel)
+    })
+}
+
+fn collect_inventory(
+    models: &[Spawn],
+    enumeration_complete: bool,
+    cancel: &crate::search::Stop<'_>,
+    mut observe: impl FnMut(&Spawn) -> Result<Observation>,
+) -> Result<SurfaceModels> {
+    const MAX_INVENTORY_JSON_BYTES: usize = 512 * 1024;
+    check_stop(cancel)?;
     let mut complete = enumeration_complete;
     let mut observations = Vec::with_capacity(models.len());
     let mut serialized_bytes = 2usize;
     for spawn in models {
-        if cancel.requested() {
-            return Err("planet observation cancelled");
-        }
-        let observed = observe_spawn(cache, spawn, context, filter, 0, cancel);
+        check_stop(cancel)?;
+        let observed = observe(spawn);
+        check_stop(cancel)?;
         let (colours, record_complete, error) = match observed {
             Ok(observed) => {
                 complete &= observed.complete;
@@ -1361,6 +1401,7 @@ pub fn inventory(
                     None,
                 )
             }
+            Err(STOPPED) => return Err(STOPPED),
             Err(error) => {
                 complete = false;
                 (ColourAlternatives::default(), false, Some(error.to_owned()))
@@ -1392,6 +1433,7 @@ pub fn inventory(
             .ok_or("planet observation exceeds diagnostics publication budget")?;
         observations.push(record);
     }
+    check_stop(cancel)?;
     Ok(SurfaceModels {
         provenance: Provenance::GeneratedSurfaceObjectTable,
         semantic_level: SemanticLevel::GeneratedRecipe,
@@ -1402,4 +1444,142 @@ pub fn inventory(
         }),
         records: observations,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::search::Stop;
+    use std::{
+        sync::atomic::{AtomicBool, Ordering},
+        time::Instant,
+    };
+
+    fn observation() -> Observation {
+        Observation {
+            colours: GRASS_COLOUR_SET | 1,
+            known: 0x7ff,
+            possible: 1,
+            complete: true,
+        }
+    }
+
+    fn constant_material() -> Material {
+        Material {
+            procedural: false,
+            secondary: None,
+            constant: Some([1., 0., 0., 1.]),
+            srgb: true,
+            alpha_flags: 0,
+            vertex_flags: 0,
+            opacity: 1.,
+            layers: Vec::new(),
+            optional: Vec::new(),
+            layer_keys: Vec::new(),
+            palettes: Vec::new(),
+        }
+    }
+
+    fn context() -> Context {
+        Context {
+            palettes: [[[0.; 4]; 5]; 66],
+            ground_colours: [[0.; 4]; 24],
+            palette_mode: 0,
+        }
+    }
+
+    #[test]
+    fn stopped_inventory_never_becomes_a_successful_per_spawn_diagnostic() {
+        let cancel = AtomicBool::new(false);
+        let stop = Stop::new(&cancel, None);
+        let models = [Spawn::default()];
+        assert_eq!(
+            collect_inventory(&models, true, &stop, |_| Err(STOPPED)).unwrap_err(),
+            STOPPED
+        );
+        assert_eq!(
+            collect_inventory(&models, true, &stop, |_| {
+                cancel.store(true, Ordering::Release);
+                Ok(observation())
+            })
+            .unwrap_err(),
+            STOPPED
+        );
+        cancel.store(false, Ordering::Release);
+        let expired = Stop::new(&cancel, Some(Instant::now()));
+        assert_eq!(
+            collect_inventory(&[], true, &expired, |_| unreachable!()).unwrap_err(),
+            STOPPED
+        );
+    }
+
+    #[test]
+    fn ordinary_spawn_errors_remain_incomplete_diagnostics() {
+        let cancel = AtomicBool::new(false);
+        let stop = Stop::new(&cancel, None);
+        let inventory = collect_inventory(&[Spawn::default()], true, &stop, |_| {
+            Err("unsupported flora material")
+        })
+        .unwrap();
+        assert!(!inventory.complete);
+        assert!(!inventory.records[0].complete);
+        assert_eq!(
+            inventory.records[0].error.as_deref(),
+            Some("unsupported flora material")
+        );
+    }
+
+    #[test]
+    fn expired_deadlines_abort_texture_preparation_and_cached_recipes() {
+        let cancel = AtomicBool::new(false);
+        let running = Stop::new(&cancel, None);
+        let context = context();
+        let spawn = Spawn::default();
+        let optional_layers = BTreeSet::new();
+        let material = constant_material();
+        let prepared = material
+            .prepare_variants(&context, &spawn, &optional_layers, &running)
+            .unwrap();
+        let mut cache = TexturePreparation::default();
+        assert!(cache.recipe((0, 0), &prepared, 0, &running).is_ok());
+        let expired = Stop::new(&cancel, Some(Instant::now()));
+        assert_eq!(
+            material
+                .prepare_variants(&context, &spawn, &optional_layers, &expired)
+                .err(),
+            Some(STOPPED)
+        );
+        assert_eq!(
+            cache.recipe((0, 0), &prepared, 0, &expired).unwrap_err(),
+            STOPPED
+        );
+    }
+
+    #[test]
+    fn cancellation_during_the_final_variant_is_propagated() {
+        let cancel = AtomicBool::new(false);
+        let stop = Stop::new(&cancel, None);
+        let context = context();
+        let material = constant_material();
+        let spawn = Spawn::default();
+        let optional_layers = BTreeSet::new();
+        let error = material
+            .variants(
+                VariantRequest {
+                    context: &context,
+                    spawn: &spawn,
+                    optional_layers: &optional_layers,
+                    sampler: 0,
+                    cancel: &stop,
+                },
+                &mut TexturePreparation::default(),
+                |pixels| {
+                    assert_eq!(pixels.len(), 1024);
+                    cancel.store(true, Ordering::Release);
+                    Ok(true)
+                },
+            )
+            .unwrap_err();
+        assert_eq!(error, STOPPED);
+    }
 }

@@ -13,8 +13,44 @@ use std::{
         Mutex,
         atomic::{AtomicBool, AtomicU64, Ordering},
     },
-    time::Instant,
+    time::{Duration, Instant},
 };
+
+/// Bounds recurring state publication while allowing user-visible transitions through immediately.
+pub struct PublicationGate<T> {
+    interval: Duration,
+    last: Option<(Instant, T)>,
+}
+
+impl<T: PartialEq> PublicationGate<T> {
+    pub fn new(interval: Duration) -> Self {
+        Self {
+            interval,
+            last: None,
+        }
+    }
+
+    pub fn should_publish(&mut self, now: Instant, publication: T, force: bool) -> bool {
+        let changed = self
+            .last
+            .as_ref()
+            .is_none_or(|(_, previous)| previous != &publication);
+        let due = self
+            .last
+            .as_ref()
+            .is_none_or(|(last, _)| now.saturating_duration_since(*last) >= self.interval);
+        if force || changed || due {
+            self.last = Some((now, publication));
+            true
+        } else {
+            false
+        }
+    }
+
+    pub fn invalidate(&mut self) {
+        self.last = None;
+    }
+}
 
 #[derive(Default)]
 struct EventJournal {
@@ -268,7 +304,6 @@ impl Controls {
                 state.progress = None;
                 state.search_history.clear();
                 state.search_command = None;
-                state.results.clear();
                 state.cached_systems = 0;
                 state.search_pause = None;
             }
@@ -297,6 +332,61 @@ mod tests {
     }
 
     #[test]
+    fn publication_gate_bounds_recurring_updates_but_not_transitions() {
+        let start = Instant::now();
+        let mut gate = PublicationGate::new(Duration::from_millis(100));
+        assert!(gate.should_publish(start, 1_u8, false));
+        assert!(!gate.should_publish(start + Duration::from_millis(10), 1, false));
+        assert!(gate.should_publish(start + Duration::from_millis(20), 2, false));
+        assert!(!gate.should_publish(start + Duration::from_millis(30), 2, false));
+        assert!(gate.should_publish(start + Duration::from_millis(31), 2, true));
+        assert!(!gate.should_publish(start + Duration::from_millis(130), 2, false));
+        assert!(gate.should_publish(start + Duration::from_millis(131), 2, false));
+        gate.invalidate();
+        assert!(gate.should_publish(start + Duration::from_millis(132), 2, false));
+    }
+
+    #[test]
+    fn presentation_snapshots_share_progress_and_history_payloads() {
+        use crate::{
+            address::{Address, Coordinates},
+            session::Session,
+            settings::Settings,
+        };
+        let settings = Settings::default();
+        let origin = Address::new(Coordinates {
+            x: 1,
+            y: 2,
+            z: 3,
+            galaxy: 0,
+            system: 1,
+            planet: 0,
+        })
+        .unwrap();
+        let mut session = Session::default();
+        session
+            .start(settings.search.clone(), origin, settings.execution())
+            .unwrap();
+        let (progress, history) = session.publication();
+        let progress = progress.unwrap();
+        let history_progress = history.last().unwrap().progress.clone();
+        let mut state = State::new(settings);
+        state.progress = Some(progress.clone());
+        state.search_history = history;
+        let controls = Controls::new(state);
+
+        let (_, snapshot) = controls.snapshot_if_changed(0).unwrap();
+        assert!(std::sync::Arc::ptr_eq(
+            snapshot.progress.as_ref().unwrap(),
+            &progress
+        ));
+        assert!(std::sync::Arc::ptr_eq(
+            &snapshot.search_history.last().unwrap().progress,
+            &history_progress
+        ));
+    }
+
+    #[test]
     fn lifecycle_journal_records_automatic_causes_and_terminal_outcomes_without_manual_pause_events()
      {
         use crate::{
@@ -322,7 +412,7 @@ mod tests {
             .unwrap();
         let publish = |session: &Session, pause| {
             controls.update(|state| {
-                state.publish_progress(session.progress().cloned().map(std::sync::Arc::new));
+                state.progress = session.progress().cloned().map(std::sync::Arc::new);
                 state.search_pause = pause;
             })
         };

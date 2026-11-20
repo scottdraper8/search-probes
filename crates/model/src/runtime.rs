@@ -1,6 +1,5 @@
 use crate::{
     address::Address,
-    cache::CachedMatch,
     criteria::{Criteria, Plan, Predicate, Section, Stage},
     facts::{FactSnapshot, Facts, Verdict},
     session::{Finish, Progress, SearchRecord},
@@ -283,7 +282,6 @@ pub struct State {
     pub progress: Option<std::sync::Arc<Progress>>,
     pub search_history: Vec<std::sync::Arc<SearchRecord>>,
     pub search_pause: Option<SearchPause>,
-    pub results: Vec<CachedMatch>,
     pub metrics: Metrics,
     pub cached_systems: usize,
     pub last_command: u64,
@@ -297,13 +295,6 @@ pub struct State {
 }
 
 impl State {
-    pub fn publish_progress(&mut self, progress: Option<std::sync::Arc<Progress>>) {
-        if let Some(progress) = progress.as_ref() {
-            self.results = progress.results.clone();
-        }
-        self.progress = progress;
-    }
-
     pub fn new(settings: Settings) -> Self {
         Self {
             generation: 1,
@@ -313,7 +304,6 @@ impl State {
             progress: None,
             search_history: Vec::new(),
             search_pause: None,
-            results: Vec::new(),
             metrics: Metrics::default(),
             cached_systems: 0,
             last_command: 0,
@@ -347,7 +337,7 @@ mod tests {
     #[test]
     fn fully_populated_bounded_history_fits_the_published_state_limit() {
         use crate::{
-            cache::{FaunaMatch, MAX_NAME_BYTES},
+            cache::{CachedMatch, FaunaMatch, MAX_NAME_BYTES},
             fauna::{Domain, NameIdentity},
             session::{MAX_SEARCH_HISTORY, Session},
             settings::MAX_RESULTS,
@@ -377,7 +367,7 @@ mod tests {
         };
         std::sync::Arc::make_mut(&mut record.progress).results = vec![result; MAX_RESULTS];
         let mut state = State::new(settings);
-        state.publish_progress(Some(record.progress.clone()));
+        state.progress = Some(record.progress.clone());
         state.search_history = (1..=MAX_SEARCH_HISTORY)
             .map(|id| {
                 let mut record = record.clone();
@@ -391,34 +381,27 @@ mod tests {
     }
 
     #[test]
-    fn publishing_a_new_empty_search_clears_previous_results() {
-        let origin = address();
+    fn state_has_one_canonical_result_collection() {
         let mut state = State::new(Settings::default());
-        state.results.push(CachedMatch {
-            address: origin,
-            kind: TargetKind::System,
-            system_name: Some("Old result".into()),
-            planet_name: None,
-            fauna: None,
-        });
-
-        state.publish_progress(Some(std::sync::Arc::new(Progress {
+        state.progress = Some(std::sync::Arc::new(Progress {
             id: 1,
             elapsed_ms: 0,
             user_paused: false,
             phase: Phase::Running,
             finish: None,
             options: SearchOptions::default(),
-            origin,
+            origin: address(),
             systems: 0,
             cached_systems: 0,
             unresolved_arena_planets: 0,
             unresolved_arena_examples: Vec::new(),
             results: Vec::new(),
             error: None,
-        })));
+        }));
 
-        assert!(state.results.is_empty());
+        let value = serde_json::to_value(state).unwrap();
+        assert!(value.get("results").is_none());
+        assert!(value["progress"].get("results").is_some());
     }
 
     #[test]

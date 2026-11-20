@@ -1,4 +1,8 @@
-use crate::{binding::InputBinding, criteria::Criteria, theme::UiTheme};
+use crate::{
+    binding::InputBinding,
+    criteria::{Criteria, Field, Plan, Predicate},
+    theme::UiTheme,
+};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeSet;
 
@@ -15,6 +19,16 @@ pub const MAX_RESULTS: usize = 100;
 pub const MAX_PRESETS: usize = 9;
 pub const MAX_SETTINGS_BYTES: usize = 1_048_576;
 pub const MAX_WORKERS: usize = 16;
+pub const FLORA_COLOUR_SEARCH_ERROR: &str = "non-grass flora colour search is unavailable until planet-wide occurrence can be established; inspect the current planet for generated recipe observations";
+
+pub fn validate_search_plan(plan: &Plan) -> Result<(), &'static str> {
+    if plan.planet.iter().any(|predicate| {
+        matches!(predicate, Predicate::Choice(choices) if choices.field() == Field::FloraColour)
+    }) {
+        return Err(FLORA_COLOUR_SEARCH_ERROR);
+    }
+    Ok(())
+}
 
 /// Literal two-field hours/minutes input. Minutes 60..=99 are intentional.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -95,6 +109,11 @@ impl Default for SearchOptions {
 }
 
 impl SearchOptions {
+    pub fn validate_search(&self) -> Result<(), &'static str> {
+        self.validate()?;
+        validate_search_plan(&self.criteria.compile()?)
+    }
+
     pub fn validate(&self) -> Result<(), &'static str> {
         self.criteria.compile()?;
         if let Some(limit) = self.time_limit {
@@ -256,6 +275,24 @@ pub fn nearest_budget(value: u64) -> u64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn flora_colour_configuration_can_be_inspected_but_cannot_start_a_search() {
+        let mut settings = Settings::default();
+        settings
+            .search
+            .criteria
+            .choices
+            .insert(Field::FloraColour, 1);
+        assert!(settings.validate().is_ok());
+        assert!(settings.search.criteria.compile().is_ok());
+        assert_eq!(
+            settings.search.validate_search(),
+            Err(FLORA_COLOUR_SEARCH_ERROR)
+        );
+        settings.search.criteria.choices.remove(&Field::FloraColour);
+        assert!(settings.search.validate_search().is_ok());
+    }
 
     #[test]
     fn literal_time_limits_preserve_non_normalized_minutes_and_reject_zero_and_overflow() {

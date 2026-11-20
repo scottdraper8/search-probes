@@ -76,6 +76,10 @@ impl ExportRequest {
     pub fn dialog_title(&self) -> String {
         format!("Export Search Probes {}", self.subject.to_lowercase())
     }
+
+    pub(crate) const fn subject(&self) -> &'static str {
+        self.subject
+    }
 }
 
 fn name(result: &CachedMatch) -> &str {
@@ -228,11 +232,13 @@ mod tests {
         assert_eq!(request.format.extension(), "json");
         assert_eq!(request.suggested_name(), "Search Probes Search.json");
         assert_eq!(request.dialog_title(), "Export Search Probes search");
+        assert_eq!(request.subject(), "Search");
         let presets = ExportRequest::presets_json(&settings).unwrap();
         settings.presets.clear();
         let snapshot: serde_json::Value = serde_json::from_str(&presets.contents).unwrap();
         assert_eq!(snapshot["presets"].as_array().unwrap().len(), 1);
         assert_eq!(presets.suggested_name(), "Search Probes Presets.json");
+        assert_eq!(presets.subject(), "Presets");
         assert!(ExportRequest::new(ExportFormat::Json, &[]).is_err());
     }
 }

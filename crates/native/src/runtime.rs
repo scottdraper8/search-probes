@@ -10,11 +10,13 @@ use crate::{
     workers::Workers,
 };
 use search_probes_model::{
-    controls::Controls,
+    address::Address,
+    controls::{Controls, PublicationGate},
     runtime::{Action, Availability, Command, CurrentWorld, Metrics, SearchPause, State},
     session::Phase,
     settings::{Settings, available_workers},
     storage,
+    target::Target,
 };
 use std::{
     sync::{Arc, OnceLock, atomic::Ordering},
@@ -25,6 +27,15 @@ static RUNTIME: OnceLock<crate::dispatch_gate::Gate<Runtime>> = OnceLock::new();
 static CONTROLS: OnceLock<Arc<Controls>> = OnceLock::new();
 static APPLICATION_TRANSITION: std::sync::Mutex<Option<LifecycleTransition>> =
     std::sync::Mutex::new(None);
+const GAMEPLAY_PUBLICATION_INTERVAL: Duration = Duration::from_millis(100);
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+struct GameplayPublication {
+    player: Address,
+    search: Option<(u64, Phase, usize)>,
+    pause: Option<SearchPause>,
+    destination: Option<Target>,
+}
 
 pub fn report_startup_failure(error: &str) {
     let message: String = error.chars().take(4096).collect();
@@ -57,6 +68,7 @@ struct Runtime {
     guide_topics: Option<guide_hook::Topics>,
     navigation: Navigation,
     navigation_polled: Option<Instant>,
+    publication_gate: PublicationGate<GameplayPublication>,
 }
 
 pub fn initialize() -> Result<(), String> {
@@ -120,6 +132,7 @@ fn attach(image: Image, controls: Arc<Controls>, settings: Settings) -> Result<(
         guide_topics: None,
         navigation: Navigation::default(),
         navigation_polled: None,
+        publication_gate: PublicationGate::new(GAMEPLAY_PUBLICATION_INTERVAL),
     };
     let hooks: Result<(), String> = (|| {
         unsafe { lifecycle_hook::enable(base) }
@@ -248,7 +261,6 @@ pub(crate) fn retire_application_sources(menu: bool) -> Result<(), &'static str>
                 state.progress = None;
                 state.search_history.clear();
                 state.search_command = None;
-                state.results.clear();
                 state.cached_systems = 0;
                 state.metrics = Metrics::default();
                 state.search_pause = None;
@@ -284,7 +296,6 @@ pub(crate) fn shutdown_application() -> Result<(), &'static str> {
             state.progress = None;
             state.search_history.clear();
             state.search_pause = None;
-            state.results.clear();
             state.player = None;
             state.destination = None;
         });
@@ -294,13 +305,14 @@ pub(crate) fn shutdown_application() -> Result<(), &'static str> {
 }
 
 impl Runtime {
-    fn publish_search(&self) {
+    fn publish_search(&mut self) {
         let (progress, history) = self.scheduler.session.publication();
         self.controls.update(|state| {
             state.metrics.elapsed_ms = progress.as_ref().map_or(0, |progress| progress.elapsed_ms);
-            state.publish_progress(progress);
+            state.progress = progress;
             state.search_history = history;
         });
+        self.publication_gate.invalidate();
     }
     fn reset_search(&mut self) {
         self.scheduler.reset();
@@ -340,6 +352,7 @@ impl Runtime {
         self.retire_application_sources();
         self.navigation = Navigation::default();
         mission_text_hook::clear();
+        self.publication_gate.invalidate();
     }
 
     fn tick(&mut self) {
@@ -367,18 +380,33 @@ impl Runtime {
             Ok(snapshot) => snapshot,
             Err(_) => {
                 self.scheduler.session.set_available(false);
-                self.publish_search();
-                self.controls.update(|state| {
-                    state.availability = if lifecycle_hook::menu() {
-                        Availability::MainMenu
-                    } else {
-                        Availability::Loading
-                    };
-                    state.player = None;
-                    state.destination = None;
-                    state.current_world = None;
-                    state.search_pause = Some(SearchPause::Loading);
-                });
+                let availability = if lifecycle_hook::menu() {
+                    Availability::MainMenu
+                } else {
+                    Availability::Loading
+                };
+                let changed = {
+                    let state = self
+                        .controls
+                        .state
+                        .lock()
+                        .unwrap_or_else(|error| error.into_inner());
+                    state.availability != availability
+                        || state.player.is_some()
+                        || state.destination.is_some()
+                        || state.current_world.is_some()
+                        || state.search_pause != Some(SearchPause::Loading)
+                };
+                if changed {
+                    self.publish_search();
+                    self.controls.update(|state| {
+                        state.availability = availability;
+                        state.player = None;
+                        state.destination = None;
+                        state.current_world = None;
+                        state.search_pause = Some(SearchPause::Loading);
+                    });
+                }
                 return;
             }
         };
@@ -394,7 +422,6 @@ impl Runtime {
                     state.progress = None;
                     state.search_history.clear();
                     state.search_command = None;
-                    state.results.clear();
                     state.search_pause = None;
                     state.current_world = None;
                 });
@@ -408,7 +435,9 @@ impl Runtime {
             }
             self.epoch = Some(snapshot.epoch.clone());
         }
+        let mut handled_command = false;
         while let Some(command) = self.controls.pop() {
+            handled_command = true;
             let id = command.id;
             let result = self.command(command, &snapshot);
             self.controls.update(|state| {
@@ -469,6 +498,39 @@ impl Runtime {
             self.controls
                 .update(|state| state.error = Some(error.into()));
         }
+        let search_pause = if self
+            .scheduler
+            .session
+            .progress()
+            .is_some_and(|progress| progress.phase == Phase::Running)
+        {
+            if user_paused {
+                Some(SearchPause::User)
+            } else if !in_search_galaxy {
+                Some(SearchPause::OtherGalaxy)
+            } else {
+                None
+            }
+        } else {
+            None
+        };
+        let destination = self.navigation.destination();
+        let publication = GameplayPublication {
+            player: snapshot.address,
+            search: self
+                .scheduler
+                .session
+                .progress()
+                .map(|progress| (progress.id, progress.phase, progress.results.len())),
+            pause: search_pause,
+            destination,
+        };
+        if !self
+            .publication_gate
+            .should_publish(Instant::now(), publication, handled_command)
+        {
+            return;
+        }
         let statistics = self.scheduler.statistics();
         let work = statistics.work;
         let object_tables = self.scheduler.object_statistics();
@@ -479,25 +541,11 @@ impl Runtime {
             }
             state.availability = Availability::Ready;
             state.player = Some(snapshot.address);
-            state.publish_progress(progress);
+            state.progress = progress;
             state.search_history = history;
-            state.search_pause = if state
-                .progress
-                .as_ref()
-                .is_some_and(|progress| progress.phase == Phase::Running)
-            {
-                if user_paused {
-                    Some(SearchPause::User)
-                } else if !in_search_galaxy {
-                    Some(SearchPause::OtherGalaxy)
-                } else {
-                    None
-                }
-            } else {
-                None
-            };
+            state.search_pause = search_pause;
             state.cached_systems = self.scheduler.session.cache_len();
-            state.destination = self.navigation.destination();
+            state.destination = destination;
             state.metrics = Metrics {
                 generated_systems: work.systems,
                 generated_planets: work.planets,
@@ -542,7 +590,7 @@ impl Runtime {
             state.search_pause = None;
             state.metrics = Metrics::default();
             state.current_world = None;
-            state.publish_progress(progress);
+            state.progress = progress;
             state.search_history = history;
             state.search_command = None;
         });
@@ -581,7 +629,7 @@ impl Runtime {
                     state.search_pause = None;
                     state.metrics = Metrics::default();
                     state.current_world = None;
-                    state.publish_progress(progress);
+                    state.progress = progress;
                     state.search_history = history;
                 });
             }
@@ -593,7 +641,7 @@ impl Runtime {
                 self.scheduler.session.set_paused(paused)?;
                 let (progress, history) = self.scheduler.session.publication();
                 self.controls.update(|state| {
-                    state.publish_progress(progress);
+                    state.progress = progress;
                     state.search_history = history;
                     state.metrics.elapsed_ms = state
                         .progress

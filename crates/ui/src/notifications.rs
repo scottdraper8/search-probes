@@ -64,7 +64,7 @@ impl Notification {
 #[derive(Debug)]
 enum Content {
     Search(Notification),
-    Export(String),
+    Export { subject: &'static str, path: String },
 }
 
 #[derive(Debug)]
@@ -85,7 +85,7 @@ impl Notifications {
             now < toast.expires
                 && match &toast.content {
                     Content::Search(notification) => notification.enabled(preferences),
-                    Content::Export(_) => true,
+                    Content::Export { .. } => true,
                 }
         });
     }
@@ -157,18 +157,22 @@ impl Notifications {
 
     pub fn clear_export(&mut self) {
         self.toasts
-            .retain(|toast| !matches!(toast.content, Content::Export(_)));
+            .retain(|toast| !matches!(toast.content, Content::Export { .. }));
     }
 
     pub fn clear_search(&mut self) {
         self.toasts
-            .retain(|toast| matches!(toast.content, Content::Export(_)));
+            .retain(|toast| matches!(toast.content, Content::Export { .. }));
     }
 
-    pub fn exported(&mut self, mut path: String, now: Duration) {
+    pub fn exported(&mut self, subject: &'static str, mut path: String, now: Duration) {
         bound_message(&mut path);
         self.clear_export();
-        self.append(Content::Export(path), now, now.saturating_add(LIFETIME));
+        self.append(
+            Content::Export { subject, path },
+            now,
+            now.saturating_add(LIFETIME),
+        );
     }
 
     pub fn is_empty(&self) -> bool {
@@ -195,9 +199,14 @@ impl Notifications {
                         Content::Search(notification) => {
                             (notification.title(), notification.message())
                         }
-                        Content::Export(path) => {
-                            ("Results exported", format!("Exported results to {path}"))
-                        }
+                        Content::Export { subject, path } => (
+                            match *subject {
+                                "Search" => "Search exported",
+                                "Presets" => "Presets exported",
+                                _ => "Results exported",
+                            },
+                            format!("Exported {} to {path}", subject.to_lowercase()),
+                        ),
                     };
                     egui::Frame::new()
                         .fill(palette.surface)
@@ -323,7 +332,7 @@ mod tests {
             Duration::ZERO,
             &preferences,
         );
-        notifications.exported("results.csv".into(), Duration::ZERO);
+        notifications.exported("Results", "results.csv".into(), Duration::ZERO);
         preferences.result_found = false;
         notifications.update(Duration::ZERO, &preferences);
         assert_eq!(notifications.toasts.len(), 1);
@@ -334,9 +343,16 @@ mod tests {
     #[test]
     fn replacement_export_expires_from_its_own_completion() {
         let mut notifications = Notifications::default();
-        notifications.exported("first.csv".into(), Duration::ZERO);
-        notifications.exported("second.csv".into(), LIFETIME);
+        notifications.exported("Results", "first.csv".into(), Duration::ZERO);
+        notifications.exported("Search", "second.json".into(), LIFETIME);
         assert_eq!(notifications.toasts.len(), 1);
+        assert!(matches!(
+            notifications.toasts.front().map(|toast| &toast.content),
+            Some(Content::Export {
+                subject: "Search",
+                path
+            }) if path == "second.json"
+        ));
         notifications.update(LIFETIME * 2, &NotificationSettings::default());
         assert!(notifications.is_empty());
     }

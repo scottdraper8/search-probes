@@ -224,7 +224,7 @@ impl Session {
         execution: ExecutionSettings,
         now: Instant,
     ) -> Result<(), &'static str> {
-        options.validate()?;
+        options.validate_search()?;
         execution.validate()?;
         if self
             .search
