@@ -65,11 +65,11 @@ impl Scheduler {
         difficulty: usize,
         address: Address,
         plan: &Plan,
+        cancel: &AtomicBool,
     ) -> Result<crate::search::Outcome, &'static str> {
-        let cancel = AtomicBool::new(false);
         let mut generator =
             unsafe { crate::search::Generator::new(base, live, &self.object_summaries)? };
-        unsafe { generator.inspect_current(address, plan, difficulty, &cancel) }
+        unsafe { generator.inspect_current(address, plan, difficulty, cancel) }
     }
 
     #[cfg(windows)]

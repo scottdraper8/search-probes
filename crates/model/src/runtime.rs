@@ -131,6 +131,8 @@ pub struct CurrentWorld {
     pub criteria: Criteria,
     pub system: FactSnapshot,
     pub planet: Option<FactSnapshot>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub planet_observations: Option<crate::observations::PlanetObservations>,
     pub system_verdict: Verdict,
     pub planet_verdict: Option<Verdict>,
     pub target_verdict: Verdict,
@@ -146,9 +148,13 @@ impl CurrentWorld {
         plan: &Plan,
         system: &Facts,
         planets: &[Facts],
+        planet_observations: Option<crate::observations::PlanetObservations>,
     ) -> Result<Self, &'static str> {
         if command_id == 0 {
             return Err("current-world inspection has no command identity");
+        }
+        if let Some(observations) = &planet_observations {
+            observations.validate_address(address)?;
         }
         let planet_index = match address.coordinates().planet {
             0 => None,
@@ -229,6 +235,7 @@ impl CurrentWorld {
             criteria,
             system: FactSnapshot::from(system),
             planet: planet_facts.map(FactSnapshot::from),
+            planet_observations,
             system_verdict,
             planet_verdict,
             target_verdict,
