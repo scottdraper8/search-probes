@@ -2,6 +2,7 @@ pub mod address;
 pub mod appearance;
 pub mod cache;
 pub mod criteria;
+pub mod export;
 pub mod facts;
 pub mod frontier;
 pub mod guide;

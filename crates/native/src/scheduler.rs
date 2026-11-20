@@ -67,9 +67,10 @@ impl Scheduler {
         plan: &Plan,
     ) -> Result<crate::search::Outcome, &'static str> {
         let cancel = AtomicBool::new(false);
+        let stop = crate::search::Stop::new(&cancel, None);
         let mut generator =
             unsafe { crate::search::Generator::new(base, live, &self.object_summaries)? };
-        unsafe { generator.inspect_current(address, plan, difficulty, &cancel) }
+        unsafe { generator.inspect_current(address, plan, difficulty, &stop) }
     }
 
     #[cfg(windows)]
@@ -130,6 +131,7 @@ impl Scheduler {
             budget,
             cancel,
         } = request;
+        self.session.observe_time();
         if cancel.load(Ordering::Acquire) {
             self.session.cancel();
             return Ok(());
@@ -143,6 +145,14 @@ impl Scheduler {
         match pending {
             Pending::Idle => return Ok(()),
             Pending::Region(region) => {
+                self.session.observe_time();
+                if !self
+                    .session
+                    .progress()
+                    .is_some_and(|progress| progress.phase == Phase::Running)
+                {
+                    return Ok(());
+                }
                 let generator = unsafe { RegionGenerator::from_verified_image(base) }?;
                 let systems = unsafe { generator.generate(region) }?;
                 self.session.load_region(
@@ -175,9 +185,11 @@ impl Scheduler {
                             difficulty,
                             workers,
                             cancel,
+                            deadline: self.session.deadline(),
                         },
                     )
                 }?;
+                self.session.observe_time();
                 let mut native_systems = 0;
                 let mut failure = None;
                 for result in completed {
@@ -212,7 +224,12 @@ impl Scheduler {
                 }
                 if cancel.load(Ordering::Acquire) {
                     self.session.cancel();
-                } else if let Some(error) = failure {
+                } else if let Some(error) = failure
+                    && self
+                        .session
+                        .progress()
+                        .is_some_and(|progress| progress.phase == Phase::Running)
+                {
                     self.session.fail(error);
                     return Err(error);
                 }

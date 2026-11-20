@@ -3,13 +3,14 @@ use crate::{
     cache::CachedMatch,
     criteria::{Criteria, Plan, Predicate, ResourceMode, Section, Stage},
     facts::{FactSnapshot, Facts, Verdict},
-    session::Progress,
+    session::{Finish, Progress, SearchRecord},
     settings::{Settings, validate_frame_budget},
     target::Target,
 };
 use serde::{Deserialize, Serialize};
 
-pub const MAX_STATE_BYTES: usize = 1_048_576;
+/// Includes twenty bounded searches with up to one hundred fully named results each.
+pub const MAX_STATE_BYTES: usize = 8 * 1_048_576;
 pub const MAX_PENDING_COMMANDS: usize = 64;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -29,7 +30,7 @@ pub enum Action {
     Configure { settings: Settings },
     ConfigureIntensity { frame_budget_ms: u8 },
     InspectCurrent {},
-    Navigate { target: Target },
+    Navigate { search_id: u64, target: Target },
 }
 
 impl Command {
@@ -43,7 +44,12 @@ impl Command {
             Action::ConfigureIntensity { frame_budget_ms } => {
                 validate_frame_budget(*frame_budget_ms)
             }
-            Action::Navigate { target } => target.validate(),
+            Action::Navigate { search_id, target } => {
+                if *search_id == 0 {
+                    return Err("navigation has no search identity");
+                }
+                target.validate()
+            }
             _ => Ok(()),
         }
     }
@@ -67,6 +73,27 @@ pub enum SearchPause {
     Loading,
     OtherGalaxy,
     User,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "type", rename_all = "snake_case", deny_unknown_fields)]
+pub enum LifecycleEventKind {
+    Started,
+    AutomaticPause { cause: SearchPause },
+    AutomaticResume { cause: SearchPause },
+    Finished { finish: Finish },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct LifecycleEvent {
+    pub sequence: u64,
+    pub published_ms: u64,
+    pub search_id: u64,
+    pub elapsed_ms: u64,
+    pub systems: u64,
+    pub results: usize,
+    pub kind: LifecycleEventKind,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -248,7 +275,8 @@ pub struct State {
     pub availability: Availability,
     pub player: Option<Address>,
     pub settings: Settings,
-    pub progress: Option<Progress>,
+    pub progress: Option<std::sync::Arc<Progress>>,
+    pub search_history: Vec<std::sync::Arc<SearchRecord>>,
     pub search_pause: Option<SearchPause>,
     pub results: Vec<CachedMatch>,
     pub metrics: Metrics,
@@ -264,7 +292,7 @@ pub struct State {
 }
 
 impl State {
-    pub fn publish_progress(&mut self, progress: Option<Progress>) {
+    pub fn publish_progress(&mut self, progress: Option<std::sync::Arc<Progress>>) {
         if let Some(progress) = progress.as_ref() {
             self.results = progress.results.clone();
         }
@@ -278,6 +306,7 @@ impl State {
             player: None,
             settings,
             progress: None,
+            search_history: Vec::new(),
             search_pause: None,
             results: Vec::new(),
             metrics: Metrics::default(),
@@ -311,6 +340,52 @@ mod tests {
     }
 
     #[test]
+    fn fully_populated_bounded_history_fits_the_published_state_limit() {
+        use crate::{
+            cache::{FaunaMatch, MAX_NAME_BYTES},
+            fauna::{Domain, NameIdentity},
+            session::{MAX_SEARCH_HISTORY, Session},
+            settings::MAX_RESULTS,
+        };
+        let settings = Settings::default();
+        let mut session = Session::default();
+        session
+            .start(settings.search.clone(), address(), settings.execution())
+            .unwrap();
+        let mut record = (*session.history()[0]).clone();
+        let name: Box<str> = "\u{0001}".repeat(MAX_NAME_BYTES).into();
+        let result = CachedMatch {
+            address: address().planet(0).unwrap(),
+            kind: TargetKind::Fauna,
+            system_name: Some(name.clone()),
+            planet_name: Some(name.clone()),
+            fauna: Some(FaunaMatch {
+                role: 0,
+                name_identity: NameIdentity {
+                    species_seed: u64::MAX,
+                    genus_seed: u64::MAX,
+                },
+                name: Some(name),
+                domain: Domain::Land,
+                cave: false,
+            }),
+        };
+        std::sync::Arc::make_mut(&mut record.progress).results = vec![result; MAX_RESULTS];
+        let mut state = State::new(settings);
+        state.publish_progress(Some(record.progress.clone()));
+        state.search_history = (1..=MAX_SEARCH_HISTORY)
+            .map(|id| {
+                let mut record = record.clone();
+                std::sync::Arc::make_mut(&mut record.progress).id = id as u64;
+                std::sync::Arc::new(record)
+            })
+            .collect();
+        let bytes = serde_json::to_vec(&state).unwrap();
+        assert!(bytes.len() > 1_048_576);
+        assert!(bytes.len() < MAX_STATE_BYTES);
+    }
+
+    #[test]
     fn publishing_a_new_empty_search_clears_previous_results() {
         let origin = address();
         let mut state = State::new(Settings::default());
@@ -322,7 +397,10 @@ mod tests {
             fauna: None,
         });
 
-        state.publish_progress(Some(Progress {
+        state.publish_progress(Some(std::sync::Arc::new(Progress {
+            id: 1,
+            elapsed_ms: 0,
+            user_paused: false,
             phase: Phase::Running,
             finish: None,
             options: SearchOptions::default(),
@@ -333,7 +411,7 @@ mod tests {
             unresolved_arena_examples: Vec::new(),
             results: Vec::new(),
             error: None,
-        }));
+        })));
 
         assert!(state.results.is_empty());
     }

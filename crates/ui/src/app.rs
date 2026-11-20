@@ -17,8 +17,8 @@ use search_probes_model::{
     runtime::{Action, Availability, SearchPause, State},
     session::Phase,
     settings::{
-        BUDGET_LABELS, BUDGETS, MAX_PRESETS, MAX_RESULTS, Preset, Settings, available_workers,
-        recommended_workers, validate_name,
+        BUDGET_LABELS, BUDGETS, MAX_PRESETS, MAX_RESULTS, Preset, Settings, TimeLimit,
+        available_workers, recommended_workers, validate_name,
     },
     target::TargetKind,
     theme::UiTheme,
@@ -135,6 +135,7 @@ impl BindingCapture {
 
 pub struct App {
     controls: Arc<Controls>,
+    state_revision: u64,
     state: State,
     settings: Settings,
     loaded_generation: Option<u64>,
@@ -168,8 +169,12 @@ impl App {
             });
         }
         theme::apply(ctx, UiTheme::default());
+        let (state_revision, state) = controls
+            .snapshot_if_changed(0)
+            .expect("new controls publish an initial revision");
         Self {
-            state: controls.snapshot(),
+            state_revision,
+            state,
             controls,
             settings: Settings::default(),
             loaded_generation: None,
@@ -311,6 +316,21 @@ impl App {
                     settings: self.settings.clone(),
                 });
             }
+            if ui
+                .add_enabled(
+                    !self.state.settings.presets.is_empty(),
+                    egui::Button::new("Export presets (.json)"),
+                )
+                .clicked()
+            {
+                match ExportRequest::presets_json(&self.state.settings) {
+                    Ok(request) => {
+                        self.export_request = Some(request);
+                        self.export_status = None;
+                    }
+                    Err(error) => self.error = Some(error),
+                }
+            }
         });
     }
     fn search_controls(&mut self, ui: &mut Ui) {
@@ -324,6 +344,29 @@ impl App {
             ui.separator();
             self.search_performance(ui);
         }
+        ui.separator();
+        ui.horizontal_wrapped(|ui| {
+            let mut enabled = self.settings.search.time_limit.is_some();
+            if ui.checkbox(&mut enabled, "Stop after").changed() {
+                self.settings.search.time_limit = enabled.then_some(TimeLimit {
+                    hours: 1,
+                    minutes: 0,
+                });
+            }
+            if let Some(limit) = &mut self.settings.search.time_limit {
+                ui.add(
+                    egui::DragValue::new(&mut limit.hours)
+                        .range(0..=99)
+                        .suffix(" h"),
+                );
+                ui.add(
+                    egui::DragValue::new(&mut limit.minutes)
+                        .range(0..=99)
+                        .suffix(" min"),
+                );
+                ui.label("maximum 99:99");
+            }
+        });
         ui.separator();
         let state = &self.state;
         let ready = state.availability == Availability::Ready;
@@ -1013,16 +1056,46 @@ impl App {
         let state = self.state.clone();
         ui.horizontal(|ui| {
             ui.heading("Results");
-            if !state.results.is_empty() {
+            if state.progress.is_some() || !state.results.is_empty() {
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     ui.menu_button("Export", |ui| {
                         for format in [ExportFormat::Text, ExportFormat::Csv] {
-                            if ui.button(format.label()).clicked() {
-                                self.export_request =
-                                    Some(ExportRequest::new(format, &state.results));
+                            if ui
+                                .add_enabled(
+                                    !state.results.is_empty(),
+                                    egui::Button::new(format.label()),
+                                )
+                                .clicked()
+                            {
+                                match ExportRequest::new(format, &state.results) {
+                                    Ok(request) => self.export_request = Some(request),
+                                    Err(error) => self.error = Some(error),
+                                }
                                 self.export_status = None;
                                 ui.close();
                             }
+                        }
+                        let current = state.progress.as_ref().and_then(|progress| {
+                            state
+                                .search_history
+                                .iter()
+                                .find(|record| record.progress.id == progress.id)
+                        });
+                        if ui
+                            .add_enabled(
+                                current.is_some(),
+                                egui::Button::new(ExportFormat::Json.label()),
+                            )
+                            .clicked()
+                        {
+                            if let Some(record) = current {
+                                match ExportRequest::search_json(record) {
+                                    Ok(request) => self.export_request = Some(request),
+                                    Err(error) => self.error = Some(error),
+                                }
+                            }
+                            self.export_status = None;
+                            ui.close();
                         }
                     });
                 });
@@ -1045,9 +1118,10 @@ impl App {
         }
         if let Some(progress) = &state.progress {
             ui.label(format!(
-                "{} systems checked · {} results",
+                "{} systems checked · {} results · {} elapsed",
                 number(progress.systems),
-                progress.results.len()
+                progress.results.len(),
+                elapsed(progress.elapsed_ms),
             ));
             ui.add(
                 egui::ProgressBar::new(
@@ -1158,6 +1232,7 @@ impl App {
                                             .clicked()
                                         {
                                             self.send(Action::Navigate {
+                                                search_id: state.progress.as_ref().map_or(0, |progress| progress.id),
                                                 target: result.target(),
                                             });
                                         }
@@ -1222,7 +1297,11 @@ impl App {
     }
 
     pub fn refresh(&mut self) {
-        self.state = self.controls.snapshot();
+        let Some((revision, state)) = self.controls.snapshot_if_changed(self.state_revision) else {
+            return;
+        };
+        self.state_revision = revision;
+        self.state = state;
         let state = &self.state;
         if self.loaded_generation != Some(state.generation) {
             self.pending_search = None;
@@ -2132,9 +2211,24 @@ fn number(value: u64) -> String {
     output
 }
 
+fn elapsed(milliseconds: u64) -> String {
+    let seconds = milliseconds / 1_000;
+    let hours = seconds / 3_600;
+    let minutes = seconds / 60 % 60;
+    let seconds = seconds % 60;
+    format!("{hours:02}:{minutes:02}:{seconds:02}")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn elapsed_time_is_stable_beyond_one_hour() {
+        assert_eq!(elapsed(0), "00:00:00");
+        assert_eq!(elapsed(3_661_999), "01:01:01");
+        assert_eq!(elapsed(359_940_000), "99:59:00");
+    }
 
     fn result(kind: TargetKind) -> CachedMatch {
         let address =

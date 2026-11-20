@@ -14,7 +14,28 @@ use search_probes_model::{
     facts::Verdict,
     weather,
 };
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::{
+    sync::atomic::{AtomicBool, Ordering},
+    time::Instant,
+};
+
+/// Cooperatively stops native work only at boundaries where owned native temporaries can drop.
+pub struct Stop<'a> {
+    cancel: &'a AtomicBool,
+    deadline: Option<Instant>,
+}
+
+impl<'a> Stop<'a> {
+    pub fn new(cancel: &'a AtomicBool, deadline: Option<Instant>) -> Self {
+        Self { cancel, deadline }
+    }
+    pub fn requested(&self) -> bool {
+        self.cancel.load(Ordering::Acquire)
+            || self
+                .deadline
+                .is_some_and(|deadline| Instant::now() >= deadline)
+    }
+}
 
 #[derive(Debug, Clone, Copy, Default)]
 pub struct Work {
@@ -117,7 +138,7 @@ impl<'cache> Generator<'cache> {
         address: Address,
         plan: &Plan,
         difficulty: usize,
-        cancel: &AtomicBool,
+        cancel: &Stop<'_>,
         cached: Option<&SystemRecord>,
     ) -> Result<Outcome, &'static str> {
         unsafe { self.execute(address, plan, difficulty, cancel, cached, Operation::Search) }
@@ -132,7 +153,7 @@ impl<'cache> Generator<'cache> {
         address: Address,
         plan: &Plan,
         difficulty: usize,
-        cancel: &AtomicBool,
+        cancel: &Stop<'_>,
     ) -> Result<Outcome, &'static str> {
         let target = match address.coordinates().planet {
             0 => None,
@@ -155,10 +176,13 @@ impl<'cache> Generator<'cache> {
         address: Address,
         plan: &Plan,
         difficulty: usize,
-        cancel: &AtomicBool,
+        cancel: &Stop<'_>,
         cached: Option<&SystemRecord>,
         operation: Operation,
     ) -> Result<Outcome, &'static str> {
+        if cancel.requested() {
+            return Err("search stopped before system generation");
+        }
         if difficulty > 3 {
             return Err("invalid combat difficulty");
         }
@@ -213,7 +237,7 @@ impl<'cache> Generator<'cache> {
             .iter()
             .any(|rule| matches!(rule, Predicate::System(SystemFlag::ExtremeStorms, _)));
         for index in 0..outcome.snapshot.count {
-            if cancel.load(Ordering::Relaxed) {
+            if cancel.requested() {
                 outcome.cancelled = true;
                 break;
             }
@@ -512,5 +536,21 @@ impl<'cache> Generator<'cache> {
             Verdict::Match => {}
         }
         Ok(outcome)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::time::Duration;
+
+    #[test]
+    fn cooperative_stop_observes_both_deadlines_and_user_cancellation() {
+        let cancel = AtomicBool::new(false);
+        assert!(!Stop::new(&cancel, None).requested());
+        assert!(Stop::new(&cancel, Some(Instant::now() - Duration::from_secs(1))).requested());
+        assert!(!Stop::new(&cancel, Some(Instant::now() + Duration::from_secs(60))).requested());
+        cancel.store(true, Ordering::Release);
+        assert!(Stop::new(&cancel, None).requested());
     }
 }
