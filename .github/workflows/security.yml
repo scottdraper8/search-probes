@@ -2,13 +2,6 @@ name: Security
 
 on:
   pull_request:
-    paths:
-      - ".github/dependabot.yml"
-      - ".github/workflows/security.yml"
-      - "Cargo.lock"
-      - "Cargo.toml"
-      - "crates/**/Cargo.toml"
-      - "rust-toolchain.toml"
   schedule:
     - cron: "23 11 * * 1"
   workflow_dispatch:
