@@ -556,6 +556,8 @@ impl Runtime {
                     .update(|state| state.settings.frame_budget_ms = frame_budget_ms);
             }
             Action::InspectCurrent {} => {
+                self.controls.cancel.store(false, Ordering::Release);
+                self.controls.update(|state| state.current_world = None);
                 let criteria = self.settings.search.criteria.clone();
                 let plan = criteria.compile()?;
                 let outcome = unsafe {
@@ -565,6 +567,7 @@ impl Runtime {
                         snapshot.difficulty,
                         snapshot.address,
                         &plan,
+                        &self.controls.cancel,
                     )
                 }?;
                 if outcome.cancelled {
@@ -577,9 +580,22 @@ impl Runtime {
                     &plan,
                     &outcome.snapshot.system,
                     &outcome.snapshot.planets[..outcome.snapshot.count],
+                    outcome.planet_observations.clone(),
                 )?;
-                self.controls
-                    .update(|state| state.current_world = Some(world));
+                let mut publication_too_large = false;
+                self.controls.update(|state| {
+                    state.current_world = Some(world);
+                    publication_too_large = match serde_json::to_vec(&state) {
+                        Ok(bytes) => bytes.len() > search_probes_model::runtime::MAX_STATE_BYTES,
+                        Err(_) => true,
+                    };
+                    if publication_too_large {
+                        state.current_world = None;
+                    }
+                });
+                if publication_too_large {
+                    return Err("planet observation exceeds diagnostics publication budget");
+                }
             }
             Action::Navigate { target } => {
                 let displayed = self

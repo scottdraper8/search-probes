@@ -3,7 +3,13 @@ use crate::{
     colour_lut,
     flora_geometry::{Assets as Geometry, VertexSample},
 };
-use search_probes_model::{appearance, vocabulary::GRASS_COLOUR_SET};
+use search_probes_model::{
+    appearance,
+    observations::{
+        ColourAlternatives, Provenance, SemanticLevel, SurfaceModelObservation, SurfaceModels,
+    },
+    vocabulary::GRASS_COLOUR_SET,
+};
 use std::{
     collections::{BTreeMap, BTreeSet, HashMap},
     path::{Path, PathBuf},
@@ -64,10 +70,15 @@ impl Context {
 pub struct Observation {
     pub colours: u32,
     pub known: u32,
+    pub possible: u32,
     pub complete: bool,
 }
 #[derive(Clone, Debug, Default, PartialEq, Eq, PartialOrd, Ord)]
 pub struct Spawn {
+    pub source_table: Vec<u8>,
+    pub source_index: usize,
+    pub object_array: usize,
+    pub object_index: usize,
     pub source_ground_index: i32,
     pub match_ground_colour: bool,
     pub ground_colour_index: u32,
@@ -77,7 +88,7 @@ pub struct Spawn {
 }
 impl Spawn {
     pub fn owned_bytes(&self) -> usize {
-        self.model.capacity()
+        self.model.capacity() + self.source_table.capacity()
     }
 }
 
@@ -246,6 +257,14 @@ struct ObservationRequest<'a> {
     samples: &'a [VertexSample],
     optional_layers: &'a OptionalLayers,
     wanted: u32,
+}
+
+struct VariantRequest<'a> {
+    context: &'a Context,
+    spawn: &'a Spawn,
+    optional_layers: &'a std::collections::BTreeSet<(Vec<u8>, Vec<u8>)>,
+    sampler: usize,
+    cancel: &'a std::sync::atomic::AtomicBool,
 }
 
 pub struct Model {
@@ -479,6 +498,9 @@ impl Assets {
                             if !probability.is_finite() || probability < 0. {
                                 return Err("invalid flora texture probability");
                             }
+                            if probability == 0. {
+                                continue;
+                            }
                             let palette = mbin.word(option + 0x48)? as usize;
                             let alternative = mbin.word(option + 0x40)? as usize;
                             if palette >= 66 || alternative > 7 {
@@ -667,6 +689,7 @@ impl Assets {
         if let Some(old) = self.colours.get(&(spawn.clone(), key.clone())) {
             colours.colours |= old.colours;
             colours.known |= old.known;
+            colours.possible |= old.possible;
             colours.complete |= old.complete;
         }
         if self.colours.insert((spawn.clone(), key), colours).is_none() {
@@ -682,11 +705,16 @@ impl Model {
         context: &Context,
         lut: &colour_lut::Lut,
         wanted: u32,
+        cancel: &std::sync::atomic::AtomicBool,
     ) -> Result<Observation> {
         let mut preparation = Preparation::default();
         let mut colours = GRASS_COLOUR_SET;
-        let mut absent = 0x7ff;
+        let mut possible = 0;
+        let mut known = if self.materials.is_empty() { 0 } else { 0x7ff };
         for (index, material) in self.materials.iter().enumerate() {
+            if cancel.load(std::sync::atomic::Ordering::Acquire) {
+                return Err("planet observation cancelled");
+            }
             let observed = material.observe_prepared(
                 ObservationRequest {
                     context,
@@ -697,21 +725,16 @@ impl Model {
                     wanted,
                 },
                 &mut preparation,
+                cancel,
             )?;
             colours |= observed.colours & !GRASS_COLOUR_SET;
-            absent &= observed.known & !observed.colours;
-            if colours & wanted != 0 && index + 1 < self.materials.len() {
-                return Ok(Observation {
-                    colours,
-                    known: colours & 0x7ff,
-                    complete: false,
-                });
-            }
+            possible |= observed.possible;
+            known &= observed.known;
         }
-        let known = absent | (colours & 0x7ff);
         Ok(Observation {
             colours,
             known,
+            possible,
             complete: known == 0x7ff,
         })
     }
@@ -966,20 +989,33 @@ impl Material {
     }
     fn variants(
         &self,
-        context: &Context,
-        spawn: &Spawn,
-        optional_layers: &std::collections::BTreeSet<(Vec<u8>, Vec<u8>)>,
-        sampler: usize,
+        request: VariantRequest<'_>,
         preparation: &mut TexturePreparation,
         mut visit: impl FnMut(&[[f64; 4]]) -> Result<bool>,
     ) -> Result<()> {
+        let VariantRequest {
+            context,
+            spawn,
+            optional_layers,
+            sampler,
+            cancel,
+        } = request;
+        if cancel.load(std::sync::atomic::Ordering::Acquire) {
+            return Err("planet observation cancelled");
+        }
         let key = (self as *const Self as usize, sampler);
         let prepared = preparation.material(key, || {
             self.prepare_variants(context, spawn, optional_layers)
         })?;
         for combination in 0..prepared.combinations {
+            if cancel.load(std::sync::atomic::Ordering::Acquire) {
+                return Err("planet observation cancelled");
+            }
             let pixels = preparation.recipe(key, &prepared, combination);
-            if !visit(&pixels)? || pixels.is_empty() {
+            if pixels.is_empty() {
+                return Err("flora recipe produced no pixels");
+            }
+            if !visit(&pixels)? {
                 break;
             }
         }
@@ -989,6 +1025,7 @@ impl Material {
         &self,
         request: ObservationRequest<'_>,
         preparation: &mut Preparation,
+        cancel: &std::sync::atomic::AtomicBool,
     ) -> Result<Observation> {
         let ObservationRequest {
             context,
@@ -1022,10 +1059,13 @@ impl Material {
                 return Err("invalid flora secondary texture coordinates");
             }
             material.variants(
-                context,
-                spawn,
-                &optional_layers[1],
-                1,
+                VariantRequest {
+                    context,
+                    spawn,
+                    optional_layers: &optional_layers[1],
+                    sampler: 1,
+                    cancel,
+                },
                 &mut preparation.textures,
                 |pixels| {
                     if secondary.len() >= 4096 {
@@ -1042,15 +1082,17 @@ impl Material {
             )?;
         }
         let requested = if wanted == 0 { 0x7ff } else { wanted & 0x7ff };
-        let mut common = requested;
+        let mut alternatives = ColourAlternatives::for_variants(requested);
         let classified = &mut preparation.classified;
         let mut evaluated = false;
-        let mut partial = false;
         self.variants(
-            context,
-            spawn,
-            &optional_layers[0],
-            0,
+            VariantRequest {
+                context,
+                spawn,
+                optional_layers: &optional_layers[0],
+                sampler: 0,
+                cancel,
+            },
             &mut preparation.textures,
             |primary| {
                 let mut classify = |pixels: &[[f64; 4]]| -> Result<bool> {
@@ -1091,7 +1133,7 @@ impl Material {
                         };
                         for (index, value) in weights.iter_mut().enumerate() {
                             let bit = 1 << index;
-                            if common & bit == 0 || decided & bit != 0 {
+                            if requested & bit == 0 || decided & bit != 0 {
                                 continue;
                             }
                             if colour & bit != 0 {
@@ -1104,7 +1146,7 @@ impl Material {
                                 decided |= bit;
                             }
                         }
-                        if decided & common == common {
+                        if decided & requested == requested {
                             break;
                         }
                     }
@@ -1113,12 +1155,8 @@ impl Material {
                             predominant |= 1 << index;
                         }
                     }
-                    common &= predominant;
-                    if wanted != 0 && common == 0 {
-                        partial = true;
-                        return Ok(false);
-                    }
-                    Ok(common != 0)
+                    alternatives.include_variant(predominant);
+                    Ok(true)
                 };
                 let primary: Vec<[f64; 4]> = samples
                     .iter()
@@ -1128,6 +1166,9 @@ impl Material {
                     return classify(&primary);
                 }
                 for overlay in &secondary {
+                    if cancel.load(std::sync::atomic::Ordering::Acquire) {
+                        return Err("planet observation cancelled");
+                    }
                     let pixels: Vec<[f64; 4]> = primary
                         .iter()
                         .zip(overlay)
@@ -1149,19 +1190,18 @@ impl Material {
                 Ok(true)
             },
         )?;
-        if partial {
-            Ok(Observation {
-                colours: GRASS_COLOUR_SET,
-                known: requested,
-                complete: requested == 0x7ff,
-            })
-        } else {
-            Ok(Observation {
-                colours: GRASS_COLOUR_SET | if evaluated { common } else { 0 },
-                known: requested,
-                complete: requested == 0x7ff,
-            })
-        }
+        let known = if evaluated { requested } else { 0 };
+        Ok(Observation {
+            colours: GRASS_COLOUR_SET
+                | if evaluated {
+                    alternatives.guaranteed
+                } else {
+                    0
+                },
+            known,
+            possible: alternatives.possible,
+            complete: evaluated && requested == 0x7ff,
+        })
     }
 }
 
@@ -1255,54 +1295,111 @@ fn decode_texture(bytes: &[u8]) -> Result<Texture> {
     })
 }
 
-pub fn colours(
-    models: &[Spawn],
+fn cache() -> Result<&'static Mutex<Assets>> {
+    static CACHE: OnceLock<Mutex<Assets>> = OnceLock::new();
+    if let Some(cache) = CACHE.get() {
+        return Ok(cache);
+    }
+    let exe = std::env::current_exe().map_err(|_| "cannot locate NMS executable")?;
+    let root = exe
+        .parent()
+        .and_then(Path::parent)
+        .ok_or("cannot locate NMS game data")?;
+    Ok(CACHE.get_or_init(|| Mutex::new(Assets::new(root))))
+}
+
+fn observe_spawn(
+    cache: &Mutex<Assets>,
+    spawn: &Spawn,
     context: &Context,
     filter: i32,
     wanted: u32,
+    cancel: &std::sync::atomic::AtomicBool,
 ) -> Result<Observation> {
-    static CACHE: OnceLock<Mutex<Assets>> = OnceLock::new();
-    let cache = if let Some(cache) = CACHE.get() {
-        cache
-    } else {
-        let exe = std::env::current_exe().map_err(|_| "cannot locate NMS executable")?;
-        let root = exe
-            .parent()
-            .and_then(Path::parent)
-            .ok_or("cannot locate NMS game data")?;
-        CACHE.get_or_init(|| Mutex::new(Assets::new(root)))
-    };
-    let mut colours = GRASS_COLOUR_SET;
-    let mut absent = 0x7ff;
-    for spawn in models {
-        let (model, lut, key, cached) = cache
-            .lock()
-            .map_err(|_| "flora appearance cache poisoned")?
-            .prepare(spawn, context, filter, wanted)?;
-        let observed = if let Some(cached) = cached {
-            cached
-        } else {
-            let observed = model.observe(spawn, context, &lut.unwrap(), wanted)?;
-            cache
-                .lock()
-                .map_err(|_| "flora appearance cache poisoned")?
-                .retain(spawn, key, observed);
-            observed
-        };
-        colours |= observed.colours & !GRASS_COLOUR_SET;
-        absent &= observed.known & !observed.colours;
-        if colours & wanted != 0 {
-            return Ok(Observation {
-                colours,
-                known: colours & 0x7ff,
-                complete: false,
-            });
-        }
+    let (model, lut, key, cached) = cache
+        .lock()
+        .map_err(|_| "flora appearance cache poisoned")?
+        .prepare(spawn, context, filter, wanted)?;
+    if let Some(cached) = cached {
+        return Ok(cached);
     }
-    let known = absent | colours & 0x7ff;
-    Ok(Observation {
-        colours,
-        known,
-        complete: known == 0x7ff,
+    let observed = model.observe(spawn, context, &lut.unwrap(), wanted, cancel)?;
+    cache
+        .lock()
+        .map_err(|_| "flora appearance cache poisoned")?
+        .retain(spawn, key, observed);
+    Ok(observed)
+}
+
+pub fn inventory(
+    models: &[Spawn],
+    context: &Context,
+    filter: i32,
+    enumeration_complete: bool,
+    cancel: &std::sync::atomic::AtomicBool,
+) -> Result<SurfaceModels> {
+    const MAX_INVENTORY_JSON_BYTES: usize = 512 * 1024;
+    let cache = cache()?;
+    let mut complete = enumeration_complete;
+    let mut observations = Vec::with_capacity(models.len());
+    let mut serialized_bytes = 2usize;
+    for spawn in models {
+        if cancel.load(std::sync::atomic::Ordering::Relaxed) {
+            return Err("planet observation cancelled");
+        }
+        let observed = observe_spawn(cache, spawn, context, filter, 0, cancel);
+        let (colours, record_complete, error) = match observed {
+            Ok(observed) => {
+                complete &= observed.complete;
+                (
+                    ColourAlternatives {
+                        known: observed.known,
+                        possible: observed.possible,
+                        guaranteed: observed.colours & 0x7ff,
+                    },
+                    observed.complete,
+                    None,
+                )
+            }
+            Err(error) => {
+                complete = false;
+                (ColourAlternatives::default(), false, Some(error.to_owned()))
+            }
+        };
+        let record = SurfaceModelObservation {
+            source_table: String::from_utf8_lossy(&spawn.source_table).into_owned(),
+            source_index: spawn.source_index,
+            object_array: spawn.object_array,
+            object_index: spawn.object_index,
+            model: String::from_utf8_lossy(&spawn.model).into_owned(),
+            source_ground_index: spawn.source_ground_index,
+            match_ground_colour: spawn.match_ground_colour,
+            ground_colour_index: spawn.ground_colour_index,
+            swap_primary_for_random: spawn.swap_primary_for_random,
+            swap_primary_for_secondary: spawn.swap_primary_for_secondary,
+            colours,
+            complete: record_complete,
+            error,
+        };
+        serialized_bytes = serialized_bytes
+            .checked_add(
+                serde_json::to_vec(&record)
+                    .map_err(|_| "planet observation cannot be serialized")?
+                    .len(),
+            )
+            .and_then(|bytes| bytes.checked_add(1))
+            .filter(|&bytes| bytes <= MAX_INVENTORY_JSON_BYTES)
+            .ok_or("planet observation exceeds diagnostics publication budget")?;
+        observations.push(record);
+    }
+    Ok(SurfaceModels {
+        provenance: Provenance::GeneratedSurfaceObjectTable,
+        semantic_level: SemanticLevel::GeneratedRecipe,
+        complete,
+        incomplete_reason: (!enumeration_complete).then(|| {
+            "source selection has not established complete planet-wide recipe enumeration"
+                .to_owned()
+        }),
+        records: observations,
     })
 }

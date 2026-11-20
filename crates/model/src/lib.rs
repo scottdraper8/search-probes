@@ -5,6 +5,7 @@ pub mod criteria;
 pub mod facts;
 pub mod frontier;
 pub mod guide;
+pub mod observations;
 pub mod regions;
 pub mod runtime;
 pub mod session;
