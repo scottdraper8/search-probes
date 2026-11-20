@@ -1,7 +1,7 @@
 use crate::{
     address::Address,
     cache::CachedMatch,
-    criteria::{Criteria, Plan, Predicate, ResourceMode, Section, Stage},
+    criteria::{Criteria, Plan, Predicate, Section, Stage},
     facts::{FactSnapshot, Facts, Verdict},
     session::Progress,
     settings::{Settings, validate_frame_budget},
@@ -112,7 +112,6 @@ pub struct CriterionEvaluation {
 pub struct SectionEvaluation {
     pub scope: CriterionScope,
     pub section: Section,
-    pub mode: ResourceMode,
     pub verdict: Verdict,
 }
 
@@ -205,7 +204,6 @@ impl CurrentWorld {
                 section_evaluations.push(SectionEvaluation {
                     scope: CriterionScope::System,
                     section,
-                    mode: plan.match_modes[section as usize],
                     verdict: system_sections[&section],
                 });
             }
@@ -217,7 +215,6 @@ impl CurrentWorld {
                 section_evaluations.push(SectionEvaluation {
                     scope: CriterionScope::Planet,
                     section,
-                    mode: plan.match_modes[section as usize],
                     verdict: planet_sections
                         .as_ref()
                         .map_or(Verdict::Unknown, |sections| sections[&section]),

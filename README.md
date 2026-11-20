@@ -12,6 +12,11 @@ Search results include portal coordinates and can be used for in-game navigation
 with **Ctrl + comma** by default. If a configured binding becomes unusable, use
 **Ctrl + Shift + Backspace** to recover it.
 
+Select multiple values in a filter to match any of them. Every configured filter must match;
+empty filters impose no restriction. For example, selecting two biomes and one size searches for
+`(biome A OR biome B) AND size`. Excluded values reject any matching value. Fauna and Arena filters
+apply their configured fields to the same animal.
+
 ## Acknowledgments
 
 - [No Man's Sky](https://www.nomanssky.com/) by Hello Games — the game that makes this project possible.

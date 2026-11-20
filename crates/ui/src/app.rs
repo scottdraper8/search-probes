@@ -10,8 +10,8 @@ use search_probes_model::{
     binding::{BindingDevice, ControllerButton, InputBinding, KeyboardKey},
     cache::CachedMatch,
     criteria::{
-        CompositionField, Criteria, Field, PlanetFlag, ResourceMode, Section, SelectionSide,
-        SystemFlag, WaterFilter, subtype_options_for,
+        CompositionField, Criteria, Field, PlanetFlag, SelectionSide, SystemFlag, WaterFilter,
+        subtype_options_for,
     },
     fauna::{Domain, FaunaCriteria, FaunaField},
     runtime::{Action, Availability, SearchPause, State},
@@ -787,7 +787,6 @@ impl App {
                 )
                 .default_open(true)
                 .show(ui, |ui| {
-                    match_mode_row(ui, criteria, Section::Composition);
                     system_flag_rows(ui, criteria, &[SystemFlag::ExtremeStorms], input_width);
                     for (field, side, label) in [
                         (
@@ -846,7 +845,6 @@ impl App {
                 egui::CollapsingHeader::new(RichText::new("System Profile").size(16.0).strong())
                     .default_open(true)
                     .show(ui, |ui| {
-                        match_mode_row(ui, criteria, Section::Profile);
                         choice_rows(ui, criteria, &[Field::Conflict], input_width);
                         system_flag_rows(ui, criteria, &[SystemFlag::Dissonance], input_width);
                         choice_rows(ui, criteria, &[Field::Race], input_width);
@@ -870,7 +868,6 @@ impl App {
                 egui::CollapsingHeader::new(RichText::new("General").size(16.0).strong())
                     .default_open(true)
                     .show(ui, |ui| {
-                        match_mode_row(ui, criteria, Section::GeneralFauna);
                         choice_rows(ui, criteria, &[Field::Fauna], input_width);
                         tameable_fauna_row(ui, criteria, input_width);
                         planet_flag_rows(ui, criteria, &[PlanetFlag::Sandworms], input_width);
@@ -901,7 +898,6 @@ impl App {
                 egui::CollapsingHeader::new(RichText::new("Flora").size(16.0).strong())
                     .default_open(true)
                     .show(ui, |ui| {
-                        match_mode_row(ui, criteria, Section::Flora);
                         choice_rows(ui, criteria, &[Field::Flora], input_width);
                         planet_flag_rows(
                             ui,
@@ -920,7 +916,6 @@ impl App {
                 egui::CollapsingHeader::new(RichText::new("Planet Features").size(16.0).strong())
                     .default_open(true)
                     .show(ui, |ui| {
-                        match_mode_row(ui, criteria, Section::PlanetFeatures);
                         planet_flag_rows(
                             ui,
                             criteria,
@@ -934,7 +929,6 @@ impl App {
                 egui::CollapsingHeader::new(RichText::new("Planet Type").size(16.0).strong())
                     .default_open(true)
                     .show(ui, |ui| {
-                        match_mode_row(ui, criteria, Section::PlanetType);
                         choice_rows(
                             ui,
                             criteria,
@@ -946,15 +940,7 @@ impl App {
                 egui::CollapsingHeader::new(RichText::new("Resources").size(16.0).strong())
                     .default_open(true)
                     .show(ui, |ui| {
-                        match_mode_row(ui, criteria, Section::Resources);
                         choice_rows(ui, criteria, &[Field::ResourceRichness], input_width);
-                        resource_match_row(
-                            ui,
-                            "Resource match",
-                            "resource_mode",
-                            &mut criteria.resources.mode,
-                            input_width,
-                        );
                         filter_row(ui, "Resources", input_width, |ui| {
                             let mut selected = u64::from(criteria.resources.selected);
                             choices(
@@ -966,13 +952,6 @@ impl App {
                             );
                             criteria.resources.selected = selected as u32;
                         });
-                        resource_match_row(
-                            ui,
-                            "Unique resource match",
-                            "unique_resource_mode",
-                            &mut criteria.unique_resource_mode,
-                            input_width,
-                        );
                         choice_rows(ui, criteria, &[Field::UniqueResources], input_width);
                     });
 
@@ -981,7 +960,6 @@ impl App {
                 )
                 .default_open(true)
                 .show(ui, |ui| {
-                    match_mode_row(ui, criteria, Section::SkyAtmospherics);
                     choice_rows(
                         ui,
                         criteria,
@@ -998,7 +976,6 @@ impl App {
                 egui::CollapsingHeader::new(RichText::new("Weather").size(16.0).strong())
                     .default_open(true)
                     .show(ui, |ui| {
-                        match_mode_row(ui, criteria, Section::Weather);
                         planet_flag_rows(ui, criteria, &[PlanetFlag::ExtremeStorms], input_width);
                         choice_rows(
                             ui,
@@ -1598,28 +1575,6 @@ fn filter_control_width(ui: &Ui) -> f32 {
         .clamp(FILTER_CONTROL_MIN_WIDTH, FILTER_CONTROL_WIDTH)
 }
 
-fn resource_match_row(
-    ui: &mut Ui,
-    label: &str,
-    id: &str,
-    mode: &mut ResourceMode,
-    control_width: f32,
-) {
-    filter_row(ui, label, control_width, |ui| {
-        egui::ComboBox::from_id_salt(id)
-            .width(control_width)
-            .selected_text(match mode {
-                ResourceMode::All => "All selected",
-                ResourceMode::Any => "Any selected",
-            })
-            .truncate()
-            .show_ui(ui, |ui| {
-                ui.selectable_value(mode, ResourceMode::All, "All selected");
-                ui.selectable_value(mode, ResourceMode::Any, "Any selected");
-            });
-    });
-}
-
 fn filter_row(ui: &mut Ui, label: &str, control_width: f32, add_control: impl FnOnce(&mut Ui)) {
     let row_width = ui.available_width();
     let max_label_width = (row_width - control_width - FILTER_ROW_MIN_GAP).max(1.0);
@@ -1866,23 +1821,7 @@ fn subtype_choices(
     });
 }
 
-fn match_mode_row(ui: &mut Ui, criteria: &mut Criteria, section: Section) {
-    let mut mode = criteria.match_mode(section);
-    ui.push_id(("match_mode", section), |ui| {
-        ui.horizontal_wrapped(|ui| {
-            ui.radio_value(&mut mode, ResourceMode::All, "Match all selected criteria");
-            ui.radio_value(&mut mode, ResourceMode::Any, "Match any selected criteria");
-        });
-    });
-    if mode == ResourceMode::All {
-        criteria.match_modes.remove(&section);
-    } else {
-        criteria.match_modes.insert(section, mode);
-    }
-}
-
 fn arena_criteria(ui: &mut Ui, criteria: &mut Criteria, width: f32) {
-    match_mode_row(ui, criteria, Section::XenoArena);
     for &field in &[
         ArenaField::Affinity,
         ArenaField::Agility,
@@ -1922,7 +1861,6 @@ fn fauna_domain_section(ui: &mut Ui, criteria: &mut Criteria, domain: Domain, wi
 }
 
 fn fauna_domain(ui: &mut Ui, criteria: &mut Criteria, domain: Domain, width: f32) {
-    match_mode_row(ui, criteria, domain.section());
     let mut selected = criteria.fauna.get(&domain).cloned().unwrap_or_default();
     for &field in &[
         FaunaField::Activity,

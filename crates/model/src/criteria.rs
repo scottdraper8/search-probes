@@ -405,26 +405,14 @@ impl Composition {
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum ResourceMode {
-    #[default]
-    All,
-    Any,
-}
-
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Resources {
     pub selected: u32,
-    pub mode: ResourceMode,
 }
 
 impl Resources {
     pub fn accepts(self, actual: u32) -> bool {
-        match self.mode {
-            ResourceMode::All => actual & self.selected == self.selected,
-            ResourceMode::Any => self.selected == 0 || actual & self.selected != 0,
-        }
+        self.selected == 0 || actual & self.selected != 0
     }
 }
 
@@ -435,12 +423,10 @@ pub struct Criteria {
     pub planets: BTreeMap<PlanetFlag, bool>,
     pub systems: BTreeMap<SystemFlag, bool>,
     pub resources: Resources,
-    pub unique_resource_mode: ResourceMode,
     pub minimum_planets: Option<u8>,
     pub composition: Composition,
     pub system_water: WaterFilter,
     pub planet_water: WaterFilter,
-    pub match_modes: BTreeMap<Section, ResourceMode>,
     pub fauna: BTreeMap<crate::fauna::Domain, crate::fauna::FaunaCriteria>,
     pub arena: crate::arena::ArenaCriteria,
 }
@@ -450,7 +436,6 @@ pub struct Criteria {
 pub struct Choices {
     field: Field,
     mask: u64,
-    mode: ResourceMode,
 }
 
 impl Choices {
@@ -460,15 +445,11 @@ impl Choices {
     pub fn mask(self) -> u64 {
         self.mask
     }
-    pub fn mode(self) -> ResourceMode {
-        self.mode
-    }
     pub fn accepts(self, native_value: u32) -> bool {
         if self.field == Field::UniqueResources {
             return native_value & UNIQUE_RESOURCE_SET != 0
                 && Resources {
                     selected: self.mask as u32,
-                    mode: self.mode,
                 }
                 .accepts(native_value & !UNIQUE_RESOURCE_SET);
         }
@@ -583,11 +564,7 @@ impl Predicate {
             Self::Planet(flag, value) => expected(flag.label(), value),
             Self::System(flag, value) => expected(flag.label(), value),
             Self::Resources(resources) => format!(
-                "Resources ({}): {}",
-                match resources.mode {
-                    ResourceMode::All => "all",
-                    ResourceMode::Any => "any",
-                },
+                "Resources: {}",
                 selected(
                     u64::from(resources.selected),
                     crate::vocabulary::RESOURCE_LABELS
@@ -678,11 +655,12 @@ pub struct Requirements {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+/// Each predicate is required. Multi-value alternatives belong inside a predicate's mask;
+/// sections group presentation and never change the conjunction between filters.
 pub struct Plan {
     pub system: Vec<Predicate>,
     pub planet: Vec<Predicate>,
     pub requirements: Requirements,
-    pub match_modes: [ResourceMode; Section::ALL.len()],
 }
 
 impl Criteria {
@@ -764,9 +742,6 @@ impl Criteria {
         }
     }
 
-    pub fn match_mode(&self, section: Section) -> ResourceMode {
-        self.match_modes.get(&section).copied().unwrap_or_default()
-    }
     fn compile_composition(&self, plan: &mut Plan) -> Result<(), &'static str> {
         for (field, pair) in [
             (Field::Biome, self.composition.biomes),
@@ -796,51 +771,16 @@ impl Criteria {
                 return Err("unsupported system biome subtype");
             }
             let expected = side == SelectionSide::Include;
-            let all = expected && self.match_mode(Section::Composition) == ResourceMode::All;
             if biomes != 0 || subtypes != 0 {
-                if all {
-                    for (index, _) in Field::Biome.available_options() {
-                        if biomes & (1 << index) != 0 {
-                            plan.system.push(Predicate::Contains(
-                                PlanetSelection::Biome {
-                                    biomes: 1 << index,
-                                    subtypes,
-                                },
-                                true,
-                            ));
-                        }
-                    }
-                    for (mask, _) in options {
-                        if subtypes & mask != 0 {
-                            plan.system.push(Predicate::Contains(
-                                PlanetSelection::Biome {
-                                    biomes,
-                                    subtypes: subtypes & mask,
-                                },
-                                true,
-                            ));
-                        }
-                    }
-                } else {
-                    plan.system.push(Predicate::Contains(
-                        PlanetSelection::Biome { biomes, subtypes },
-                        expected,
-                    ));
-                }
+                plan.system.push(Predicate::Contains(
+                    PlanetSelection::Biome { biomes, subtypes },
+                    expected,
+                ));
             }
             let sizes = self.composition.sizes.get(side);
             if sizes != 0 {
-                if all {
-                    for (index, _) in Field::Size.available_options() {
-                        if sizes & (1 << index) != 0 {
-                            plan.system
-                                .push(Predicate::Contains(PlanetSelection::Size(1 << index), true));
-                        }
-                    }
-                } else {
-                    plan.system
-                        .push(Predicate::Contains(PlanetSelection::Size(sizes), expected));
-                }
+                plan.system
+                    .push(Predicate::Contains(PlanetSelection::Size(sizes), expected));
             }
         }
         Ok(())
@@ -851,7 +791,6 @@ impl Criteria {
             system: Vec::new(),
             planet: Vec::new(),
             requirements: Requirements::default(),
-            match_modes: std::array::from_fn(|index| self.match_mode(Section::ALL[index])),
         };
         for (&field, &mask) in &self.choices {
             if mask == 0 {
@@ -883,15 +822,7 @@ impl Criteria {
                     return Err("unsupported criterion choice");
                 }
             }
-            let predicate = Predicate::Choice(Choices {
-                field,
-                mask,
-                mode: if field == Field::UniqueResources {
-                    self.unique_resource_mode
-                } else {
-                    ResourceMode::Any
-                },
-            });
+            let predicate = Predicate::Choice(Choices { field, mask });
             if field.stage() == Stage::System {
                 plan.system.push(predicate);
             } else {
@@ -914,14 +845,11 @@ impl Criteria {
                 .push(Predicate::Contains(PlanetSelection::Water(rule), expected));
         }
         self.compile_composition(&mut plan)?;
-        for selection in self.arena.compile(
-            self.match_mode(Section::GeneralFauna),
-            self.match_mode(Section::XenoArena),
-        )? {
+        for selection in self.arena.compile()? {
             plan.planet.push(Predicate::Arena(selection));
         }
         for (&domain, criteria) in &self.fauna {
-            if let Some(selection) = criteria.compile(domain, self.match_mode(domain.section()))? {
+            if let Some(selection) = criteria.compile(domain)? {
                 plan.planet.push(Predicate::Fauna(selection));
             }
         }
@@ -941,12 +869,6 @@ impl Criteria {
             return Err("unknown resource choice");
         }
         if self.resources.selected != 0 {
-            if self.resources.mode == ResourceMode::All && self.resources.selected.count_ones() > 3
-            {
-                return Err(
-                    "a planet has at most three listed resources; select up to three or use Any",
-                );
-            }
             plan.planet.push(Predicate::Resources(self.resources));
         }
         for predicate in plan.system.iter().chain(&plan.planet) {
