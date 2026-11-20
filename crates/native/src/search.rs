@@ -199,7 +199,7 @@ impl<'cache> Generator<'cache> {
         }
         let mut query = unsafe { Query::begin(&self.bindings, self.solar.as_mut_ptr(), address) }?;
         let mut outcome = Outcome {
-            snapshot: Snapshot::solar(query.bytes())?,
+            snapshot: Snapshot::solar(query.bytes(), query.star_count())?,
             matches: Vec::new(),
             planet_observations: None,
             pending_arena: Vec::new(),
@@ -317,7 +317,7 @@ impl<'cache> Generator<'cache> {
                     };
                     if needed.hints {
                         let hints = crate::resource_hints::capture(live)?;
-                        facts.set(Field::UniqueResources, hints.unique_resources);
+                        facts.set(Field::SpecialtyResources, hints.specialty_resources);
                         facts.set_planet_flag(PlanetFlag::VileBrood, hints.vile_brood);
                         if !inspect_target && plan.planet_match(facts) == Verdict::NoMatch {
                             return Ok(());

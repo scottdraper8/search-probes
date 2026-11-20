@@ -59,7 +59,7 @@ pub fn u32_at(address: usize) -> Result<u32, &'static str> {
 }
 
 /// # Safety
-/// The caller owns this writable native field for the current gameplay callback.
+/// The caller has established exact-build identity, the field address and safe synchronization.
 pub unsafe fn write<const N: usize>(address: usize, bytes: &[u8; N]) -> Result<(), &'static str> {
     read::<N>(address)?;
     let mut copied = 0;

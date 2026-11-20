@@ -1,11 +1,11 @@
 use search_probes_model::{
     address::{Address, Coordinates},
     arena::{ArenaCriteria, ArenaField, Creature, RankEvidence, Ranks},
-    criteria::{Criteria, Field, PlanetFlag, Section, SystemFlag},
+    criteria::{Criteria, Field, PlanetFlag, Section, SystemFlag, WaterFilter},
     facts::{Facts, Verdict},
     fauna::{Domain, Family, FaunaCriteria, FaunaField, NameIdentity, Species},
     runtime::CurrentWorld,
-    vocabulary::UNIQUE_RESOURCE_SET,
+    vocabulary::SPECIALTY_RESOURCE_SET,
 };
 use serde_json::json;
 
@@ -80,17 +80,20 @@ fn resource_filters_follow_the_same_union_and_conjunction_contract() {
     let mut criteria = Criteria::default();
     // Selecting more than three alternatives is valid; one is sufficient.
     criteria.resources.selected = 0b1111;
-    criteria.choices.insert(Field::UniqueResources, 0b11);
+    criteria.choices.insert(Field::SpecialtyResources, 0b11);
     criteria.choices.insert(Field::ResourceRichness, 1 << 1);
     let plan = criteria.compile().unwrap();
     for resources in [0, 1, 2, 4, 8, 16, 31] {
-        for unique in 0..4 {
+        for specialty in 0..4 {
             for richness in 0..3 {
                 let mut facts = Facts::default();
                 facts.set_resources(resources);
-                facts.set(Field::UniqueResources, UNIQUE_RESOURCE_SET | unique);
+                facts.set(
+                    Field::SpecialtyResources,
+                    SPECIALTY_RESOURCE_SET | specialty,
+                );
                 facts.set(Field::ResourceRichness, richness);
-                let expected = if resources & 0b1111 != 0 && unique != 0 && richness == 1 {
+                let expected = if resources & 0b1111 != 0 && specialty != 0 && richness == 1 {
                     Verdict::Match
                 } else {
                     Verdict::NoMatch
@@ -98,7 +101,7 @@ fn resource_filters_follow_the_same_union_and_conjunction_contract() {
                 assert_eq!(
                     plan.planet_match(&facts),
                     expected,
-                    "{resources}, {unique}, {richness}"
+                    "{resources}, {specialty}, {richness}"
                 );
                 assert_eq!(
                     plan.planet_section_verdicts(&facts)[&Section::Resources],
@@ -107,6 +110,184 @@ fn resource_filters_follow_the_same_union_and_conjunction_contract() {
             }
         }
     }
+}
+
+#[test]
+fn dependent_filters_follow_current_population_and_weather_selections() {
+    let mut criteria = Criteria::default();
+    criteria.choices.insert(Field::StormFrequency, 1 << 0);
+    criteria.choices.insert(Field::StormType, 1 << 2);
+    criteria.planets.insert(PlanetFlag::ExtremeStorms, true);
+    assert!(criteria.compile().is_err());
+    criteria.enforce_weather_dependencies();
+    assert!(!criteria.choices.contains_key(&Field::StormType));
+    assert!(!criteria.planets.contains_key(&PlanetFlag::ExtremeStorms));
+
+    criteria.choices.insert(Field::StormFrequency, 0b11);
+    criteria.choices.insert(Field::StormType, 1 << 2);
+    criteria.planets.insert(PlanetFlag::ExtremeStorms, true);
+    criteria.enforce_weather_dependencies();
+    assert!(criteria.choices.contains_key(&Field::StormType));
+    assert!(criteria.planets[&PlanetFlag::ExtremeStorms]);
+
+    criteria.choices.insert(Field::Population, 1 << 1);
+    criteria.choices.insert(Field::Race, 1 << 0);
+    criteria.systems.insert(SystemFlag::Pirate, true);
+    assert!(criteria.compile().is_err());
+    criteria.enforce_population_dependencies();
+    assert!(!criteria.choices.contains_key(&Field::Race));
+    assert!(!criteria.systems.contains_key(&SystemFlag::Pirate));
+    assert!(criteria.compile().is_ok());
+
+    criteria.choices.insert(Field::Population, 0b011);
+    criteria.choices.insert(Field::Race, (1 << 0) | (1 << 7));
+    criteria.systems.insert(SystemFlag::Pirate, true);
+    criteria.enforce_population_dependencies();
+    assert_eq!(criteria.choices[&Field::Race], (1 << 0) | (1 << 7));
+    assert!(criteria.systems[&SystemFlag::Pirate]);
+    assert!(criteria.compile().is_ok());
+
+    criteria.choices.insert(Field::Population, 1 << 2);
+    criteria.choices.insert(Field::Race, 1 << 0);
+    criteria.enforce_population_dependencies();
+    assert_eq!(criteria.choices[&Field::Race], 1 << 0);
+
+    for population in [1 << 1, 1 << 2, (1 << 1) | (1 << 2)] {
+        let mut unavailable = Criteria::default();
+        unavailable.choices.insert(Field::Population, population);
+        unavailable.choices.insert(Field::Wealth, 1);
+        unavailable.choices.insert(Field::Economy, 1);
+        unavailable.choices.insert(Field::ConflictLevel, 1);
+        unavailable.enforce_population_dependencies();
+        for field in [Field::Wealth, Field::Economy, Field::ConflictLevel] {
+            assert!(!unavailable.choices.contains_key(&field));
+            assert_eq!(unavailable.available_choice_mask(field), 0);
+        }
+    }
+
+    let mut mixed = Criteria::default();
+    mixed.choices.insert(Field::Population, (1 << 0) | (1 << 2));
+    mixed.choices.insert(Field::Wealth, 1);
+    mixed.choices.insert(Field::Economy, 1);
+    mixed.choices.insert(Field::ConflictLevel, 1);
+    mixed.enforce_population_dependencies();
+    for field in [Field::Wealth, Field::Economy, Field::ConflictLevel] {
+        assert!(mixed.choices.contains_key(&field));
+    }
+
+    let mut none_lifeform = Criteria::default();
+    none_lifeform.choices.insert(Field::Race, 1 << 7);
+    none_lifeform.choices.insert(Field::Wealth, 1);
+    none_lifeform.choices.insert(Field::Economy, 1);
+    none_lifeform.choices.insert(Field::ConflictLevel, 1);
+    none_lifeform.systems.insert(SystemFlag::Pirate, false);
+    none_lifeform.enforce_population_dependencies();
+    for field in [Field::Wealth, Field::Economy, Field::ConflictLevel] {
+        assert!(!none_lifeform.choices.contains_key(&field));
+    }
+    assert!(!none_lifeform.systems.contains_key(&SystemFlag::Pirate));
+
+    let mut outlaw = Criteria::default();
+    outlaw.systems.insert(SystemFlag::Pirate, true);
+    outlaw.choices.insert(Field::Wealth, 0b1111);
+    outlaw.choices.insert(Field::Economy, 1);
+    outlaw.choices.insert(Field::ConflictLevel, 0b1111);
+    outlaw.enforce_population_dependencies();
+    assert_eq!(outlaw.choices[&Field::Wealth], 1 << 3);
+    assert!(!outlaw.choices.contains_key(&Field::Economy));
+    assert_eq!(outlaw.choices[&Field::ConflictLevel], 1 << 3);
+}
+
+#[test]
+fn latent_economy_values_do_not_make_empty_or_abandoned_systems_match() {
+    for population in [1, 2] {
+        let mut system = Facts::default();
+        system.set(Field::Population, population);
+        system.set(Field::Wealth, 0);
+        system.set(Field::Economy, 0);
+        system.set(Field::ConflictLevel, 0);
+        system.set_system_flag(SystemFlag::Pirate, false);
+
+        for field in [Field::Wealth, Field::Economy, Field::ConflictLevel] {
+            let mut criteria = Criteria::default();
+            criteria.choices.insert(field, 1);
+            assert_eq!(
+                criteria.compile().unwrap().system_match(&system, &[]),
+                Verdict::NoMatch,
+                "{field:?} matched population {population}"
+            );
+        }
+    }
+}
+
+#[test]
+fn target_choices_are_pruned_by_system_wide_exclusions() {
+    let mut criteria = Criteria::default();
+    criteria.choices.insert(Field::Biome, 0b1_0001);
+    criteria.composition.biomes.exclude = 1;
+    assert!(criteria.compile().is_err());
+    criteria.enforce_dependencies();
+    assert_eq!(criteria.biome_choices(), Some(1 << 4));
+
+    criteria.choices.insert(Field::Size, 0b11);
+    criteria.composition.sizes.exclude = 1;
+    assert!(criteria.compile().is_err());
+    criteria.enforce_dependencies();
+    assert_eq!(criteria.choices[&Field::Size], 1 << 1);
+
+    criteria.set_biome_choices(1 << 15);
+    assert_eq!(criteria.derived_planet_size(), Some(4));
+    assert!(!criteria.choices.contains_key(&Field::Size));
+
+    criteria.composition.sizes.exclude = 1 << 4;
+    criteria.enforce_dependencies();
+    assert_eq!(criteria.biome_choices(), Some(0));
+    assert_eq!(criteria.derived_planet_size(), None);
+}
+
+#[test]
+fn aggregate_system_exclusions_remove_impossible_target_details() {
+    let mut criteria = Criteria::default();
+    criteria
+        .choices
+        .insert(Field::Sentinels, (1 << 1) | (1 << 3));
+    criteria.systems.insert(SystemFlag::Dissonance, false);
+    assert!(criteria.compile().is_err());
+    criteria.enforce_dependencies();
+    assert_eq!(criteria.sentinel_choices(), Some(1 << 1));
+
+    criteria.planets.insert(PlanetFlag::ExtremeStorms, true);
+    criteria.systems.insert(SystemFlag::ExtremeStorms, false);
+    criteria.enforce_dependencies();
+    assert!(!criteria.planets.contains_key(&PlanetFlag::ExtremeStorms));
+
+    criteria.choices.insert(Field::WaterColour, 1);
+    criteria.planet_water = WaterFilter::RequireDeep;
+    criteria.system_water = WaterFilter::ExcludeAll;
+    assert!(criteria.compile().is_err());
+    criteria.enforce_dependencies();
+    assert_eq!(criteria.planet_water, WaterFilter::Any);
+    assert!(!criteria.choices.contains_key(&Field::WaterColour));
+}
+
+#[test]
+fn minimum_stars_uses_the_generated_system_count() {
+    let mut criteria = Criteria {
+        minimum_stars: Some(2),
+        ..Criteria::default()
+    };
+    let plan = criteria.compile().unwrap();
+    for (count, expected) in [
+        (1, Verdict::NoMatch),
+        (2, Verdict::Match),
+        (3, Verdict::Match),
+    ] {
+        let mut facts = Facts::default();
+        facts.set_star_count(count);
+        assert_eq!(plan.system_match(&facts, &[]), expected);
+    }
+    criteria.minimum_stars = Some(4);
+    assert!(criteria.compile().is_err());
 }
 
 #[test]
@@ -197,6 +378,31 @@ fn composition_subtypes_stay_bound_to_the_same_planet_and_negative_scope() {
             &Facts::default(),
             &[planet(0, unselected), planet(1, selected)]
         ),
+        Verdict::Match
+    );
+}
+
+#[test]
+fn pair_scoped_subtype_exclusions_preserve_the_same_subtype_on_other_biomes() {
+    let mut criteria = Criteria::default();
+    criteria.set_biome_choices(1 << 1); // Toxic
+    criteria.choices.insert(Field::Subtype, 1 << 2); // Ruins
+    criteria.composition.biomes.exclude = 1 << 0; // Lush
+    criteria.composition.subtypes.exclude = 1 << 2; // Ruins on Lush
+
+    assert!(
+        criteria
+            .subtype_options()
+            .iter()
+            .any(|(mask, label)| *label == "Ruins" && mask & (1 << 2) != 0)
+    );
+    let plan = criteria.compile().unwrap();
+    let mut toxic_ruins = Facts::default();
+    toxic_ruins.set(Field::Biome, 1);
+    toxic_ruins.set(Field::Subtype, 3);
+    assert_eq!(plan.planet_match(&toxic_ruins), Verdict::Match);
+    assert_eq!(
+        plan.system_match(&Facts::default(), &[toxic_ruins]),
         Verdict::Match
     );
 }
@@ -306,12 +512,135 @@ fn fauna_unions_require_all_fields_on_the_same_animal() {
         Verdict::NoMatch
     );
     fauna.presence = Some(false);
+    fauna.enforce_dependencies();
+    assert!(fauna.choices.is_empty());
     let negative = fauna.compile(Domain::Land).unwrap().unwrap();
     assert_eq!(
         negative.evaluate(&[species(Family::Cats, 0)]),
         Verdict::NoMatch
     );
-    assert_eq!(negative.evaluate(&[]), Verdict::NoMatch);
+    assert_eq!(negative.evaluate(&[]), Verdict::Match);
+}
+
+#[test]
+fn fauna_details_require_presence_and_exclusion_clears_details() {
+    let mut fauna = FaunaCriteria::default();
+    fauna.choices.insert(FaunaField::Rarity, 1 << 2);
+    assert!(fauna.compile(Domain::Land).is_err());
+    fauna.enforce_dependencies();
+    assert_eq!(fauna.presence, Some(true));
+    assert!(fauna.compile(Domain::Land).is_ok());
+
+    fauna.presence = Some(false);
+    fauna.height.minimum_cm = Some(100);
+    fauna.enforce_dependencies();
+    assert!(fauna.choices.is_empty());
+    assert_eq!(fauna.height, Default::default());
+    assert_eq!(fauna.presence, Some(false));
+}
+
+#[test]
+fn fixed_fauna_and_arena_relationships_prune_impossible_values() {
+    let mut fauna = FaunaCriteria::default();
+    fauna.choices.insert(FaunaField::Category, 1 << 1);
+    fauna.choices.insert(
+        FaunaField::Family,
+        (1 << Family::Antelopes as usize) | (1 << Family::RobotAntelopes as usize),
+    );
+    assert!(fauna.compile(Domain::Land).is_err());
+    fauna.enforce_domain_dependencies(Domain::Land);
+    assert_eq!(
+        fauna.choices[&FaunaField::Family],
+        1 << Family::RobotAntelopes as usize
+    );
+
+    let mut arena = ArenaCriteria::default();
+    for field in [ArenaField::Combat, ArenaField::Agility, ArenaField::Health] {
+        arena.choices.insert(field, 1 << 3);
+    }
+    arena.choices.insert(ArenaField::OverallRank, 0b1111);
+    arena.presence = Some(true);
+    assert!(arena.compile().is_err());
+    arena.enforce_dependencies();
+    assert_eq!(arena.choices[&ArenaField::OverallRank], 1 << 3);
+}
+
+#[test]
+fn planet_life_and_sentinel_dependencies_remove_redundant_details() {
+    let mut flora = Criteria::default();
+    flora.choices.insert(Field::Flora, 1);
+    flora.choices.insert(Field::Grass, 1);
+    flora.planets.insert(PlanetFlag::GlowingGrass, true);
+    assert!(flora.compile().is_err());
+    flora.enforce_dependencies();
+    assert!(!flora.choices.contains_key(&Field::Grass));
+    assert!(!flora.planets.contains_key(&PlanetFlag::GlowingGrass));
+
+    let mut fauna = Criteria::default();
+    fauna.choices.insert(Field::Fauna, 1);
+    fauna.fauna.insert(
+        Domain::Land,
+        FaunaCriteria {
+            presence: Some(true),
+            ..Default::default()
+        },
+    );
+    fauna.arena.presence = Some(true);
+    fauna.planets.insert(PlanetFlag::PlayerAttackingFauna, true);
+    assert!(fauna.compile().is_err());
+    fauna.enforce_dependencies();
+    assert!(fauna.fauna.is_empty());
+    assert_eq!(fauna.arena, ArenaCriteria::default());
+    assert!(
+        !fauna
+            .planets
+            .contains_key(&PlanetFlag::PlayerAttackingFauna)
+    );
+
+    let mut sentinels = Criteria::default();
+    sentinels
+        .choices
+        .insert(Field::Sentinels, (1 << 1) | (1 << 2));
+    sentinels.planets.insert(PlanetFlag::Sentinels, true);
+    sentinels.planets.insert(PlanetFlag::ExtremeSentinels, true);
+    sentinels
+        .planets
+        .insert(PlanetFlag::CorruptSentinels, false);
+    sentinels.enforce_dependencies();
+    assert_eq!(sentinels.choices[&Field::Sentinels], 1 << 2);
+    for flag in PlanetFlag::SENTINEL_LEVEL_PROJECTIONS {
+        assert!(!sentinels.planets.contains_key(flag));
+    }
+}
+
+#[test]
+fn direct_sentinel_level_projections_cannot_create_impossible_conjunctions() {
+    for flags in [
+        [
+            (PlanetFlag::ExtremeSentinels, true),
+            (PlanetFlag::CorruptSentinels, true),
+        ],
+        [
+            (PlanetFlag::Sentinels, false),
+            (PlanetFlag::ExtremeSentinels, true),
+        ],
+    ] {
+        let mut criteria = Criteria::default();
+        criteria.planets.extend(flags);
+        assert_eq!(
+            criteria.compile(),
+            Err("sentinel filters have no possible shared level")
+        );
+        criteria.enforce_dependencies();
+        assert!(criteria.compile().is_err());
+    }
+
+    let mut direct = Criteria::default();
+    direct.planets.insert(PlanetFlag::ExtremeSentinels, true);
+    assert_eq!(
+        direct.compile(),
+        Err("use the unified Sentinels filter instead of sentinel level projections")
+    );
 }
 
 #[test]
@@ -364,7 +693,11 @@ fn arena_unions_require_all_fields_on_the_same_creature() {
     let mut arena = ArenaCriteria::default();
     arena.choices.insert(ArenaField::Combat, 0b11);
     arena.choices.insert(ArenaField::Health, 1 << 3);
-    let selection = arena.compile().unwrap()[0];
+    assert!(arena.compile().is_err());
+    arena.enforce_dependencies();
+    assert_eq!(arena.presence, Some(true));
+    let selections = arena.compile().unwrap();
+    let selection = selections[1];
     let creature = |combat, health| Creature {
         role: 0,
         affinity: 1,
@@ -395,31 +728,19 @@ fn arena_unions_require_all_fields_on_the_same_creature() {
         Verdict::NoMatch
     );
     assert_eq!(selection.evaluate(&[]), Verdict::NoMatch);
+
+    arena.presence = Some(false);
+    arena.enforce_dependencies();
+    assert!(arena.choices.is_empty());
 }
 
 #[test]
-fn removed_mode_fields_are_rejected_instead_of_defaulted_or_ignored() {
-    for value in [
-        json!({"match_modes": {}}),
-        json!({"match_modes": {"resources": "any"}}),
-        json!({"unique_resource_mode": "all"}),
-        json!({"unique_resource_mode": "any"}),
-        json!({"resources": {"selected": 3, "mode": "all"}}),
-        json!({"resources": {"selected": 3, "mode": "any"}}),
-        json!({"fauna": {"land": {"mode": "all"}}}),
-        json!({"arena": {"mode": "any"}}),
-    ] {
-        assert!(
-            serde_json::from_value::<Criteria>(value.clone()).is_err(),
-            "accepted {value}"
-        );
-    }
+fn criteria_contract_rejects_unknown_or_incomplete_fields() {
+    assert!(serde_json::from_value::<Criteria>(json!({"unexpected": true})).is_err());
     assert!(serde_json::from_value::<Criteria>(json!({"resources": {"selected": 3}})).is_err());
     let mut criteria = Criteria::default();
     criteria.resources.selected = 3;
     let export = serde_json::to_value(&criteria).unwrap();
-    assert!(export.get("match_modes").is_none());
-    assert!(export.get("unique_resource_mode").is_none());
     assert_eq!(export["resources"], json!({"selected": 3}));
     assert_eq!(
         serde_json::from_value::<Criteria>(export).unwrap(),

@@ -294,5 +294,5 @@ pub fn biome_subtype_label(biome: usize, choice: usize) -> Option<&'static str> 
     })
 }
 
-pub const UNIQUE_RESOURCES: &[&str] = &["Ancient bones", "Salvageable scrap", "Swarm debris"];
-pub const UNIQUE_RESOURCE_SET: u32 = 1 << 31;
+pub const SPECIALTY_RESOURCES: &[&str] = &["Ancient bones", "Salvageable scrap", "Swarm debris"];
+pub const SPECIALTY_RESOURCE_SET: u32 = 1 << 31;

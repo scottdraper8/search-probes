@@ -54,4 +54,4 @@ Any. Requirement values are `true` for Require, `false` for Exclude, and `null` 
 
 The control workspace exists only for the current Search Probes process. Startup removes the prior
 endpoint, state publication, requests, and responses; commands are also bound to the current game
-generation. There are no schema versions, migrations, compatibility readers, or legacy messages.
+generation. There are no schema versions, migrations, compatibility readers, or old message forms.

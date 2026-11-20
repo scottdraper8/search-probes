@@ -131,5 +131,26 @@
     "path": "bcdec_rs-0.2.0/LICENSE-bcdec",
     "url": "https://raw.githubusercontent.com/iOrange/bcdec/80859ed3b7afb1c527a2a99d70c61457bea72d0c/LICENSE",
     "sha256": "2414c782587f6e96661cb0d19d752432ddecfcc1a221b4cb12bc2253a54dc5ac"
+  },
+  {
+    "package": "egui_extras",
+    "version": "0.36.2",
+    "path": "egui_extras-0.36.2/LICENSE-MIT",
+    "url": "https://raw.githubusercontent.com/emilk/egui/49682f8baa058bf49e011035cfbd6e825f88a5ef/LICENSE-MIT",
+    "sha256": "95ca92f5f8ea5231f1580b3a2a799e8260af3114b900e1def5355a7f44bcf60c"
+  },
+  {
+    "package": "enum-map",
+    "version": "2.7.3",
+    "path": "enum-map-2.7.3/LICENSE-MIT",
+    "url": "https://codeberg.org/sugar700/enum-map/raw/commit/c788a9c4bd0431308d889942719f7a38761d9884/LICENSES/MIT.txt",
+    "sha256": "b85dcd3e453d05982552c52b5fc9e0bdd6d23c6f8e844b984a88af32570b0cc0"
+  },
+  {
+    "package": "enum-map-derive",
+    "version": "0.17.0",
+    "path": "enum-map-derive-0.17.0/LICENSE-MIT",
+    "url": "https://codeberg.org/sugar700/enum-map/raw/commit/2026968c30ad14d268f3d70c618a704e22a3b980/LICENSES/MIT.txt",
+    "sha256": "b85dcd3e453d05982552c52b5fc9e0bdd6d23c6f8e844b984a88af32570b0cc0"
   }
 ]

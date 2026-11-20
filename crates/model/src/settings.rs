@@ -43,6 +43,7 @@ pub struct TimeLimit {
 pub struct ExecutionSettings {
     pub workers: Option<usize>,
     pub frame_budget_ms: u8,
+    pub keep_game_running: bool,
 }
 
 impl ExecutionSettings {
@@ -144,6 +145,7 @@ pub struct Settings {
     pub interface: InterfaceSettings,
     pub workers: Option<usize>,
     pub frame_budget_ms: u8,
+    pub keep_game_running: bool,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -152,6 +154,49 @@ pub struct InterfaceSettings {
     pub hotkey: InputBinding,
     pub theme: UiTheme,
     pub notifications: NotificationSettings,
+    pub result_cards: ResultCardSettings,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ResultCardSettings {
+    pub location_subtitle: bool,
+    pub portal_glyphs: bool,
+    pub set_destination: bool,
+    pub copy_portal_code: bool,
+    pub copy_galactic_coordinates: bool,
+}
+
+impl ResultCardSettings {
+    pub fn action_count(self) -> usize {
+        [
+            self.set_destination,
+            self.copy_portal_code,
+            self.copy_galactic_coordinates,
+        ]
+        .into_iter()
+        .filter(|enabled| *enabled)
+        .count()
+    }
+
+    pub fn validate(self) -> Result<(), &'static str> {
+        if self.action_count() == 0 {
+            return Err("at least one result card action must be displayed");
+        }
+        Ok(())
+    }
+}
+
+impl Default for ResultCardSettings {
+    fn default() -> Self {
+        Self {
+            location_subtitle: true,
+            portal_glyphs: true,
+            set_destination: true,
+            copy_portal_code: true,
+            copy_galactic_coordinates: true,
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -216,7 +261,8 @@ impl Default for Settings {
             presets: Vec::new(),
             interface: InterfaceSettings::default(),
             workers: None,
-            frame_budget_ms: 4,
+            frame_budget_ms: 8,
+            keep_game_running: false,
         }
     }
 }
@@ -226,11 +272,13 @@ impl Settings {
         ExecutionSettings {
             workers: self.workers,
             frame_budget_ms: self.frame_budget_ms,
+            keep_game_running: self.keep_game_running,
         }
     }
     pub fn validate(&self) -> Result<(), &'static str> {
         self.search.validate()?;
         self.interface.hotkey.validate()?;
+        self.interface.result_cards.validate()?;
         if self.presets.len() > MAX_PRESETS {
             return Err("at most nine Guide presets can be saved");
         }
@@ -346,7 +394,36 @@ mod tests {
         assert_eq!(encoded["interface"]["hotkey"]["first"], "control_left");
         assert_eq!(encoded["interface"]["hotkey"]["second"], "comma");
         assert_eq!(encoded["interface"]["theme"], "search_probes_dark");
+        assert_eq!(encoded["interface"]["result_cards"]["portal_glyphs"], true);
+        assert_eq!(encoded["frame_budget_ms"], 8);
+        assert_eq!(encoded["keep_game_running"], false);
         assert!(settings.validate().is_ok());
+    }
+
+    #[test]
+    fn result_card_preferences_require_an_action_and_use_a_strict_current_contract() {
+        let mut settings = Settings::default();
+        settings.interface.result_cards.set_destination = false;
+        settings.interface.result_cards.copy_portal_code = false;
+        assert!(settings.validate().is_ok());
+
+        settings.interface.result_cards.copy_galactic_coordinates = false;
+        assert_eq!(
+            settings.validate(),
+            Err("at least one result card action must be displayed")
+        );
+
+        let encoded = serde_json::to_value(Settings::default()).unwrap();
+        let mut unknown = encoded.clone();
+        unknown["interface"]["result_cards"]["unexpected"] = true.into();
+        assert!(serde_json::from_value::<Settings>(unknown).is_err());
+
+        let mut incomplete = encoded;
+        incomplete["interface"]["result_cards"]
+            .as_object_mut()
+            .unwrap()
+            .remove("location_subtitle");
+        assert!(serde_json::from_value::<Settings>(incomplete).is_err());
     }
 
     #[test]
