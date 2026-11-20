@@ -15,6 +15,7 @@ use windows_sys::Win32::{
             CloseClipboard, EmptyClipboard, GetClipboardData, OpenClipboard, SetClipboardData,
         },
         Memory::{GMEM_MOVEABLE, GlobalAlloc, GlobalLock, GlobalSize, GlobalUnlock},
+        Threading::GetCurrentProcessId,
     },
     UI::{
         HiDpi::GetDpiForWindow,
@@ -33,6 +34,7 @@ static WINDOW: AtomicUsize = AtomicUsize::new(0);
 static UI_CURSOR: AtomicUsize = AtomicUsize::new(0);
 static HOTKEY_KEYS: AtomicU32 = AtomicU32::new(0);
 static HOTKEY_DOWN: AtomicBool = AtomicBool::new(false);
+static RECOVERY_HOTKEY_DOWN: AtomicBool = AtomicBool::new(false);
 
 const CONTROLLER_BUTTONS: [ControllerButton; 16] = [
     ControllerButton::FaceBottom,
@@ -57,6 +59,7 @@ struct Input {
     procedures: BTreeMap<usize, (isize, bool)>,
     visible: bool,
     hotkey: bool,
+    recovery_hotkey: bool,
     binding: Option<InputBinding>,
     controllers: [u32; XUSER_MAX_COUNT as usize],
     events: Vec<Event>,
@@ -79,6 +82,7 @@ impl Input {
             procedures: BTreeMap::new(),
             visible: false,
             hotkey: false,
+            recovery_hotkey: false,
             binding: None,
             controllers: [0; XUSER_MAX_COUNT as usize],
             events: Vec::new(),
@@ -160,6 +164,7 @@ fn modifiers() -> Modifiers {
 fn deactivate(input: &mut Input) {
     ACTIVE.store(false, Ordering::Release);
     HOTKEY_DOWN.store(false, Ordering::Release);
+    RECOVERY_HOTKEY_DOWN.store(false, Ordering::Release);
     input.buttons = [false; 3];
     input.events.clear();
     input.surrogate = None;
@@ -183,9 +188,26 @@ fn restore_game_input(game: Option<GameInput>, focused: bool) {
         }
     }
 }
+
+fn process_has_focus() -> bool {
+    let foreground = unsafe { GetForegroundWindow() };
+    if foreground.is_null() {
+        return false;
+    }
+    let mut foreground_process = 0;
+    (unsafe { GetWindowThreadProcessId(foreground, &mut foreground_process) }) != 0
+        && foreground_process == unsafe { GetCurrentProcessId() }
+}
+
+fn recovery_hotkey_down() -> bool {
+    keyboard_down(KeyboardKey::Backspace)
+        && (keyboard_down(KeyboardKey::ControlLeft) || keyboard_down(KeyboardKey::ControlRight))
+        && (keyboard_down(KeyboardKey::ShiftLeft) || keyboard_down(KeyboardKey::ShiftRight))
+}
+
 pub fn release() {
     let game = restore(&mut INPUT.lock().unwrap_or_else(|e| e.into_inner()));
-    let focused = unsafe { GetForegroundWindow() } as usize == WINDOW.load(Ordering::Acquire);
+    let focused = process_has_focus();
     restore_game_input(game, focused);
 }
 
@@ -407,7 +429,7 @@ pub fn take(
     capture_device: Option<BindingDevice>,
 ) -> Option<InputFrame> {
     let window = hwnd as HWND;
-    let focused = unsafe { GetForegroundWindow() } == window;
+    let focused = process_has_focus();
     let iconic = unsafe { IsIconic(window) } != 0;
     let poll_controllers = binding.device() == BindingDevice::Controller
         || capture_device == Some(BindingDevice::Controller);
@@ -417,8 +439,10 @@ pub fn take(
         [0; XUSER_MAX_COUNT as usize]
     };
     let down = binding_down(binding, &controllers);
+    let recovery_down = recovery_hotkey_down();
     HOTKEY_KEYS.store(binding_keys(binding), Ordering::Release);
     HOTKEY_DOWN.store(down, Ordering::Release);
+    RECOVERY_HOTKEY_DOWN.store(recovery_down, Ordering::Release);
     let mut clipped = RECT::default();
     let has_clip = unsafe { GetClipCursor(&mut clipped) } != 0;
     let cursor = unsafe { GetCursor() } as usize;
@@ -438,10 +462,17 @@ pub fn take(
     input.controllers = controllers;
     let binding_changed = input.binding != Some(binding);
     input.binding = Some(binding);
-    if focused && capture_device.is_none() && !binding_changed && down && !input.hotkey {
+    let hotkey_edge = down && !input.hotkey;
+    let recovery_hotkey_edge = recovery_down && !input.recovery_hotkey;
+    if focused
+        && capture_device.is_none()
+        && !binding_changed
+        && (hotkey_edge || recovery_hotkey_edge)
+    {
         input.visible = !input.visible;
     }
     input.hotkey = down;
+    input.recovery_hotkey = recovery_down;
     if !focused {
         deactivate(&mut input);
         return None;
@@ -902,9 +933,17 @@ fn hotkey_virtual_key(key: i32) -> bool {
     key == (keys & 0xffff) as i32 || (keys >> 16 != 0 && key == (keys >> 16) as i32)
 }
 
+fn recovery_hotkey_virtual_key(key: i32) -> bool {
+    matches!(
+        key as u16,
+        VK_BACK | VK_CONTROL | VK_LCONTROL | VK_RCONTROL | VK_SHIFT | VK_LSHIFT | VK_RSHIFT
+    )
+}
+
 pub unsafe extern "system" fn game_async_key(key: i32) -> i16 {
     if ACTIVE.load(Ordering::Acquire)
         || (HOTKEY_DOWN.load(Ordering::Acquire) && hotkey_virtual_key(key))
+        || (RECOVERY_HOTKEY_DOWN.load(Ordering::Acquire) && recovery_hotkey_virtual_key(key))
     {
         0
     } else {
@@ -914,6 +953,7 @@ pub unsafe extern "system" fn game_async_key(key: i32) -> i16 {
 pub unsafe extern "system" fn game_key(key: i32) -> i16 {
     if ACTIVE.load(Ordering::Acquire)
         || (HOTKEY_DOWN.load(Ordering::Acquire) && hotkey_virtual_key(key))
+        || (RECOVERY_HOTKEY_DOWN.load(Ordering::Acquire) && recovery_hotkey_virtual_key(key))
     {
         0
     } else {
@@ -934,6 +974,21 @@ pub unsafe extern "system" fn game_keyboard(keys: *mut u8) -> BOOL {
             *keys.add((hotkeys & 0xff) as usize) = 0;
             if hotkeys >> 16 != 0 {
                 *keys.add(((hotkeys >> 16) & 0xff) as usize) = 0;
+            }
+        }
+    }
+    if result != 0 && RECOVERY_HOTKEY_DOWN.load(Ordering::Acquire) {
+        unsafe {
+            for key in [
+                VK_BACK,
+                VK_CONTROL,
+                VK_LCONTROL,
+                VK_RCONTROL,
+                VK_SHIFT,
+                VK_LSHIFT,
+                VK_RSHIFT,
+            ] {
+                *keys.add(usize::from(key)) = 0;
             }
         }
     }
@@ -963,5 +1018,10 @@ pub unsafe extern "system" fn game_cursor(cursor: HCURSOR) -> HCURSOR {
 
 pub fn diagnostics() -> serde_json::Value {
     let input = INPUT.lock().unwrap_or_else(|e| e.into_inner());
-    serde_json::json!({"visible":input.visible,"active":ACTIVE.load(Ordering::Acquire),"restore_pending":input.game.is_some(),"window":WINDOW.load(Ordering::Acquire)})
+    serde_json::json!({
+        "visible": input.visible,
+        "active": ACTIVE.load(Ordering::Acquire),
+        "restore_pending": input.game.is_some(),
+        "window": WINDOW.load(Ordering::Acquire),
+    })
 }

@@ -11,3 +11,4 @@ crate-type = ["cdylib"]
 
 [target.'cfg(windows)'.dependencies]
 search-probes-native = { path = "../native" }
+windows-sys = { version = "=0.61.2", features = ["Win32_Foundation"] }
