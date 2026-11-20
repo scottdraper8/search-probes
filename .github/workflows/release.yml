@@ -62,7 +62,7 @@ jobs:
             exit 1
           fi
           cargo run --locked --quiet -p search-probes-package -- package "$RUNNER_TEMP/SearchProbes"
-          asset="SearchProbes${version}-$(date -u +%Y%m%d).zip"
+          asset="SearchProbes${version}-$(TZ=America/Denver date +%Y%m%d).zip"
           mv "$RUNNER_TEMP/SearchProbes.zip" "$RUNNER_TEMP/$asset"
           cargo run --locked --quiet -p search-probes-package -- verify "$RUNNER_TEMP/$asset"
           digest="$(sha256sum "$RUNNER_TEMP/$asset" | cut -d ' ' -f 1)"
