@@ -92,6 +92,7 @@ fn state(path: &Path) -> io::Result<StatePublication> {
         "availability",
         "player",
         "settings",
+        "settings_recovery",
         "progress",
         "search_history",
         "search_pause",
@@ -334,7 +335,7 @@ mod tests {
         controls::Controls,
         runtime::State,
         settings::Settings,
-        ui_control::{UiAction, UiPage},
+        ui_control::UiAction,
     };
     use std::sync::{
         Arc,
@@ -374,7 +375,7 @@ mod tests {
                 if let Some(command) = controls.pop_ui() {
                     let mut ui = controls.snapshot().ui;
                     match command.action {
-                        UiAction::SetPage { page } => ui.page = page,
+                        UiAction::SetSettingsSidebar { open } => ui.settings_sidebar = open,
                         _ => panic!("unexpected test action"),
                     }
                     ui.last_command = command.id;
@@ -399,16 +400,14 @@ mod tests {
 
         let result = command(
             &directory,
-            UiAction::SetPage {
-                page: UiPage::History,
-            },
+            UiAction::SetSettingsSidebar { open: true },
             true,
             Duration::from_secs(2),
         )
         .unwrap();
 
         assert!(matches!(result.phase, CommandPhase::Applied));
-        assert_eq!(result.state["ui"]["page"], "history");
+        assert_eq!(result.state["ui"]["settings_sidebar"], true);
         stop.store(true, Ordering::Release);
         worker.join().unwrap();
         fs::remove_dir_all(directory).unwrap();

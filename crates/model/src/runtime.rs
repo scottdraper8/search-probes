@@ -3,7 +3,7 @@ use crate::{
     criteria::{Criteria, Plan, Predicate, Section, Stage},
     facts::{FactSnapshot, Facts, Verdict},
     session::{Finish, Progress, SearchRecord},
-    settings::{Settings, validate_frame_budget},
+    settings::{Settings, SettingsRecovery, validate_frame_budget},
     target::Target,
     ui_control::UiState,
 };
@@ -93,6 +93,8 @@ pub struct LifecycleEvent {
     pub search_id: u64,
     pub elapsed_ms: u64,
     pub systems: u64,
+    pub planets: u64,
+    pub fauna: u64,
     pub results: usize,
     pub kind: LifecycleEventKind,
 }
@@ -278,6 +280,8 @@ pub struct State {
     pub availability: Availability,
     pub player: Option<Address>,
     pub settings: Settings,
+    /// One-shot startup report for files repaired while loading persisted settings.
+    pub settings_recovery: Option<SettingsRecovery>,
     pub progress: Option<std::sync::Arc<Progress>>,
     pub search_history: Vec<std::sync::Arc<SearchRecord>>,
     pub search_pause: Option<SearchPause>,
@@ -303,6 +307,7 @@ impl State {
             availability: Availability::Starting,
             player: None,
             settings,
+            settings_recovery: None,
             progress: None,
             search_history: Vec::new(),
             search_pause: None,

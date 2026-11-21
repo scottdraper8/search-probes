@@ -6,7 +6,7 @@ use search_probes_model::{
     fauna::{Domain, FaunaField},
     settings::{BUDGETS, MAX_RESULTS, MAX_WORKERS, ToastPlacement},
     storage,
-    theme::UiTheme,
+    theme::{ThemeSelection, UiTheme},
     ui_control::{UiAction, UiState},
     vocabulary::RESOURCE_LABELS,
 };
@@ -113,6 +113,24 @@ fn option<T: Serialize>(value: T, label: &str) -> Value {
 
 fn catalog(actions: Value, ui: UiState) -> Value {
     let criteria = &ui.draft_settings.search.criteria;
+    let themes = UiTheme::ALL
+        .iter()
+        .map(|&theme| option(ThemeSelection::BuiltIn { theme }, theme.label()))
+        .chain(
+            ui.draft_settings
+                .interface
+                .custom_themes
+                .iter()
+                .map(|custom| {
+                    option(
+                        ThemeSelection::Custom {
+                            name: custom.name.clone(),
+                        },
+                        &custom.name,
+                    )
+                }),
+        )
+        .collect::<Vec<_>>();
     let fields: Vec<_> = Field::ALL
         .iter()
         .map(|&field| {
@@ -243,8 +261,7 @@ fn catalog(actions: Value, ui: UiState) -> Value {
         "actions": actions,
         "current_ui": ui,
         "values": {
-            "pages": ["search", "history"],
-            "themes": UiTheme::ALL.iter().map(|&theme| option(theme, theme.label())).collect::<Vec<_>>(),
+            "themes": themes,
             "toast_placements": ToastPlacement::ALL.iter().map(|&placement| option(placement, placement.label())).collect::<Vec<_>>(),
             "keyboard_keys": KeyboardKey::ALL.iter().map(|&key| option(key, key.label())).collect::<Vec<_>>(),
             "controller_buttons": ControllerButton::ALL.iter().map(|&button| option(button, button.label())).collect::<Vec<_>>(),

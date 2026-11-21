@@ -332,6 +332,7 @@ impl Painter {
                     .min_size([380.0, 240.0])
                     .resizable(true)
                     .collapsible(false)
+                    .frame(egui::Frame::window(root.style()).inner_margin(0.0))
                     .show(root.ctx(), |ui_root| ui.app.ui(ui_root));
             }
             ui.app.show_notifications(root.ctx());

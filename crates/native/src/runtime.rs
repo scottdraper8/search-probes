@@ -86,12 +86,16 @@ pub fn initialize() -> Result<(), String> {
 }
 
 pub(crate) fn initialize_at(directory: std::path::PathBuf) -> Result<(), String> {
-    let loaded = storage::load_settings(&directory);
-    let settings = loaded.as_ref().cloned().unwrap_or_default();
+    let loaded = storage::load_settings_with_recovery(&directory);
+    let settings = loaded
+        .as_ref()
+        .map(|loaded| loaded.settings.clone())
+        .unwrap_or_default();
     let mut state = State::new(settings.clone());
+    state.settings_recovery = loaded.as_ref().ok().and_then(|loaded| loaded.recovery);
     state.error = loaded
         .err()
-        .map(|error| format!("Cannot load settings: {error}. The original file was preserved."));
+        .map(|error| format!("Cannot load settings: {error}"));
     let controls = Arc::new(Controls::new(state));
     CONTROLS
         .set(controls.clone())
