@@ -27,10 +27,17 @@ const ROLE_DENSITY: usize = 0x5c4;
 const ROLE_TILE: usize = 0x5cc;
 const SIGNAL_MISSION: &[u8] = b"SQN_SP_SIGNAL";
 const MAX_RETAINED_DISCOVERIES: usize = 64;
+const DESTINATION_START_TIMEOUT: Duration = Duration::from_secs(30);
+const REPLACEMENT_CLEAN_POLLS: u8 = 2;
 const SELECT_MISSION_RVA: usize = 0x9d7c90;
 const SELECT_MISSION_PREFIX: [u8; 26] = [
     0x48, 0x8b, 0xc4, 0x44, 0x88, 0x40, 0x18, 0x53, 0x56, 0x57, 0x41, 0x54, 0x48, 0x81, 0xec, 0x58,
     0x01, 0x00, 0x00, 0x45, 0x33, 0xe4, 0x41, 0x0f, 0xb6, 0xf8,
+];
+const FINISH_MISSION_RVA: usize = 0xa3d410;
+const FINISH_MISSION_PREFIX: [u8; 32] = [
+    0x48, 0x89, 0x5c, 0x24, 0x08, 0x48, 0x89, 0x74, 0x24, 0x18, 0x48, 0x89, 0x7c, 0x24, 0x20, 0x55,
+    0x41, 0x54, 0x41, 0x55, 0x41, 0x56, 0x41, 0x57, 0x48, 0x8d, 0x6c, 0x24, 0xc0, 0x48, 0x81, 0xec,
 ];
 
 #[repr(C)]
@@ -115,6 +122,15 @@ fn previous(manager: usize) -> Result<Option<MissionKey>, &'static str> {
     Ok(key.identity.iter().any(|byte| *byte != 0).then_some(key))
 }
 
+fn previous_return(manager: usize) -> Result<Option<MissionKey>, &'static str> {
+    let Some(key) = previous(manager)? else {
+        return Ok(None);
+    };
+    Ok(TargetKind::from_mission(&key.identity)?
+        .is_none()
+        .then_some(key))
+}
+
 fn resolve(manager: usize, key: MissionKey) -> Result<Option<(usize, usize)>, &'static str> {
     let (pointer, count) = vector(manager + 0x1d8)?;
     let mut result = None;
@@ -160,6 +176,26 @@ unsafe fn select_mission(
     unsafe { select(manager, mission, false) };
     if platform::u32_at(manager + 0x268)? as usize != index {
         return Err("NMS did not select the requested mission");
+    }
+    Ok(())
+}
+
+unsafe fn abandon_mission(image: &Image, mission: usize) -> Result<(), &'static str> {
+    let address = image.base() + FINISH_MISSION_RVA;
+    if unsafe { std::slice::from_raw_parts(address as *const u8, FINISH_MISSION_PREFIX.len()) }
+        != FINISH_MISSION_PREFIX
+    {
+        return Err("NMS mission abandonment function does not match this build");
+    }
+    type Finish = unsafe extern "system" fn(usize, bool) -> bool;
+    let finish = unsafe { std::mem::transmute::<usize, Finish>(address) };
+    // The Log's confirmed Abandon Mission path calls this function with `false`; `true` is used by
+    // silent mission-retirement paths. Its return value reports whether optional completion-side
+    // work ran, not whether the mission was retired: the function marks progress complete and
+    // removes the route even on its false-return path. Verify retirement from mission state.
+    let _ = unsafe { finish(mission, false) };
+    if incomplete(mission)? {
+        return Err("NMS did not abandon the previous Search Probes destination");
     }
     Ok(())
 }
@@ -327,11 +363,30 @@ fn fauna_target(snapshot: &Snapshot, target: Target) -> Result<FaunaTarget, &'st
 #[derive(Default)]
 pub struct Navigation {
     requested: Option<(Target, Instant)>,
+    queued: Option<QueuedDestination>,
     destination: Option<Target>,
     discoveries: Vec<discovery_hook::Discovery>,
     signaled: Option<Target>,
     description: Option<CachedMatch>,
     return_to: Option<MissionKey>,
+}
+
+struct QueuedDestination {
+    result: CachedMatch,
+    return_to: Option<MissionKey>,
+    queued_at: Instant,
+    clean_polls: u8,
+}
+
+impl QueuedDestination {
+    fn observe_cleanup(&mut self, clean: bool) -> bool {
+        if clean {
+            self.clean_polls = self.clean_polls.saturating_add(1);
+        } else {
+            self.clean_polls = 0;
+        }
+        self.clean_polls >= REPLACEMENT_CLEAN_POLLS
+    }
 }
 
 impl Navigation {
@@ -363,23 +418,56 @@ impl Navigation {
             return Err("navigation requires a destination in the current galaxy");
         }
         let manager = snapshot.application + 0x86e3d0;
-        if self.requested.is_some() || pending(manager)? {
+        if self.requested.is_some() || self.queued.is_some() || pending(manager)? {
             return Err("a Search Probes destination is still starting");
         }
-        if active(manager)?.is_some() {
-            return Err(
-                "abandon the Search Probes mission in the Log before choosing another destination",
-            );
+        let previous_destination = active(manager)?;
+        if let Some(previous) = previous_destination.filter(|active| active.target == target) {
+            unsafe { select_mission(image, manager, previous.index, previous.mission) }?;
+            self.destination = Some(target);
+            return Ok(());
         }
-        let return_to = selected_return(manager)?;
+        let return_to = if previous_destination.is_some() {
+            self.return_to.or(previous_return(manager)?)
+        } else {
+            selected_return(manager)?
+        };
+        if let Some(previous) = previous_destination {
+            unsafe { abandon_mission(image, previous.mission) }?;
+            navigation_hook::reset();
+            discovery_hook::reset();
+            mission_text_hook::clear();
+            self.destination = None;
+            self.discoveries.clear();
+            self.signaled = None;
+            self.description = None;
+            self.queued = Some(QueuedDestination {
+                result: result.clone(),
+                return_to,
+                queued_at: Instant::now(),
+                clean_polls: 0,
+            });
+            return Ok(());
+        }
+        unsafe { self.begin_request(image, manager, result.clone(), return_to) }
+    }
+
+    unsafe fn begin_request(
+        &mut self,
+        image: &Image,
+        manager: usize,
+        result: CachedMatch,
+        return_to: Option<MissionKey>,
+    ) -> Result<(), &'static str> {
+        let target = result.target();
         navigation_hook::reset();
         discovery_hook::reset();
         mission_text_hook::clear();
         self.discoveries.clear();
         self.signaled = None;
         self.description = None;
-        mission_text_hook::set_destination(result)?;
-        self.description = Some(result.clone());
+        mission_text_hook::set_destination(&result)?;
+        self.description = Some(result);
         let mission = target.mission()?;
         type Start = unsafe extern "system" fn(usize, *const u8, *const Seed, bool, bool) -> bool;
         let start = unsafe { std::mem::transmute::<usize, Start>(image.base() + 0x9cebb0) };
@@ -582,13 +670,11 @@ impl Navigation {
         snapshot: &Snapshot,
     ) -> Result<(), &'static str> {
         let manager = snapshot.application + 0x86e3d0;
-        let published = match navigation_hook::published() {
-            Ok(address) => address,
-            Err(error) => {
-                self.requested = None;
-                return Err(error);
-            }
-        };
+        if let Err(error) = navigation_hook::published() {
+            self.requested = None;
+            self.queued = None;
+            return Err(error);
+        }
         let mission = active(manager)?;
         let routed = route(snapshot.application)?;
         if let (Some(active), Some(routed)) = (mission, routed)
@@ -602,15 +688,26 @@ impl Navigation {
             self.update_fauna_completion(image, snapshot, manager, mission)?;
             self.restore_completed_selection(image, manager)?;
         }
+        if let Some(queued) = self.queued.as_mut() {
+            if queued.queued_at.elapsed() > DESTINATION_START_TIMEOUT {
+                self.queued = None;
+                return Err("NMS has not cleared the previous Search Probes destination");
+            }
+            let clean = mission.is_none() && routed.is_none() && !pending(manager)?;
+            if queued.observe_cleanup(clean) {
+                let queued = self.queued.take().ok_or("queued destination disappeared")?;
+                unsafe {
+                    self.begin_request(image, manager, queued.result, queued.return_to)?;
+                }
+            }
+        }
         if let Some((expected, started)) = self.requested {
             if let Some(active) =
                 mission.filter(|active| active.target == expected && routed == Some(expected))
             {
                 unsafe { select_mission(image, manager, active.index, active.mission) }?;
                 self.requested = None;
-            } else if published == Some(expected) && mission.is_none() && !pending(manager)? {
-                self.requested = None;
-            } else if started.elapsed() > Duration::from_secs(30) {
+            } else if started.elapsed() > DESTINATION_START_TIMEOUT {
                 self.requested = None;
                 return Err(
                     "NMS has not activated the destination. Check Search Probes in the Log.",
@@ -654,6 +751,7 @@ mod tests {
         };
         let mut navigation = Navigation {
             requested: Some((target, Instant::now())),
+            queued: None,
             destination: Some(target),
             discoveries: Vec::new(),
             signaled: Some(target),
@@ -667,5 +765,27 @@ mod tests {
         assert_eq!(navigation.requested.map(|(target, _)| target), Some(target));
         assert_eq!(navigation.destination, None);
         assert_eq!(navigation.signaled, None);
+    }
+
+    #[test]
+    fn replacement_waits_for_two_consecutive_clean_polls() {
+        let target = planet_target();
+        let mut queued = QueuedDestination {
+            result: CachedMatch {
+                address: target.address,
+                kind: target.kind,
+                system_name: None,
+                planet_name: None,
+                fauna: None,
+            },
+            return_to: None,
+            queued_at: Instant::now(),
+            clean_polls: 0,
+        };
+
+        assert!(!queued.observe_cleanup(true));
+        assert!(!queued.observe_cleanup(false));
+        assert!(!queued.observe_cleanup(true));
+        assert!(queued.observe_cleanup(true));
     }
 }

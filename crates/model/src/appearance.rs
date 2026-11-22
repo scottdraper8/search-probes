@@ -43,6 +43,7 @@ pub fn tone_map(mut linear: [f64; 3]) -> [f64; 3] {
 pub struct GeneratedColourAppearance {
     pub source_linear_rgb: [f64; 3],
     pub tone_mapped_srgb: [f64; 3],
+    pub world_filtered_srgb: [f64; 3],
 }
 
 pub fn linear_colour(linear: [f64; 3], grade: impl Fn([f64; 3]) -> [f64; 3]) -> Result<u32> {
@@ -59,17 +60,26 @@ pub fn linear_colour(linear: [f64; 3], grade: impl Fn([f64; 3]) -> [f64; 3]) -> 
 pub fn generated_colour_with_appearance(
     linear: [f64; 3],
 ) -> Result<(u32, GeneratedColourAppearance)> {
+    generated_colour_with_grade(linear, |rgb| rgb)
+}
+
+pub fn generated_colour_with_grade(
+    linear: [f64; 3],
+    grade: impl Fn([f64; 3]) -> [f64; 3],
+) -> Result<(u32, GeneratedColourAppearance)> {
     if linear.iter().any(|value| !value.is_finite() || *value < 0.) {
         return Err("invalid generated colour");
     }
     let tone_mapped_srgb = tone_map(linear);
+    let world_filtered_srgb = grade(tone_mapped_srgb);
     if tone_mapped_srgb
         .iter()
+        .chain(&world_filtered_srgb)
         .any(|value| !value.is_finite() || !(0. ..=1.).contains(value))
     {
-        return Err("invalid tone-mapped generated colour");
+        return Err("invalid rendered generated colour");
     }
-    let [r, g, b] = tone_mapped_srgb.map(srgb_to_linear);
+    let [r, g, b] = world_filtered_srgb.map(srgb_to_linear);
     let l = (0.4122214708 * r + 0.5363325363 * g + 0.0514459929 * b).cbrt();
     let m = (0.2119034982 * r + 0.6806995451 * g + 0.1073969566 * b).cbrt();
     let s = (0.0883024619 * r + 0.2817188376 * g + 0.6299787005 * b).cbrt();
@@ -85,13 +95,14 @@ pub fn generated_colour_with_appearance(
     let colours = if chroma <= 0.015 {
         generated_neutral_colours(lightness)
     } else {
-        1 << chromatic_hue(tone_mapped_srgb)?
+        1 << chromatic_hue(world_filtered_srgb)?
     };
     Ok((
         GRASS_COLOUR_SET | colours,
         GeneratedColourAppearance {
             source_linear_rgb: linear,
             tone_mapped_srgb,
+            world_filtered_srgb,
         },
     ))
 }
@@ -179,4 +190,18 @@ fn hsv(rgb: [f64; 3]) -> [f64; 3] {
         (r - g) / delta / 6. + 2. / 3.
     };
     [hue, delta / (max + 1e-10), max]
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn generated_colour_classification_uses_the_world_filtered_result() {
+        let (classification, evidence) =
+            generated_colour_with_grade([0.2, 0.4, 0.8], |_| [0.9, 0.2, 0.3]).unwrap();
+        assert_eq!(classification, GRASS_COLOUR_SET | 1);
+        assert_ne!(evidence.tone_mapped_srgb, evidence.world_filtered_srgb);
+        assert_eq!(evidence.world_filtered_srgb, [0.9, 0.2, 0.3]);
+    }
 }

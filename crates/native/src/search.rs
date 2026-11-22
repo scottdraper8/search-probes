@@ -69,11 +69,20 @@ pub struct Outcome {
     pub snapshot: Snapshot,
     pub matches: Vec<Match>,
     pub planet_observations: Option<search_probes_model::observations::PlanetObservations>,
+    pub pending_flora: Option<PendingFlora>,
     /// Exact-query scalar inputs for Arena predicates still needing model/placement refinement.
     /// Native temporary planet/role objects are already gone when this result reaches the scheduler.
     pub pending_arena: Vec<crate::arena_inputs::Planet>,
     pub work: Work,
     pub cancelled: bool,
+}
+
+pub struct PendingFlora {
+    pub address: Address,
+    pub planet: usize,
+    pub models: Vec<crate::flora_appearance::Spawn>,
+    pub context: crate::flora_appearance::Context,
+    pub filter: i32,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -89,9 +98,51 @@ impl Operation {
             Self::Inspect(_) => Ok(()),
         }
     }
+
+    fn needs_flora_inventory(self, colour_requirements: u16) -> bool {
+        matches!(self, Self::Inspect(Some(_))) && colour_requirements & 2 != 0
+    }
+}
+
+fn planet_order(count: usize, operation: Operation) -> Vec<usize> {
+    if let Operation::Inspect(Some(target)) = operation {
+        return std::iter::once(target)
+            .chain((0..count).filter(|&index| index != target))
+            .collect();
+    }
+    (0..count).collect()
+}
+
+fn needs_star_count(plan: &Plan) -> bool {
+    plan.system
+        .iter()
+        .any(|predicate| matches!(predicate, Predicate::StarCounts(_)))
 }
 
 impl Outcome {
+    pub fn complete_flora(&mut self, cancel: &Stop<'_>) -> Result<(), &'static str> {
+        let Some(pending) = self.pending_flora.take() else {
+            return Ok(());
+        };
+        let inventory = crate::flora_appearance::inventory(
+            &pending.models,
+            &pending.context,
+            pending.filter,
+            false,
+            cancel,
+        )?;
+        self.snapshot.planets[pending.planet]
+            .observe_flora_colours(0, inventory.predicate_exclusions());
+        self.planet_observations = Some(
+            search_probes_model::observations::PlanetObservations {
+                address: pending.address,
+                acquisition: search_probes_model::observations::ObservationAcquisition::CurrentWorldGeneratedQuery,
+                surface_models: inventory,
+            },
+        );
+        Ok(())
+    }
+
     pub fn into_record(
         self,
     ) -> Result<(SystemRecord, Vec<crate::arena_inputs::Planet>), &'static str> {
@@ -197,11 +248,19 @@ impl<'cache> Generator<'cache> {
         if difficulty > 3 {
             return Err("invalid combat difficulty");
         }
-        let mut query = unsafe { Query::begin(&self.bindings, self.solar.as_mut_ptr(), address) }?;
+        let mut query = unsafe {
+            Query::begin(
+                &self.bindings,
+                self.solar.as_mut_ptr(),
+                address,
+                needs_star_count(plan),
+            )
+        }?;
         let mut outcome = Outcome {
             snapshot: Snapshot::solar(query.bytes(), query.star_count())?,
             matches: Vec::new(),
             planet_observations: None,
+            pending_flora: None,
             pending_arena: Vec::new(),
             work: Work {
                 systems: 1,
@@ -236,9 +295,7 @@ impl<'cache> Generator<'cache> {
         {
             return Ok(outcome);
         }
-        if (plan.requirements.objects || matches!(operation, Operation::Inspect(Some(_))))
-            && self.objects.is_none()
-        {
+        if plan.requirements.objects && self.objects.is_none() {
             self.objects = Some(unsafe { ObjectTables::from_verified_image(self.base) }?);
         }
         let generator = self.planet.as_mut_ptr();
@@ -250,7 +307,7 @@ impl<'cache> Generator<'cache> {
             .system
             .iter()
             .any(|rule| matches!(rule, Predicate::System(SystemFlag::ExtremeStorms, _)));
-        for index in 0..outcome.snapshot.count {
+        for index in planet_order(outcome.snapshot.count, operation) {
             if cancel.requested() {
                 outcome.cancelled = true;
                 break;
@@ -261,6 +318,12 @@ impl<'cache> Generator<'cache> {
                 &outcome.snapshot.system,
                 &outcome.snapshot.planets[..outcome.snapshot.count],
             );
+            if matches!(operation, Operation::Inspect(Some(_)))
+                && !inspect_target
+                && system_verdict != Verdict::Unknown
+            {
+                continue;
+            }
             if operation == Operation::Search {
                 if system_verdict == Verdict::NoMatch
                     || (system_verdict == Verdict::Match && plan.planet.is_empty())
@@ -328,46 +391,6 @@ impl<'cache> Generator<'cache> {
                     } else {
                         plan.missing_planet_requirements(facts)
                     };
-                    if needed.fauna {
-                        if plan.targets_animals() && facts.fauna().is_none() {
-                            if self.fauna.is_none() {
-                                self.fauna = Some(crate::fauna::Context::from_verified_image(self.base)?);
-                            }
-                            let observed = crate::fauna::capture(
-                                self.fauna.as_ref().unwrap(),
-                                live,
-                                address.planet(index)?,
-                            )?;
-                            outcome.work.fauna = outcome
-                                .work
-                                .fauna
-                                .saturating_add(observed.species.len() as u64);
-                            facts.set_planet_flag(PlanetFlag::PlayerAttackingFauna, observed.player_attacking);
-                            facts.set_planet_flag(PlanetFlag::Sandworms, observed.sandworms);
-                            facts.set_fauna(observed.species);
-                        } else {
-                            facts.set_planet_flag(PlanetFlag::PlayerAttackingFauna, crate::fauna::player_attacking(live)?);
-                            facts.set_planet_flag(PlanetFlag::Sandworms, crate::fauna::sandworms(live)?);
-                        }
-                        if plan.planet.iter().any(|rule| matches!(rule, Predicate::Arena(_)))
-                            && facts.arena().is_none()
-                        {
-                            if self.arena.is_none() {
-                                self.arena = Some(crate::arena::Context::from_verified_image(self.base)?);
-                            }
-                            let inputs = crate::arena_inputs::Planet::capture(live, address.planet(index)?)?;
-                            facts.set_arena(self.arena.as_ref().unwrap().capture_inputs(&inputs)?);
-                            arena_inputs = Some(inputs);
-                        }
-                        if !inspect_target && plan.planet_match(facts) == Verdict::NoMatch {
-                            return Ok(());
-                        }
-                    }
-                    let needed = if inspect_target {
-                        plan.inspection_requirements(facts)
-                    } else {
-                        plan.missing_planet_requirements(facts)
-                    };
                     let metadata = if needed.metadata {
                         capture::METADATA
                     } else {
@@ -418,8 +441,10 @@ impl<'cache> Generator<'cache> {
                         }
                     }
                     // Recipe enumeration cannot yet establish planet-wide occurrence or
-                    // exclusion, so search cannot use it to resolve the predicate.
-                    let flora_needed = inspect_target;
+                    // exclusion, so search cannot use it to resolve the predicate. Inspection
+                    // only pays for the inventory when the selected criteria request it.
+                    let flora_needed = inspect_target
+                        && operation.needs_flora_inventory(needed.colours);
                     let grass = if needed.colours & 1 != 0 {
                         let captured = capture::capture(live, generator, capture::colour(0))?;
                         outcome.work.colour_captures += 1;
@@ -442,7 +467,7 @@ impl<'cache> Generator<'cache> {
                     if let Some(objects) = self
                         .objects
                         .as_ref()
-                        .filter(|_| needed.objects || inspect_target)
+                        .filter(|_| needed.objects)
                     {
                         let need_glow = [PlanetFlag::GlowingGrass, PlanetFlag::GlowingFlora]
                             .into_iter().enumerate().fold(0, |mask, (bit, flag)| {
@@ -496,24 +521,56 @@ impl<'cache> Generator<'cache> {
                                 // default mode instead of reading that unrelated storage.
                                 palette_mode: 0,
                             };
-                            let inventory = crate::flora_appearance::inventory(
-                                &flora_models,
-                                &context,
+                            outcome.pending_flora = Some(PendingFlora {
+                                address: address.planet(index)?,
+                                planet: index,
+                                models: flora_models,
+                                context,
                                 filter,
-                                // The first selected table option does not yet prove all
-                                // eligible planet recipes have been enumerated.
-                                false,
-                                cancel,
-                            )?;
-                            facts.observe_flora_colours(0, inventory.predicate_exclusions());
-                            if inspect_target {
-                                outcome.planet_observations = Some(search_probes_model::observations::PlanetObservations {
-                                    address: address.planet(index)?,
-                                    acquisition: search_probes_model::observations::ObservationAcquisition::CurrentWorldGeneratedQuery,
-                                    surface_models: inventory,
-                                });
+                            });
+                        }
+                    }
+                    let needed = if inspect_target {
+                        plan.inspection_requirements(facts)
+                    } else {
+                        plan.missing_planet_requirements(facts)
+                    };
+                    // Fauna generation is the most expensive independent acquisition stage. Run
+                    // it only after cheaper metadata, colour and object facts have had a chance to
+                    // reject the planet.
+                    if needed.fauna {
+                        if plan.targets_animals() && facts.fauna().is_none() {
+                            if self.fauna.is_none() {
+                                self.fauna = Some(crate::fauna::Context::from_verified_image(self.base)?);
                             }
-                            outcome.work.colour_captures+=1;
+                            let observed = crate::fauna::capture(
+                                self.fauna.as_ref().unwrap(),
+                                live,
+                                address.planet(index)?,
+                            )?;
+                            outcome.work.fauna = outcome
+                                .work
+                                .fauna
+                                .saturating_add(observed.species.len() as u64);
+                            facts.set_planet_flag(PlanetFlag::PlayerAttackingFauna, observed.player_attacking);
+                            facts.set_planet_flag(PlanetFlag::Sandworms, observed.sandworms);
+                            facts.set_fauna(observed.species);
+                        } else {
+                            facts.set_planet_flag(PlanetFlag::PlayerAttackingFauna, crate::fauna::player_attacking(live)?);
+                            facts.set_planet_flag(PlanetFlag::Sandworms, crate::fauna::sandworms(live)?);
+                        }
+                        if plan.planet.iter().any(|rule| matches!(rule, Predicate::Arena(_)))
+                            && facts.arena().is_none()
+                        {
+                            if self.arena.is_none() {
+                                self.arena = Some(crate::arena::Context::from_verified_image(self.base)?);
+                            }
+                            let inputs = crate::arena_inputs::Planet::capture(live, address.planet(index)?)?;
+                            facts.set_arena(self.arena.as_ref().unwrap().capture_inputs(&inputs)?);
+                            arena_inputs = Some(inputs);
+                        }
+                        if !inspect_target && plan.planet_match(facts) == Verdict::NoMatch {
+                            return Ok(());
                         }
                     }
                     if inspect_target {
@@ -579,6 +636,32 @@ mod tests {
     use std::time::Duration;
 
     #[test]
+    fn current_planet_is_generated_before_system_followups() {
+        assert_eq!(
+            planet_order(5, Operation::Inspect(Some(3))),
+            vec![3, 0, 1, 2, 4]
+        );
+        assert_eq!(planet_order(3, Operation::Search), vec![0, 1, 2]);
+        assert_eq!(planet_order(3, Operation::Inspect(None)), vec![0, 1, 2]);
+    }
+
+    #[test]
+    fn star_count_derivation_is_reserved_for_star_count_criteria() {
+        let ordinary = search_probes_model::criteria::Criteria::default()
+            .compile()
+            .unwrap();
+        assert!(!needs_star_count(&ordinary));
+
+        let stars = search_probes_model::criteria::Criteria {
+            star_counts: 0b101,
+            ..Default::default()
+        }
+        .compile()
+        .unwrap();
+        assert!(needs_star_count(&stars));
+    }
+
+    #[test]
     fn flora_colour_is_rejected_before_search_generation_but_allowed_for_inspection() {
         let mut criteria = search_probes_model::criteria::Criteria::default();
         criteria.choices.insert(Field::FloraColour, 1);
@@ -595,6 +678,22 @@ mod tests {
                 .validate_plan(&criteria.compile().unwrap())
                 .is_ok()
         );
+    }
+
+    #[test]
+    fn current_world_inspection_only_collects_requested_flora_inventory() {
+        let facts = search_probes_model::facts::Facts::default();
+        let mut criteria = search_probes_model::criteria::Criteria::default();
+        criteria.choices.insert(Field::Grass, 1);
+        let grass = criteria.compile().unwrap().inspection_requirements(&facts);
+        assert!(!Operation::Inspect(Some(0)).needs_flora_inventory(grass.colours));
+
+        criteria.choices.clear();
+        criteria.choices.insert(Field::FloraColour, 1);
+        let flora = criteria.compile().unwrap().inspection_requirements(&facts);
+        assert!(Operation::Inspect(Some(0)).needs_flora_inventory(flora.colours));
+        assert!(!Operation::Inspect(None).needs_flora_inventory(flora.colours));
+        assert!(!Operation::Search.needs_flora_inventory(flora.colours));
     }
 
     #[test]

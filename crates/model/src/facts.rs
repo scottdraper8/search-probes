@@ -540,8 +540,12 @@ impl Facts {
                 self.system_flag(flag).map(|value| value == expected)
             }
             Predicate::Resources(rule) => self.resources.map(|value| rule.accepts(value)),
-            Predicate::MinimumPlanets(minimum) => self.planet_count.map(|count| count >= minimum),
-            Predicate::MinimumStars(minimum) => self.star_count.map(|count| count >= minimum),
+            Predicate::PlanetCounts(selected) => self
+                .planet_count
+                .map(|count| selected & (1 << (count - 1)) != 0),
+            Predicate::StarCounts(selected) => self
+                .star_count
+                .map(|count| selected & (1 << (count - 1)) != 0),
         };
         match accepted {
             Some(true) => Verdict::Match,

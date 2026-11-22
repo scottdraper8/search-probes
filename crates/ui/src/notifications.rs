@@ -14,13 +14,18 @@ use search_probes_model::{
 };
 use std::{collections::VecDeque, time::Duration};
 
-const LIFETIME: Duration = Duration::from_secs(4);
+#[cfg(test)]
+const LIFETIME: Duration = Duration::from_secs(5);
 const FADE_IN: Duration = Duration::from_millis(250);
 const FADE_OUT: Duration = Duration::from_millis(350);
 const MAX_TOASTS: usize = 3;
 const MAX_CONTROLLED_TOASTS: usize = 16;
 const MAX_CONTROL_ID_BYTES: usize = 128;
 const MAX_MESSAGE_BYTES: usize = 1024;
+
+fn lifetime(preferences: &NotificationSettings) -> Duration {
+    Duration::from_secs(u64::from(preferences.duration_seconds))
+}
 
 fn bound_message(message: &mut String) {
     if message.len() > MAX_MESSAGE_BYTES {
@@ -209,12 +214,29 @@ impl Toast {
     }
 }
 
-#[derive(Default)]
 pub(crate) struct Notifications {
     toasts: VecDeque<Toast>,
+    revision: u64,
+}
+
+impl Default for Notifications {
+    fn default() -> Self {
+        Self {
+            toasts: VecDeque::new(),
+            revision: 1,
+        }
+    }
 }
 
 impl Notifications {
+    fn changed(&mut self) {
+        self.revision = self.revision.wrapping_add(1);
+    }
+
+    pub fn revision(&self) -> u64 {
+        self.revision
+    }
+
     fn text(content: &Content) -> (String, String) {
         match content {
             Content::Search(notification) => {
@@ -233,6 +255,7 @@ impl Notifications {
     }
 
     pub fn update(&mut self, now: Duration, preferences: &NotificationSettings) {
+        let before = self.toasts.len();
         self.toasts.retain(|toast| {
             let visible = toast.expires.is_none_or(|expires| now < expires);
             visible
@@ -242,6 +265,9 @@ impl Notifications {
                         Content::Export { .. } => true,
                     })
         });
+        if self.toasts.len() != before {
+            self.changed();
+        }
     }
 
     pub fn push(
@@ -261,11 +287,12 @@ impl Notifications {
         preferences: &NotificationSettings,
     ) {
         self.update(now, preferences);
-        if !notification.enabled(preferences) || age >= LIFETIME {
+        let lifetime = lifetime(preferences);
+        if !notification.enabled(preferences) || age >= lifetime {
             return;
         }
         let created = now.saturating_sub(age);
-        let remaining = LIFETIME - age;
+        let remaining = lifetime - age;
         self.append(
             None,
             Content::Search(notification),
@@ -301,6 +328,7 @@ impl Notifications {
             created,
             expires,
         });
+        self.changed();
     }
 
     fn validate_control_id(id: &str) -> Result<(), String> {
@@ -368,24 +396,37 @@ impl Notifications {
             return false;
         };
         toast.dismiss(now);
+        self.changed();
         true
     }
 
     pub fn clear_export(&mut self) {
+        let before = self.toasts.len();
         self.toasts.retain(|toast| {
             toast.control_id.is_some() || !matches!(toast.content, Content::Export { .. })
         });
+        if self.toasts.len() != before {
+            self.changed();
+        }
     }
 
     pub fn clear_search(&mut self) {
+        let before = self.toasts.len();
         self.toasts.retain(|toast| {
             toast.control_id.is_some() || matches!(toast.content, Content::Export { .. })
         });
+        if self.toasts.len() != before {
+            self.changed();
+        }
     }
 
     pub fn clear(&mut self, now: Duration) {
+        let changed = !self.toasts.is_empty();
         for toast in &mut self.toasts {
             toast.dismiss(now);
+        }
+        if changed {
+            self.changed();
         }
     }
 
@@ -407,19 +448,29 @@ impl Notifications {
             .collect()
     }
 
-    pub fn exported(&mut self, subject: &'static str, mut path: String, now: Duration) {
+    pub fn exported(
+        &mut self,
+        subject: &'static str,
+        mut path: String,
+        now: Duration,
+        preferences: &NotificationSettings,
+    ) {
         bound_message(&mut path);
         self.clear_export();
         self.append(
             None,
             Content::Export { subject, path },
             now,
-            Some(now.saturating_add(LIFETIME)),
+            Some(now.saturating_add(lifetime(preferences))),
         );
     }
 
     pub fn is_empty(&self) -> bool {
         self.toasts.is_empty()
+    }
+
+    pub fn len(&self) -> usize {
+        self.toasts.len()
     }
 
     pub fn show(
@@ -439,6 +490,7 @@ impl Notifications {
         let width = (screen.width() - 32.0).clamp(120.0, 340.0);
         // Keep the stack inside short viewports; all retained cards continue to expire normally.
         let maximum = ((screen.height() - 32.0) / 220.0).floor().max(1.0) as usize;
+        let mut changed = false;
         egui::Area::new(egui::Id::new("search_probes_notifications"))
             .order(egui::Order::Foreground)
             .anchor(anchor, offset)
@@ -481,7 +533,7 @@ impl Notifications {
                             | Notification::AutomaticallyResumed { .. }
                             | Notification::CompatibilityRecovered { .. },
                         ) => (palette.warning, palette.foreground_on(palette.warning)),
-                        Content::Export { .. } => (palette.link, palette.background),
+                        Content::Export { .. } => (palette.link, palette.foreground_on(palette.link)),
                     };
                     let mut dismissed = false;
                     ui.scope(|ui| {
@@ -707,9 +759,13 @@ impl Notifications {
                     });
                     if dismissed && let Some(toast) = self.toasts.get_mut(index) {
                         toast.dismiss(now);
+                        changed = true;
                     }
                 }
             });
+        if changed {
+            self.changed();
+        }
     }
 }
 
@@ -885,7 +941,12 @@ mod tests {
             Duration::ZERO,
             &preferences,
         );
-        notifications.exported("Results", "results.csv".into(), Duration::ZERO);
+        notifications.exported(
+            "Results",
+            "results.csv".into(),
+            Duration::ZERO,
+            &preferences,
+        );
         preferences.result_found = false;
         notifications.update(Duration::ZERO, &preferences);
         assert_eq!(notifications.toasts.len(), 1);
@@ -896,8 +957,9 @@ mod tests {
     #[test]
     fn replacement_export_expires_from_its_own_completion() {
         let mut notifications = Notifications::default();
-        notifications.exported("Results", "first.csv".into(), Duration::ZERO);
-        notifications.exported("Search", "second.json".into(), LIFETIME);
+        let preferences = NotificationSettings::default();
+        notifications.exported("Results", "first.csv".into(), Duration::ZERO, &preferences);
+        notifications.exported("Search", "second.json".into(), LIFETIME, &preferences);
         assert_eq!(notifications.toasts.len(), 1);
         assert!(matches!(
             notifications.toasts.front().map(|toast| &toast.content),
@@ -928,6 +990,18 @@ mod tests {
         );
         assert!(!notifications.is_empty());
         notifications.update(Duration::from_nanos(1), &NotificationSettings::default());
+        assert!(notifications.is_empty());
+    }
+
+    #[test]
+    fn transient_lifetime_uses_the_notification_preference() {
+        let mut notifications = Notifications::default();
+        let preferences = NotificationSettings {
+            duration_seconds: 2,
+            ..NotificationSettings::default()
+        };
+        notifications.push(resumed(), Duration::ZERO, &preferences);
+        notifications.update(Duration::from_secs(2), &preferences);
         assert!(notifications.is_empty());
     }
 

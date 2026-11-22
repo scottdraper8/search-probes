@@ -8,6 +8,34 @@ pub const PLANET_QUERY_SIZE: usize = 0x170;
 pub const PLANET_QUERY_COUNT: usize = 6;
 pub const PLANET_INPUT_OFFSET: usize = METADATA_OFFSET + 0x2180;
 pub const PLANET_INPUT_SIZE: usize = 0x58;
+const NEBULA_SEED_OFFSET: usize = 0x2080;
+const RNG_MULTIPLIER: u64 = 0x5a76_f899;
+const PRE_SKY_ADVANCES: usize = 6;
+const NEBULA_SEED_ADVANCES: usize = 3;
+
+fn advance_generator(low: u32, high: u32) -> (u32, u32) {
+    let state = u64::from(low)
+        .wrapping_mul(RNG_MULTIPLIER)
+        .wrapping_add(u64::from(high));
+    (state as u32, (state >> 32) as u32)
+}
+
+fn nebula_seed(address: Address) -> f32 {
+    // Full system generation seeds this stream directly from the system address. Palette
+    // preparation consumes six values unconditionally, then sky generation consumes three and
+    // stores the third low word divided by 2^32 as NebulaSeed. Reproduce only that pure RNG path:
+    // the native preparation functions also touch gameplay-owned services and are not worker-safe.
+    let raw = address.system().raw();
+    let mut low = raw as u32;
+    if low == 0 {
+        low = 1;
+    }
+    let mut high = low.rotate_right(16) ^ (raw >> 32) as u32 ^ low;
+    for _ in 0..PRE_SKY_ADVANCES + NEBULA_SEED_ADVANCES {
+        (low, high) = advance_generator(low, high);
+    }
+    (f64::from(low) / 4_294_967_296.0) as f32
+}
 
 type Lifecycle = unsafe extern "system" fn(*mut u8);
 type Classify = unsafe extern "system" fn(*mut u8, u64);
@@ -116,7 +144,7 @@ pub struct Query<'a> {
     bindings: &'a Bindings,
     address: Address,
     count: usize,
-    star_count: u8,
+    star_count: Option<u8>,
     generated: u8,
 }
 
@@ -145,6 +173,16 @@ impl PlanetCall {
 }
 
 impl<'a> Query<'a> {
+    unsafe fn initialize_input(bindings: &Bindings, ptr: *mut u8, address: Address) {
+        unsafe {
+            (ptr as *mut u32).write_unaligned(1);
+            ptr.add(8).cast::<u64>().write_unaligned(address.raw());
+            ptr.add(0x10).cast::<u64>().write_unaligned(address.raw());
+            ptr.add(0x18).write(1);
+            (bindings.classify)(ptr.add(0x20), address.raw());
+        }
+    }
+
     /// # Safety
     /// `solar` is a fully initialized native solar generator, exclusively usable on this thread.
     /// Its resource graph and referenced gameplay state must remain valid and quiescent.
@@ -152,6 +190,7 @@ impl<'a> Query<'a> {
         bindings: &'a Bindings,
         solar: *mut u8,
         address: Address,
+        generate_star_count: bool,
     ) -> Result<Self, &'static str> {
         if solar.is_null() {
             return Err("null solar generator");
@@ -165,30 +204,29 @@ impl<'a> Query<'a> {
             bindings,
             address: address.system(),
             count: 0,
-            star_count: 0,
+            star_count: None,
             generated: 0,
         };
         let ptr = result.storage.0.as_mut_ptr();
         unsafe {
-            (ptr as *mut u32).write_unaligned(1);
-            ptr.add(8)
-                .cast::<u64>()
-                .write_unaligned(result.address.raw());
-            ptr.add(0x10)
-                .cast::<u64>()
-                .write_unaligned(result.address.raw());
-            ptr.add(0x18).write(1);
-            (bindings.classify)(ptr.add(0x20), result.address.raw());
+            Self::initialize_input(bindings, ptr, result.address);
             (bindings.solar)(solar, ptr.add(0x10), ptr.add(0x20), ptr.add(0x1030));
             if ptr.add(0x1038).cast::<usize>().read_unaligned() != ptr.add(METADATA_OFFSET) as usize
             {
                 return Err("native query metadata ownership changed");
             }
-            let star_count = (bindings.star_count)(ptr.add(METADATA_OFFSET));
-            if !(1..=3).contains(&star_count) {
-                return Err("native star count outside 1..3");
+            if generate_star_count {
+                let metadata = ptr.add(METADATA_OFFSET);
+                metadata
+                    .add(NEBULA_SEED_OFFSET)
+                    .cast::<f32>()
+                    .write_unaligned(nebula_seed(result.address));
+                let star_count = (bindings.star_count)(metadata);
+                if !(1..=3).contains(&star_count) {
+                    return Err("native star count outside 1..3");
+                }
+                result.star_count = Some(star_count as u8);
             }
-            result.star_count = star_count as u8;
             let count = ptr
                 .add(0x760)
                 .cast::<i32>()
@@ -208,7 +246,7 @@ impl<'a> Query<'a> {
     pub fn planet_count(&self) -> usize {
         self.count
     }
-    pub fn star_count(&self) -> u8 {
+    pub fn star_count(&self) -> Option<u8> {
         self.star_count
     }
     pub fn bytes(&self) -> &[u8] {
@@ -291,5 +329,17 @@ impl Drop for Query<'_> {
         unsafe {
             (self.bindings.destroy)(self.storage.0.as_mut_ptr());
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn reproduces_loaded_three_star_system_nebula_seed() {
+        let address = Address::from_raw(0x0000_5a00_f9ff_e005).unwrap();
+
+        assert_eq!(nebula_seed(address).to_bits(), 0x3f7d_6931);
     }
 }

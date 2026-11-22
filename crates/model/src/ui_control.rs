@@ -20,8 +20,8 @@ pub const UI_ACTIONS: &[(&str, &[&str])] = &[
     ("set_planet_requirement", &["flag", "value"]),
     ("set_system_requirement", &["flag", "value"]),
     ("set_resource_filter", &["selected"]),
-    ("set_minimum_planets", &["minimum"]),
-    ("set_minimum_stars", &["minimum"]),
+    ("set_planet_counts", &["selected"]),
+    ("set_star_counts", &["selected"]),
     ("set_water_filter", &["scope", "value"]),
     ("set_composition_filter", &["field", "side", "selected"]),
     ("set_fauna_choices", &["domain", "field", "selected"]),
@@ -175,11 +175,11 @@ pub enum UiAction {
     SetResourceFilter {
         selected: Vec<String>,
     },
-    SetMinimumPlanets {
-        minimum: Option<u8>,
+    SetPlanetCounts {
+        selected: Vec<u8>,
     },
-    SetMinimumStars {
-        minimum: Option<u8>,
+    SetStarCounts {
+        selected: Vec<u8>,
     },
     SetWaterFilter {
         scope: WaterScope,

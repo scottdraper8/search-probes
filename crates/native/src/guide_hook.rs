@@ -24,7 +24,7 @@ const CATEGORY_TYPE: usize = 0x90;
 const CATEGORY_UNLOCKED_COUNT: usize = 0x94;
 const CATEGORY_UNSEEN_COUNT: usize = 0x98;
 const GUIDE_TYPE: u32 = 20;
-const ARRAY_LAYOUT_TAG: u32 = 0x100;
+const ARRAY_LAYOUT_TAG: u8 = 1;
 const TOPIC_STRIDE: usize = 0xb8;
 const TOPIC_ID: usize = 0x40;
 const TOPIC_MISSION: usize = 0x90;
@@ -64,8 +64,10 @@ fn flag(address: usize) -> Result<u8, &'static str> {
 fn array(address: usize, maximum: usize) -> Result<(usize, usize), &'static str> {
     let count = platform::u32_at(address + 8)? as usize;
     // cTkDynamicArray ends with one allocation byte, one layout byte, then two padding bytes.
-    // Resource-backed Wiki data poisons the padding with 0xaa; its heap copy leaves it zeroed.
-    if count > maximum || platform::u32_at(address + 12)? & 0xffff != ARRAY_LAYOUT_TAG {
+    // Both allocation states are valid: resource-backed Wiki arrays set the first byte while a
+    // heap copy clears it. Resource data may also poison the two padding bytes with 0xaa.
+    let metadata = platform::read::<4>(address + 12)?;
+    if !supported_array_metadata(count, maximum, metadata) {
         return Err("unsupported Guide collection");
     }
     let pointer = if count == 0 {
@@ -74,6 +76,10 @@ fn array(address: usize, maximum: usize) -> Result<(usize, usize), &'static str>
         platform::pointer(address)?
     };
     Ok((pointer, count))
+}
+
+fn supported_array_metadata(count: usize, maximum: usize, metadata: [u8; 4]) -> bool {
+    count <= maximum && metadata[0] <= 1 && metadata[1] == ARRAY_LAYOUT_TAG
 }
 
 impl Topics {
@@ -259,4 +265,22 @@ pub unsafe fn disable() -> Result<(), HookError> {
     }
     take();
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::supported_array_metadata;
+
+    #[test]
+    fn guide_arrays_accept_heap_and_resource_allocation_states() {
+        assert!(supported_array_metadata(9, 128, [0, 1, 0, 0]));
+        assert!(supported_array_metadata(9, 128, [1, 1, 0xaa, 0xaa]));
+    }
+
+    #[test]
+    fn guide_arrays_reject_invalid_metadata_and_counts() {
+        assert!(!supported_array_metadata(129, 128, [0, 1, 0, 0]));
+        assert!(!supported_array_metadata(9, 128, [2, 1, 0, 0]));
+        assert!(!supported_array_metadata(9, 128, [0, 0, 0, 0]));
+    }
 }

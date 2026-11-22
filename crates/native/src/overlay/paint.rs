@@ -326,19 +326,34 @@ impl Painter {
         }
         let mut output = context.run_ui(raw, |root| {
             if interactive {
-                egui::Window::new("Search Probes")
-                    .id(egui::Id::new("search_probes_overlay"))
-                    .default_size([1100.0, 840.0])
-                    .min_size([380.0, 240.0])
-                    .resizable(true)
-                    .collapsible(false)
-                    .frame(egui::Frame::window(root.style()).inner_margin(0.0))
-                    .show(root.ctx(), |ui_root| ui.app.ui(ui_root));
+                let (title_fill, title_text) = ui.app.window_title_colors();
+                let response =
+                    egui::Window::new(egui::RichText::new("Search Probes").color(title_text))
+                        .id(egui::Id::new("search_probes_overlay"))
+                        .default_size([1100.0, 840.0])
+                        .min_size([380.0, 240.0])
+                        .resizable(true)
+                        .collapsible(false)
+                        .title_frame(egui::Frame::window(root.style()).fill(title_fill))
+                        .frame(egui::Frame::window(root.style()).inner_margin(0.0))
+                        .show(root.ctx(), |ui_root| ui.app.window_ui(ui_root));
+                if let Some(response) = response {
+                    ui.app.finish_window_ui(
+                        root.ctx(),
+                        response.response.layer_id,
+                        response.response.rect,
+                        response.inner.flatten(),
+                    );
+                }
             }
             ui.app.show_notifications(root.ctx());
         });
         if interactive {
-            input::output(hwnd, &output.platform_output);
+            input::output(
+                hwnd,
+                &output.platform_output,
+                context.egui_wants_keyboard_input(),
+            );
         }
         if interactive && let Some(request) = ui.app.take_export_request() {
             let result = export::save(hwnd, &request);

@@ -1,5 +1,6 @@
 use crate::resident_hook::{HookError, ResidentHook};
 use search_probes_model::{
+    binding::InputBinding,
     cache::CachedMatch,
     fauna::Domain,
     settings::{MAX_PRESETS, Preset},
@@ -19,11 +20,14 @@ const STRING_LOCALISE_RVA: usize = 0x2c45f70;
 const STRING_PREFIX: [u8; 15] = [
     0x48, 0x89, 0x6c, 0x24, 0x10, 0x48, 0x89, 0x74, 0x24, 0x18, 0x57, 0x48, 0x83, 0xec, 0x40,
 ];
+const SYSTEM_DESCRIPTION_ID: &[u8] = b"SQN_SP_SYSTEM_MISSION_DESC";
+const SYSTEM_FLAVOUR_ID: &[u8] = b"SQN_SP_SYSTEM_MISSION_FLAVOUR";
 const SYSTEM_OBJECTIVE_ID: &[u8] = b"SQN_SP_SYSTEM_MISSION_OBJ";
 const PLANET_OBJECTIVE_ID: &[u8] = b"SQN_SP_NAV_MISSION_OBJ";
 const FAUNA_OBJECTIVE_ID: &[u8] = b"SQN_SP_FAUNA_MISSION_OBJ";
 const FAUNA_TIP_ID: &[u8] = b"SQN_SP_FAUNA_MISSION_OBJ_TIP";
 const FAUNA_STATUS_ID: &[u8] = b"SQN_SP_FAUNA_SCAN";
+const GUIDE_BODY_ID: &[u8] = b"SQN_SP_BODY";
 const PRESET_IDS: [&[u8]; MAX_PRESETS] = [
     b"SQN_SP_SLOT1",
     b"SQN_SP_SLOT2",
@@ -42,10 +46,13 @@ type StringLocalise = unsafe extern "system" fn(usize, *const u8, *const u8) -> 
 static FIXED_ORIGINAL: AtomicUsize = AtomicUsize::new(0);
 static STRING_ORIGINAL: AtomicUsize = AtomicUsize::new(0);
 static HOOKS: Mutex<Option<Hooks>> = Mutex::new(None);
+static SYSTEM_DESCRIPTION: AtomicUsize = AtomicUsize::new(0);
+static SYSTEM_FLAVOUR: AtomicUsize = AtomicUsize::new(0);
 static SYSTEM_OBJECTIVE: AtomicUsize = AtomicUsize::new(0);
 static PLANET_OBJECTIVE: AtomicUsize = AtomicUsize::new(0);
 static FAUNA_OBJECTIVE: AtomicUsize = AtomicUsize::new(0);
 static FAUNA_TIP: AtomicUsize = AtomicUsize::new(0);
+static GUIDE_BODY: AtomicUsize = AtomicUsize::new(0);
 static PRESET_NAMES: [AtomicUsize; MAX_PRESETS] = [const { AtomicUsize::new(0) }; MAX_PRESETS];
 
 struct Hooks {
@@ -71,6 +78,10 @@ unsafe fn replacement(identity: *const u8) -> usize {
         .position(|expected| unsafe { matches(identity, expected) })
     {
         PRESET_NAMES[slot].load(Ordering::Acquire)
+    } else if unsafe { matches(identity, SYSTEM_DESCRIPTION_ID) } {
+        SYSTEM_DESCRIPTION.load(Ordering::Acquire)
+    } else if unsafe { matches(identity, SYSTEM_FLAVOUR_ID) } {
+        SYSTEM_FLAVOUR.load(Ordering::Acquire)
     } else if unsafe { matches(identity, SYSTEM_OBJECTIVE_ID) } {
         SYSTEM_OBJECTIVE.load(Ordering::Acquire)
     } else if unsafe { matches(identity, PLANET_OBJECTIVE_ID) } {
@@ -81,6 +92,8 @@ unsafe fn replacement(identity: *const u8) -> usize {
         FAUNA_OBJECTIVE.load(Ordering::Acquire)
     } else if unsafe { matches(identity, FAUNA_TIP_ID) } {
         FAUNA_TIP.load(Ordering::Acquire)
+    } else if unsafe { matches(identity, GUIDE_BODY_ID) } {
+        GUIDE_BODY.load(Ordering::Acquire)
     } else {
         0
     }
@@ -134,6 +147,14 @@ pub fn set_system(name: &str) -> Result<(), &'static str> {
     if name.is_empty() {
         return Err("destination has no system name");
     }
+    publish(
+        &SYSTEM_DESCRIPTION,
+        format!("A search probe has identified {name} as a matching system."),
+    )?;
+    publish(
+        &SYSTEM_FLAVOUR,
+        format!("Follow Current Mission in the Galaxy Map and enter {name}."),
+    )?;
     publish(&SYSTEM_OBJECTIVE, format!("Enter {name}"))
 }
 
@@ -189,7 +210,30 @@ pub fn set_destination(result: &CachedMatch) -> Result<(), &'static str> {
     Ok(())
 }
 
-pub fn set_presets(presets: &[Preset]) -> Result<(), &'static str> {
+fn binding_label(binding: InputBinding) -> String {
+    match binding {
+        InputBinding::Keyboard { first, second } => second.map_or_else(
+            || first.label().to_owned(),
+            |second| format!("{} + {}", first.label(), second.label()),
+        ),
+        InputBinding::Controller { first, second } => second.map_or_else(
+            || first.label().to_owned(),
+            |second| format!("{} + {}", first.label(), second.label()),
+        ),
+    }
+}
+
+fn guide_body(hotkey: InputBinding) -> String {
+    format!(
+        "• Open Search Probes with {} to edit and name up to nine presets\n\
+         • Saved presets appear here\n\
+         • Launch a preset, then close the Guide to let the search run\n\
+         • Choose a result to copy coordinates or launch a Search Probes in-game mission",
+        binding_label(hotkey)
+    )
+}
+
+pub fn set_guide(presets: &[Preset], hotkey: InputBinding) -> Result<(), &'static str> {
     if presets.len() > MAX_PRESETS {
         return Err("too many Guide presets");
     }
@@ -206,16 +250,20 @@ pub fn set_presets(presets: &[Preset]) -> Result<(), &'static str> {
             destination.store(0, Ordering::Release);
         }
     }
+    publish(&GUIDE_BODY, guide_body(hotkey))?;
     Ok(())
 }
 
-fn clear_presets() {
+fn clear_guide() {
     for preset in &PRESET_NAMES {
         preset.store(0, Ordering::Release);
     }
+    GUIDE_BODY.store(0, Ordering::Release);
 }
 
 pub fn clear() {
+    SYSTEM_DESCRIPTION.store(0, Ordering::Release);
+    SYSTEM_FLAVOUR.store(0, Ordering::Release);
     SYSTEM_OBJECTIVE.store(0, Ordering::Release);
     PLANET_OBJECTIVE.store(0, Ordering::Release);
     FAUNA_OBJECTIVE.store(0, Ordering::Release);
@@ -270,7 +318,7 @@ pub unsafe fn disable() -> Result<(), HookError> {
         }
     }
     clear();
-    clear_presets();
+    clear_guide();
     failure.map_or(Ok(()), Err)
 }
 
@@ -284,14 +332,41 @@ mod tests {
         set_planet("Giumfi Major").unwrap();
         set_fauna("I. Festerluwelus", Domain::Land, false).unwrap();
         let system = SYSTEM_OBJECTIVE.load(Ordering::Acquire) as *const u8;
+        let system_description = SYSTEM_DESCRIPTION.load(Ordering::Acquire) as *const u8;
+        let system_flavour = SYSTEM_FLAVOUR.load(Ordering::Acquire) as *const u8;
         let planet = PLANET_OBJECTIVE.load(Ordering::Acquire) as *const u8;
         let objective = FAUNA_OBJECTIVE.load(Ordering::Acquire) as *const u8;
         let tip = FAUNA_TIP.load(Ordering::Acquire) as *const u8;
         let mut fixed_planet_identity = [0; 32];
         fixed_planet_identity[..PLANET_OBJECTIVE_ID.len()].copy_from_slice(PLANET_OBJECTIVE_ID);
+        let mut fixed_system_description = [0; 32];
+        fixed_system_description[..SYSTEM_DESCRIPTION_ID.len()]
+            .copy_from_slice(SYSTEM_DESCRIPTION_ID);
+        let mut fixed_system_flavour = [0; 32];
+        fixed_system_flavour[..SYSTEM_FLAVOUR_ID.len()].copy_from_slice(SYSTEM_FLAVOUR_ID);
+        assert_eq!(
+            unsafe { replacement(fixed_system_description.as_ptr()) },
+            system_description as usize
+        );
+        assert_eq!(
+            unsafe { replacement(fixed_system_flavour.as_ptr()) },
+            system_flavour as usize
+        );
         assert_eq!(
             unsafe { replacement(fixed_planet_identity.as_ptr()) },
             planet as usize
+        );
+        assert_eq!(
+            unsafe { std::ffi::CStr::from_ptr(system_description.cast()) }
+                .to_str()
+                .unwrap(),
+            "A search probe has identified Yihytaka XII as a matching system."
+        );
+        assert_eq!(
+            unsafe { std::ffi::CStr::from_ptr(system_flavour.cast()) }
+                .to_str()
+                .unwrap(),
+            "Follow Current Mission in the Galaxy Map and enter Yihytaka XII."
         );
         assert_eq!(
             unsafe { std::ffi::CStr::from_ptr(system.cast()) }
@@ -322,10 +397,13 @@ mod tests {
 
     #[test]
     fn saved_preset_names_replace_only_visible_guide_slot_labels() {
-        set_presets(&[Preset {
-            name: "Triple-S fauna".into(),
-            search: Default::default(),
-        }])
+        set_guide(
+            &[Preset {
+                name: "Triple-S fauna".into(),
+                search: Default::default(),
+            }],
+            InputBinding::default(),
+        )
         .unwrap();
         let mut first = [0; 32];
         first[..PRESET_IDS[0].len()].copy_from_slice(PRESET_IDS[0]);
@@ -339,7 +417,21 @@ mod tests {
             "Triple-S fauna"
         );
         assert_eq!(unsafe { replacement(second.as_ptr()) }, 0);
-        set_presets(&[]).unwrap();
+        set_guide(&[], InputBinding::default()).unwrap();
         assert_eq!(unsafe { replacement(first.as_ptr()) }, 0);
+    }
+
+    #[test]
+    fn guide_body_is_a_bulleted_list_with_the_configured_hotkey() {
+        assert_eq!(
+            guide_body(InputBinding::Keyboard {
+                first: search_probes_model::binding::KeyboardKey::F7,
+                second: None,
+            },),
+            "• Open Search Probes with F7 to edit and name up to nine presets\n\
+             • Saved presets appear here\n\
+             • Launch a preset, then close the Guide to let the search run\n\
+             • Choose a result to copy coordinates or launch a Search Probes in-game mission"
+        );
     }
 }

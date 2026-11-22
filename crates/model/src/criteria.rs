@@ -439,8 +439,8 @@ pub struct Criteria {
     pub planets: BTreeMap<PlanetFlag, bool>,
     pub systems: BTreeMap<SystemFlag, bool>,
     pub resources: Resources,
-    pub minimum_planets: Option<u8>,
-    pub minimum_stars: Option<u8>,
+    pub planet_counts: u8,
+    pub star_counts: u8,
     pub composition: Composition,
     pub system_water: WaterFilter,
     pub planet_water: WaterFilter,
@@ -518,12 +518,20 @@ pub enum Predicate {
     Planet(PlanetFlag, bool),
     System(SystemFlag, bool),
     Resources(Resources),
-    MinimumPlanets(u8),
-    MinimumStars(u8),
+    PlanetCounts(u8),
+    StarCounts(u8),
     Water(WaterFilter),
     Contains(PlanetSelection, bool),
     Fauna(crate::fauna::Selection),
     Arena(crate::arena::Selection),
+}
+
+fn count_labels(selected: u8, maximum: u8) -> String {
+    (1..=maximum)
+        .filter(|count| selected & (1 << (count - 1)) != 0)
+        .map(|count| count.to_string())
+        .collect::<Vec<_>>()
+        .join(" | ")
 }
 
 impl Predicate {
@@ -533,10 +541,10 @@ impl Predicate {
             Self::Arena(selection) => selection.section(),
             Self::Choice(choices) => choices.field.section(),
             Self::Planet(flag, _) => flag.section(),
-            Self::System(SystemFlag::ExtremeStorms, _) | Self::MinimumPlanets(_) => {
+            Self::System(SystemFlag::ExtremeStorms, _) | Self::PlanetCounts(_) => {
                 Section::SystemComposition
             }
-            Self::MinimumStars(_)
+            Self::StarCounts(_)
             | Self::System(SystemFlag::Dissonance, _)
             | Self::Contains(PlanetSelection::Water(_), _) => Section::SystemFeatures,
             Self::System(SystemFlag::Pirate, _) => Section::SystemDemographics,
@@ -552,7 +560,7 @@ impl Predicate {
             Self::Planet(flag, _) => flag.stage(),
             Self::System(flag, _) => flag.stage(),
             Self::Resources(_) => Stage::Query,
-            Self::MinimumPlanets(_) | Self::MinimumStars(_) => Stage::System,
+            Self::PlanetCounts(_) | Self::StarCounts(_) => Stage::System,
             Self::Water(_) => Stage::Query,
             Self::Contains(selection, _) => selection.stage(),
         }
@@ -594,8 +602,12 @@ impl Predicate {
                         .enumerate()
                 )
             ),
-            Self::MinimumPlanets(minimum) => format!("At least {minimum} planets"),
-            Self::MinimumStars(minimum) => format!("At least {minimum} stars"),
+            Self::PlanetCounts(selected) => {
+                format!("Number of planets: {}", count_labels(selected, 6))
+            }
+            Self::StarCounts(selected) => {
+                format!("Number of stars: {}", count_labels(selected, 3))
+            }
             Self::Water(rule) => format!("Water: {}", rule.label()),
             Self::Contains(selection, value) => {
                 let detail = match selection {
@@ -1424,17 +1436,18 @@ impl Criteria {
         for (&flag, &value) in &self.systems {
             plan.system.push(Predicate::System(flag, value));
         }
-        if let Some(minimum) = self.minimum_planets {
-            if !(1..=8).contains(&minimum) {
-                return Err("planet count must be between one and eight");
-            }
-            plan.system.push(Predicate::MinimumPlanets(minimum));
+        if self.planet_counts & !0b11_1111 != 0 {
+            return Err("planet count selection contains an unknown value");
         }
-        if let Some(minimum) = self.minimum_stars {
-            if !(1..=3).contains(&minimum) {
-                return Err("star count must be between one and three");
-            }
-            plan.system.push(Predicate::MinimumStars(minimum));
+        if self.planet_counts != 0 {
+            plan.system
+                .push(Predicate::PlanetCounts(self.planet_counts));
+        }
+        if self.star_counts & !0b111 != 0 {
+            return Err("star count selection contains an unknown value");
+        }
+        if self.star_counts != 0 {
+            plan.system.push(Predicate::StarCounts(self.star_counts));
         }
         if self.resources.selected >> RESOURCE_IDS.len() != 0 {
             return Err("unknown resource choice");

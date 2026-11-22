@@ -18,8 +18,8 @@ use search_probes_model::{
     runtime::{Action, Availability, LifecycleEvent, LifecycleEventKind, SearchPause, State},
     session::{Finish, Phase},
     settings::{
-        BUDGET_LABELS, BUDGETS, MAX_PRESETS, MAX_RESULTS, Preset, SearchOptions, Settings,
-        TimeLimit, ToastPlacement, available_workers, recommended_workers,
+        BUDGET_LABELS, BUDGETS, MAX_PRESETS, MAX_RESULTS, NotificationSettings, Preset,
+        SearchOptions, Settings, TimeLimit, ToastPlacement, available_workers, recommended_workers,
         validate_custom_theme_name, validate_frame_budget, validate_name,
     },
     target::TargetKind,
@@ -47,6 +47,8 @@ const SEARCH_ACTION_HEIGHT: f32 = 32.0;
 const PRIMARY_SEARCH_ACTION_WIDTH: f32 = 130.0;
 const SECONDARY_SEARCH_ACTION_WIDTH: f32 = 110.0;
 const SECTION_CONTENT_MARGIN: f32 = 10.0;
+const SETTINGS_SIDEBAR_WIDTH: f32 = 340.0;
+const SETTINGS_SIDEBAR_LAYER: &str = "search_probes_settings_layer";
 
 fn search_action_button(button: egui::Button<'_>, width: f32) -> egui::Button<'_> {
     button.min_size(egui::vec2(width, SEARCH_ACTION_HEIGHT))
@@ -160,6 +162,58 @@ struct RuntimeActionState {
     user_paused: bool,
     automatically_paused: bool,
     search_valid: bool,
+}
+
+#[derive(Clone, Copy)]
+struct RatePoint {
+    search_id: u64,
+    elapsed_ms: u64,
+    systems: u64,
+    planets: u64,
+    fauna: u64,
+}
+
+#[derive(Default)]
+struct RollingRates {
+    point: Option<RatePoint>,
+    values: Option<[f64; 3]>,
+}
+
+impl RollingRates {
+    fn observe(&mut self, state: &State) {
+        let Some(progress) = state.progress.as_ref() else {
+            *self = Self::default();
+            return;
+        };
+        let next = RatePoint {
+            search_id: progress.id,
+            elapsed_ms: state.metrics.elapsed_ms,
+            systems: state.metrics.generated_systems,
+            planets: state.metrics.generated_planets,
+            fauna: state.metrics.generated_fauna,
+        };
+        let Some(previous) = self
+            .point
+            .filter(|previous| previous.search_id == next.search_id)
+        else {
+            self.point = Some(next);
+            self.values = None;
+            return;
+        };
+        let elapsed = next.elapsed_ms.saturating_sub(previous.elapsed_ms);
+        if elapsed > 0 {
+            let scale = 1000.0 / elapsed as f64;
+            let sample = [
+                next.systems.saturating_sub(previous.systems) as f64 * scale,
+                next.planets.saturating_sub(previous.planets) as f64 * scale,
+                next.fauna.saturating_sub(previous.fauna) as f64 * scale,
+            ];
+            self.values = Some(self.values.map_or(sample, |current| {
+                std::array::from_fn(|index| current[index] * 0.65 + sample[index] * 0.35)
+            }));
+        }
+        self.point = Some(next);
+    }
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -313,6 +367,8 @@ pub struct App {
     ui_last_command: u64,
     ui_error: Option<String>,
     ui_output: Option<UiOutput>,
+    rolling_rates: RollingRates,
+    published_ui: Option<(UiState, u64)>,
 }
 
 fn labels_mask<'a>(
@@ -333,6 +389,21 @@ fn labels_mask<'a>(
             .get(label.as_str())
             .copied()
             .ok_or_else(|| format!("Filter option is unavailable: {label}"))?;
+    }
+    Ok(result)
+}
+
+fn count_mask(selected: &[u8], maximum: u8) -> Result<u8, String> {
+    let mut result = 0u8;
+    for &count in selected {
+        if !(1..=maximum).contains(&count) {
+            return Err(format!("Count selection is unavailable: {count}"));
+        }
+        let bit = 1 << (count - 1);
+        if result & bit != 0 {
+            return Err(format!("Count is selected more than once: {count}"));
+        }
+        result |= bit;
     }
     Ok(result)
 }
@@ -410,6 +481,8 @@ impl App {
             ui_last_command: 0,
             ui_error: None,
             ui_output: None,
+            rolling_rates: RollingRates::default(),
+            published_ui: None,
         }
     }
 
@@ -620,7 +693,7 @@ impl App {
             "Create custom theme"
         };
         let palette = self.palette();
-        let (title_fill, title_text) = (palette.link, palette.background);
+        let (title_fill, title_text) = (palette.link, palette.foreground_on(palette.link));
         let title_style = ctx.style_of(if palette.dark {
             egui::Theme::Dark
         } else {
@@ -789,112 +862,146 @@ impl App {
         egui::ScrollArea::vertical()
             .id_salt("settings_sidebar_scroll")
             .auto_shrink([false, false])
+            .scroll_bar_visibility(egui::scroll_area::ScrollBarVisibility::AlwaysVisible)
             .show(ui, |ui| {
-                ui.horizontal(|ui| {
-                    ui.heading("Theme");
-                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        self.theme_control(ui);
-                    });
-                });
-                self.theme_palette_preview(ui);
-                ui.add_space(4.0);
-                let selected_custom = match &self.settings.interface.theme {
-                    ThemeSelection::Custom { name } => Some(name.clone()),
-                    ThemeSelection::BuiltIn { .. } => None,
-                };
-                if ui
-                    .add_sized(
-                        [ui.available_width(), 32.0],
-                        egui::Button::new("Create custom theme"),
-                    )
-                    .clicked()
-                {
-                    self.open_new_theme_editor();
-                }
-                ui.horizontal(|ui| {
-                    let width =
-                        ((ui.available_width() - ui.spacing().item_spacing.x) / 2.0).max(70.0);
-                    if ui
-                        .add_enabled(
-                            selected_custom.is_some(),
-                            egui::Button::new("Edit").min_size(egui::vec2(width, 32.0)),
-                        )
-                        .clicked()
-                    {
-                        self.open_selected_theme_editor();
-                    }
-                    if ui
-                        .add_enabled(
-                            selected_custom.is_some(),
-                            egui::Button::new("Remove").min_size(egui::vec2(width, 32.0)),
-                        )
-                        .clicked()
-                        && let Some(name) = selected_custom
-                        && let Err(error) = self.remove_custom_theme(&name)
-                    {
-                        self.error = Some(error);
-                    }
-                });
-                ui.add_space(12.0);
-                sidebar_separator(ui);
-                ui.add_space(8.0);
-                ui.horizontal(|ui| {
-                    ui.heading("Preset Manager");
-                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        self.export_presets_button(ui);
-                    });
-                });
-                self.preset_manager(ui);
-                ui.add_space(12.0);
-                sidebar_separator(ui);
-                ui.add_space(8.0);
-                ui.heading("UI Hotkey");
-                self.hotkey_settings(ui);
-                ui.add_space(12.0);
-                sidebar_separator(ui);
-                ui.add_space(8.0);
-                ui.heading("Notifications");
-                let previous = self.settings.interface.notifications.clone();
-                {
-                    let notifications = &mut self.settings.interface.notifications;
-                    ui.checkbox(&mut notifications.result_found, "Result found");
-                    ui.checkbox(&mut notifications.search_completed, "Search completed");
-                    ui.checkbox(&mut notifications.automatic_pause, "Automatic pause");
-                    ui.checkbox(&mut notifications.automatic_resume, "Automatic resume");
-                    ui.add_space(8.0);
-                    ui.label("Screen placement");
-                    select_menu(
-                        ui,
-                        "notification_placement",
-                        notifications.placement.label(),
-                        ui.spacing().combo_width,
-                        ToastPlacement::ALL.len(),
-                        egui::PopupCloseBehavior::CloseOnClick,
-                        |ui| {
-                            for &placement in ToastPlacement::ALL {
-                                ui.selectable_value(
-                                    &mut notifications.placement,
-                                    placement,
-                                    placement.label(),
-                                );
+                // ScrollArea animates its reserved scrollbar width. Widgets laid out on the first
+                // open frame can otherwise retain the pre-animation width while being clipped to
+                // the narrower post-animation rect. A fixed inner gutter keeps centered widget
+                // strokes inside every intermediate clip width as the scrollbar appears.
+                egui::Frame::new()
+                    .inner_margin(egui::Margin {
+                        right: 8,
+                        ..Default::default()
+                    })
+                    .show(ui, |ui| {
+                        ui.horizontal(|ui| {
+                            ui.heading("Theme");
+                            ui.with_layout(
+                                egui::Layout::right_to_left(egui::Align::Center),
+                                |ui| {
+                                    self.theme_control(ui);
+                                },
+                            );
+                        });
+                        self.theme_palette_preview(ui);
+                        ui.add_space(4.0);
+                        let selected_custom = match &self.settings.interface.theme {
+                            ThemeSelection::Custom { name } => Some(name.clone()),
+                            ThemeSelection::BuiltIn { .. } => None,
+                        };
+                        if ui
+                            .add_sized(
+                                [ui.available_width(), 32.0],
+                                egui::Button::new("Create custom theme"),
+                            )
+                            .clicked()
+                        {
+                            self.open_new_theme_editor();
+                        }
+                        ui.horizontal(|ui| {
+                            let width = ((ui.available_width() - ui.spacing().item_spacing.x)
+                                / 2.0)
+                                .max(70.0);
+                            if ui
+                                .add_enabled(
+                                    selected_custom.is_some(),
+                                    egui::Button::new("Edit").min_size(egui::vec2(width, 32.0)),
+                                )
+                                .clicked()
+                            {
+                                self.open_selected_theme_editor();
                             }
-                        },
-                    );
-                }
-                if self.settings.interface.notifications != previous {
-                    self.notifications.update(
-                        self.started.elapsed(),
-                        &self.settings.interface.notifications,
-                    );
-                    self.send(Action::Configure {
-                        settings: self.settings.clone(),
+                            if ui
+                                .add_enabled(
+                                    selected_custom.is_some(),
+                                    egui::Button::new("Remove").min_size(egui::vec2(width, 32.0)),
+                                )
+                                .clicked()
+                                && let Some(name) = selected_custom
+                                && let Err(error) = self.remove_custom_theme(&name)
+                            {
+                                self.error = Some(error);
+                            }
+                        });
+                        ui.add_space(12.0);
+                        sidebar_separator(ui);
+                        ui.add_space(8.0);
+                        ui.horizontal(|ui| {
+                            ui.heading("Preset Manager");
+                            ui.with_layout(
+                                egui::Layout::right_to_left(egui::Align::Center),
+                                |ui| {
+                                    self.export_presets_button(ui);
+                                },
+                            );
+                        });
+                        self.preset_manager(ui);
+                        ui.add_space(12.0);
+                        sidebar_separator(ui);
+                        ui.add_space(8.0);
+                        ui.heading("UI Hotkey");
+                        self.hotkey_settings(ui);
+                        ui.add_space(12.0);
+                        sidebar_separator(ui);
+                        ui.add_space(8.0);
+                        ui.heading("Notifications");
+                        let previous = self.settings.interface.notifications.clone();
+                        {
+                            let notifications = &mut self.settings.interface.notifications;
+                            ui.checkbox(&mut notifications.result_found, "Result found");
+                            ui.checkbox(&mut notifications.search_completed, "Search completed");
+                            ui.checkbox(&mut notifications.automatic_pause, "Automatic pause");
+                            ui.checkbox(&mut notifications.automatic_resume, "Automatic resume");
+                            ui.add_space(8.0);
+                            ui.horizontal(|ui| {
+                                ui.label("Duration:");
+                                ui.add_sized(
+                                    [42.0, ui.spacing().interact_size.y],
+                                    egui::DragValue::new(&mut notifications.duration_seconds)
+                                        .range(
+                                            NotificationSettings::MIN_DURATION_SECONDS
+                                                ..=NotificationSettings::MAX_DURATION_SECONDS,
+                                        ),
+                                );
+                                ui.label("seconds");
+                            });
+                            ui.add_space(8.0);
+                            ui.horizontal(|ui| {
+                                ui.label("Screen placement:");
+                                select_menu(
+                                    ui,
+                                    "notification_placement",
+                                    notifications.placement.label(),
+                                    ui.available_width(),
+                                    ToastPlacement::ALL.len(),
+                                    egui::PopupCloseBehavior::CloseOnClick,
+                                    |ui| {
+                                        for &placement in ToastPlacement::ALL {
+                                            ui.selectable_value(
+                                                &mut notifications.placement,
+                                                placement,
+                                                placement.label(),
+                                            );
+                                        }
+                                    },
+                                );
+                            });
+                        }
+                        if self.settings.interface.notifications != previous {
+                            self.notifications.update(
+                                self.started.elapsed(),
+                                &self.settings.interface.notifications,
+                            );
+                            self.send(Action::Configure {
+                                settings: self.settings.clone(),
+                            });
+                        }
+                        ui.add_space(12.0);
+                        sidebar_separator(ui);
+                        ui.add_space(8.0);
+                        ui.heading("Result cards");
+                        self.result_card_settings(ui);
                     });
-                }
-                ui.add_space(12.0);
-                sidebar_separator(ui);
-                ui.add_space(8.0);
-                ui.heading("Result cards");
-                self.result_card_settings(ui);
             });
     }
     fn send(&mut self, action: Action) {
@@ -1029,7 +1136,7 @@ impl App {
         let mut confirm = false;
         let mut cancel = false;
         let palette = self.palette();
-        let (title_fill, title_text) = (palette.link, palette.background);
+        let (title_fill, title_text) = (palette.link, palette.foreground_on(palette.link));
         let title_style = ctx.style_of(if palette.dark {
             egui::Theme::Dark
         } else {
@@ -1848,11 +1955,11 @@ impl App {
                     .default_open(true)
                     .show(ui, |ui| {
                         choice_rows(ui, criteria, &[Field::Anomaly, Field::Star], input_width);
-                        minimum_count_row(
+                        count_choices_row(
                             ui,
-                            "Minimum stars",
-                            "minimum_stars",
-                            &mut criteria.minimum_stars,
+                            "Number of stars",
+                            "star_counts",
+                            &mut criteria.star_counts,
                             3,
                             input_width,
                         );
@@ -1893,11 +2000,11 @@ impl App {
                 )
                 .default_open(true)
                 .show(ui, |ui| {
-                    minimum_count_row(
+                    count_choices_row(
                         ui,
-                        "Minimum planets",
-                        "minimum_planets",
-                        &mut criteria.minimum_planets,
+                        "Number of planets",
+                        "planet_counts",
+                        &mut criteria.planet_counts,
                         6,
                         input_width,
                     );
@@ -2286,7 +2393,11 @@ impl App {
     }
 
     fn results(&mut self, ui: &mut Ui) {
-        let state = self.state.clone();
+        let availability = self.state.availability;
+        let search_pause = self.state.search_pause;
+        let metrics = self.state.metrics.clone();
+        let player = self.state.player;
+        let destination = self.state.destination;
         let viewing_past = self.viewing_past_search();
         let progress = self
             .displayed_record()
@@ -2323,8 +2434,8 @@ impl App {
                 .on_disabled_hover_text("There are no results to export");
             });
         });
-        if !viewing_past && state.availability != Availability::Ready {
-            ui.label(match state.availability {
+        if !viewing_past && availability != Availability::Ready {
+            ui.label(match availability {
                 Availability::MainMenu => "Load a save to search.",
                 Availability::Loading => "Waiting for the game to finish loading…",
                 Availability::Unsupported => {
@@ -2364,7 +2475,7 @@ impl App {
                     (progress.systems as f64 / progress.options.systems as f64) as f32,
                 );
                 ui.label(match progress.phase {
-                    Phase::Running => match state.search_pause {
+                    Phase::Running => match search_pause {
                         Some(SearchPause::Loading) => "Search paused while the game loads.",
                         Some(SearchPause::OtherGalaxy) => {
                             "Search paused: return to its starting galaxy to resume."
@@ -2377,31 +2488,22 @@ impl App {
                     Phase::Failed => "Search stopped after an error",
                 });
                 if !viewing_past
-                    && state.metrics.elapsed_ms > 0
+                    && metrics.elapsed_ms > 0
                     && progress.phase == Phase::Running
-                    && state.search_pause.is_none()
+                    && search_pause.is_none()
+                    && self.rolling_rates.values.is_some()
                 {
-                    let per_second =
-                        |count| count as f64 * 1000.0 / state.metrics.elapsed_ms as f64;
-                    let mut rates = vec![format!(
-                        "{:.0} generated systems/s",
-                        per_second(state.metrics.generated_systems)
-                    )];
+                    let rates = self.rolling_rates.values.unwrap_or([0.0; 3]);
+                    let mut labels = vec![format!("{:.0} generated systems/s", rates[0])];
                     if let Ok(plan) = progress.options.criteria.compile() {
                         if !plan.planet.is_empty() {
-                            rates.push(format!(
-                                "{:.0} generated planets/s",
-                                per_second(state.metrics.generated_planets)
-                            ));
+                            labels.push(format!("{:.0} generated planets/s", rates[1]));
                         }
                         if plan.targets_animals() {
-                            rates.push(format!(
-                                "{:.0} generated fauna/s",
-                                per_second(state.metrics.generated_fauna)
-                            ));
+                            labels.push(format!("{:.0} generated fauna/s", rates[2]));
                         }
                     }
-                    ui.small(format!("Average {}", rates.join(" · ")));
+                    ui.small(format!("Recent {}", labels.join(" · ")));
                 }
                 if progress.unresolved_arena_planets > 0 {
                     ui.small(format!(
@@ -2423,7 +2525,6 @@ impl App {
                 return;
             }
             ui.separator();
-            let results: Vec<_> = results.iter().collect();
             let gap = ui.spacing().item_spacing.x;
             let available = ui.available_width();
             let columns = ((available + gap) / (RESULT_CARD_MIN_WIDTH + gap))
@@ -2464,9 +2565,9 @@ impl App {
                                         if result_cards.set_destination {
                                             let set_destination = ui
                                             .add_enabled(
-                                                state.availability == Availability::Ready
+                                                availability == Availability::Ready
                                                     && result.destination_names_complete()
-                                                    && state.player.is_some_and(|player| player.coordinates().galaxy == coordinates.galaxy),
+                                                    && player.is_some_and(|player| player.coordinates().galaxy == coordinates.galaxy),
                                                 egui::Button::new("Set destination"),
                                             )
                                             .on_hover_text("Set this result as your active in-game destination.");
@@ -2501,7 +2602,7 @@ impl App {
                                         {
                                             ui.ctx().copy_text(result.address.galactic_coordinates());
                                         }
-                                        if state.destination == Some(result.target()) {
+                                        if destination == Some(result.target()) {
                                             ui.label("Active destination");
                                         }
                                     });
@@ -2792,18 +2893,12 @@ impl App {
                         .map_err(|_| "Resource selection exceeds its UI bounds")?;
                 self.selected_preset = None;
             }
-            UiAction::SetMinimumPlanets { minimum } => {
-                if minimum.is_some_and(|minimum| !(1..=6).contains(&minimum)) {
-                    return Err("Minimum planets must be Any or between 1 and 6".into());
-                }
-                self.settings.search.criteria.minimum_planets = minimum;
+            UiAction::SetPlanetCounts { selected } => {
+                self.settings.search.criteria.planet_counts = count_mask(&selected, 6)?;
                 self.selected_preset = None;
             }
-            UiAction::SetMinimumStars { minimum } => {
-                if minimum.is_some_and(|minimum| !(1..=3).contains(&minimum)) {
-                    return Err("Minimum stars must be Any or between 1 and 3".into());
-                }
-                self.settings.search.criteria.minimum_stars = minimum;
+            UiAction::SetStarCounts { selected } => {
+                self.settings.search.criteria.star_counts = count_mask(&selected, 3)?;
                 self.selected_preset = None;
             }
             UiAction::SetWaterFilter { scope, value } => {
@@ -3425,15 +3520,53 @@ impl App {
         }
     }
 
-    fn publish_ui_state(&self) {
-        self.controls.publish_ui(self.ui_state());
+    fn ui_state_matches(&self, published: &UiState) -> bool {
+        published.overlay_visible == self.overlay_visible
+            && published.settings_sidebar == self.settings_sidebar
+            && published.hotkey_capture
+                == self.binding_capture.as_ref().map(|capture| capture.device)
+            && published.selected_preset == self.selected_preset
+            && published.preset_name == self.preset_name
+            && published.preset_dialog_open == self.preset_dialog.is_some()
+            && published.renaming_preset
+                == match self.preset_dialog {
+                    Some(PresetNameDialog::Rename { index }) => Some(index),
+                    _ => None,
+                }
+            && published.managed_preset == self.managed_preset
+            && published.managed_preset_name == self.managed_preset_name
+            && published.theme_editor == self.theme_editor
+            && published.theme_editor_original_name == self.theme_editor_original_name
+            && published.selected_theme_palette == Some(self.palette().to_model())
+            && published.viewed_search == self.viewed_search
+            && published.draft_settings == self.settings
+            && published.last_command == self.ui_last_command
+            && published.error == self.ui_error
+            && published.output == self.ui_output
+    }
+
+    fn publish_ui_state(&mut self) {
+        let notification_revision = self.notifications.revision();
+        if self
+            .published_ui
+            .as_ref()
+            .is_some_and(|(published, revision)| {
+                *revision == notification_revision && self.ui_state_matches(published)
+            })
+        {
+            return;
+        }
+        let ui = self.ui_state();
+        self.controls.publish_ui(ui.clone());
+        self.published_ui = Some((ui, notification_revision));
     }
 
     fn process_agent_commands(
         &mut self,
         ctx: &egui::Context,
         set_overlay_visible: &mut impl FnMut(bool) -> Result<(), String>,
-    ) {
+    ) -> bool {
+        let mut processed = false;
         for _ in 0..16 {
             let Some(UiCommand {
                 generation,
@@ -3443,6 +3576,7 @@ impl App {
             else {
                 break;
             };
+            processed = true;
             let result = if generation == self.state.generation {
                 self.apply_agent_action(ctx, action, set_overlay_visible)
             } else {
@@ -3461,6 +3595,7 @@ impl App {
                 }
             }
         }
+        processed
     }
 
     /// Current draft settings, including edits that have not been applied to the game.
@@ -3479,8 +3614,12 @@ impl App {
         match result {
             Ok(Some(path)) => {
                 self.error = None;
-                self.notifications
-                    .exported(subject, path, self.started.elapsed());
+                self.notifications.exported(
+                    subject,
+                    path,
+                    self.started.elapsed(),
+                    &self.settings.interface.notifications,
+                );
             }
             Ok(None) => {}
             Err(error) => {
@@ -3528,15 +3667,28 @@ impl App {
         overlay_visible: bool,
         mut set_overlay_visible: impl FnMut(bool) -> Result<(), String>,
     ) {
+        let visibility_changed = self.overlay_visible != overlay_visible;
         self.overlay_visible = overlay_visible;
-        self.refresh();
-        self.process_agent_commands(ctx, &mut set_overlay_visible);
+        let refreshed_ui = self.refresh();
+        let processed_commands = self.process_agent_commands(ctx, &mut set_overlay_visible);
         self.apply_theme(ctx);
-        self.publish_ui_state();
+        if overlay_visible
+            || self.has_notifications()
+            || visibility_changed
+            || refreshed_ui
+            || processed_commands
+        {
+            self.publish_ui_state();
+        }
     }
 
     pub fn has_notifications(&self) -> bool {
         !self.notifications.is_empty()
+    }
+
+    pub fn window_title_colors(&self) -> (egui::Color32, egui::Color32) {
+        let palette = self.palette();
+        (palette.link, palette.foreground_on(palette.link))
     }
 
     pub fn show_notifications(&mut self, ctx: &egui::Context) {
@@ -3642,12 +3794,19 @@ impl App {
         }
     }
 
-    pub fn refresh(&mut self) {
+    pub fn refresh(&mut self) -> bool {
         let Some((revision, state)) = self.controls.snapshot_if_changed(self.state_revision) else {
-            return;
+            return false;
         };
+        let previous_generation = self.loaded_generation;
+        let settings_changed = self.published_settings.as_ref() != Some(&state.settings);
+        let previous_latest_search = self.latest_search_id;
+        let previous_viewed_search = self.viewed_search;
+        let previous_lifecycle = self.lifecycle_sequence;
+        let previous_toasts = self.notifications.len();
         self.state_revision = revision;
         self.state = state;
+        self.rolling_rates.observe(&self.state);
         let state = &self.state;
         if self.loaded_generation != Some(state.generation) {
             self.pending_search = None;
@@ -3713,35 +3872,32 @@ impl App {
             self.started.elapsed(),
             &self.settings.interface.notifications,
         );
+        previous_generation != self.loaded_generation
+            || settings_changed
+            || previous_latest_search != self.latest_search_id
+            || previous_viewed_search != self.viewed_search
+            || previous_lifecycle != self.lifecycle_sequence
+            || previous_toasts != self.notifications.len()
     }
-    pub fn ui(&mut self, ui: &mut Ui) {
+    fn content_ui(&mut self, ui: &mut Ui) -> Option<f32> {
         self.apply_theme(ui.ctx());
         let palette = self.palette();
         self.capture_keyboard(ui.ctx());
+        let content_rect = ui.available_rect_before_wrap();
         let compact_sidebar = ui.available_width() < 700.0;
         if compact_sidebar && self.settings_sidebar {
             ui.painter()
                 .rect_filled(ui.max_rect(), 0.0, palette.surface);
         }
-        let sidebar_width = if compact_sidebar {
-            ui.available_width()
-        } else {
-            340.0
-        };
-        let sidebar_before = self.settings_sidebar;
-        let mut sidebar_open = sidebar_before;
-        let sidebar = egui::Panel::right("search_probes_settings")
-            .exact_size(sidebar_width)
-            .resizable(false)
-            .show_separator_line(!compact_sidebar)
-            .frame(egui::Frame::new().fill(palette.surface).inner_margin(12.0))
-            .show_collapsible(ui, &mut sidebar_open, |ui| self.settings_contents(ui));
-        if self.settings_sidebar != sidebar_before {
-            sidebar_open = self.settings_sidebar;
+        if compact_sidebar && self.settings_sidebar {
+            egui::Frame::new()
+                .fill(palette.surface)
+                .inner_margin(12.0)
+                .show(ui, |ui| self.settings_contents(ui));
+            return None;
         }
-        self.settings_sidebar = sidebar_open;
-        if compact_sidebar && sidebar.is_some() && self.settings_sidebar {
-            return;
+        if self.settings_sidebar {
+            ui.set_max_width((content_rect.width() - SETTINGS_SIDEBAR_WIDTH).max(1.0));
         }
         egui::Frame::new()
             .inner_margin(16.0)
@@ -3815,8 +3971,97 @@ impl App {
                         });
                 }
             });
-        self.preset_dialog(ui.ctx());
-        self.theme_editor_dialog(ui.ctx());
+        self.settings_sidebar.then_some(content_rect.top())
+    }
+
+    fn settings_sidebar_rect(window_rect: egui::Rect, content_top: f32) -> egui::Rect {
+        egui::Rect::from_min_max(
+            egui::pos2(window_rect.right() - SETTINGS_SIDEBAR_WIDTH, content_top),
+            window_rect.max,
+        )
+    }
+
+    fn show_settings_sidebar(
+        &mut self,
+        ctx: &egui::Context,
+        parent_layer: egui::LayerId,
+        window_rect: egui::Rect,
+        content_top: f32,
+    ) -> egui::Rect {
+        let palette = self.palette();
+        let sidebar_rect = Self::settings_sidebar_rect(window_rect, content_top);
+        let sidebar_id = egui::Id::new(SETTINGS_SIDEBAR_LAYER);
+        let sidebar_layer = egui::LayerId::new(parent_layer.order, sidebar_id);
+        // Resizing or focusing an egui Window raises its Area within Order::Middle. Keep the
+        // separately rendered sidebar attached to that Window so its reserved blank region can
+        // never paint over the sidebar contents after the Window moves to the top.
+        ctx.memory_mut(|memory| {
+            memory.areas_mut().set_sublayer(parent_layer, sidebar_layer);
+        });
+        egui::Area::new(sidebar_id)
+            .order(parent_layer.order)
+            .fixed_pos(sidebar_rect.min)
+            .movable(false)
+            .show(ctx, |ui| {
+                ui.set_min_size(sidebar_rect.size());
+                ui.set_max_size(sidebar_rect.size());
+                ui.set_clip_rect(sidebar_rect);
+                ui.painter().rect_filled(sidebar_rect, 0.0, palette.surface);
+                ui.painter().rect_stroke(
+                    sidebar_rect,
+                    0.0,
+                    egui::Stroke::new(1.0, palette.outline),
+                    egui::StrokeKind::Inside,
+                );
+                let inner = sidebar_rect.shrink(12.0);
+                let mut sidebar_ui = ui.new_child(
+                    egui::UiBuilder::new()
+                        .id_salt("search_probes_settings")
+                        .max_rect(inner)
+                        .layout(egui::Layout::top_down(egui::Align::Min)),
+                );
+                sidebar_ui.set_clip_rect(inner);
+                self.settings_contents(&mut sidebar_ui);
+            });
+        sidebar_rect
+    }
+
+    fn dialogs(&mut self, ctx: &egui::Context) {
+        self.preset_dialog(ctx);
+        self.theme_editor_dialog(ctx);
+    }
+
+    /// Render into a standalone root UI, as used by the desktop preview.
+    pub fn ui(&mut self, ui: &mut Ui) {
+        let ctx = ui.ctx().clone();
+        let parent_layer = ui.layer_id();
+        let window_rect = ui.max_rect();
+        if let Some(content_top) = self.content_ui(ui) {
+            self.show_settings_sidebar(&ctx, parent_layer, window_rect, content_top);
+        }
+        self.dialogs(&ctx);
+    }
+
+    /// Render the window-owned content and defer the wide settings sidebar until the caller knows
+    /// the final outer window rectangle.
+    pub fn window_ui(&mut self, ui: &mut Ui) -> Option<f32> {
+        self.content_ui(ui)
+    }
+
+    /// Finish a window render using its final rectangle, so the sidebar can never inherit the
+    /// viewport-sized pre-layout rectangle offered while the window contents are being measured.
+    pub fn finish_window_ui(
+        &mut self,
+        ctx: &egui::Context,
+        parent_layer: egui::LayerId,
+        window_rect: egui::Rect,
+        content_top: Option<f32>,
+    ) -> Option<egui::Rect> {
+        let sidebar_rect = content_top.map(|content_top| {
+            self.show_settings_sidebar(ctx, parent_layer, window_rect, content_top)
+        });
+        self.dialogs(ctx);
+        sidebar_rect
     }
 }
 
@@ -4149,6 +4394,9 @@ fn filter_row(ui: &mut Ui, label: &str, control_width: f32, add_control: impl Fn
     let row_height = label_height.max(ui.spacing().interact_size.y);
 
     let (rect, _) = ui.allocate_exact_size(egui::vec2(row_width, row_height), egui::Sense::hover());
+    if !ui.is_rect_visible(rect) {
+        return;
+    }
     let label_rect = egui::Rect::from_min_size(rect.min, egui::vec2(label_width, row_height));
     let control_rect = egui::Rect::from_min_max(
         egui::pos2(rect.right() - control_width, rect.top()),
@@ -4599,35 +4847,29 @@ fn water_row(
     });
 }
 
-fn minimum_count_row(
+const COUNT_LABELS: [&str; 6] = ["1", "2", "3", "4", "5", "6"];
+
+fn count_choices_row(
     ui: &mut Ui,
     label: &str,
     id: &str,
-    value: &mut Option<u8>,
+    value: &mut u8,
     maximum: u8,
     input_width: f32,
 ) {
     filter_row(ui, label, input_width, |ui| {
-        let mut minimum = value.unwrap_or(0);
-        select_menu(
+        let mut mask = u64::from(*value);
+        choices(
             ui,
             id,
-            if minimum == 0 {
-                "Any".into()
-            } else {
-                minimum.to_string()
-            },
+            &mut mask,
+            COUNT_LABELS[..usize::from(maximum)]
+                .iter()
+                .copied()
+                .enumerate(),
             input_width,
-            usize::from(maximum) + 1,
-            egui::PopupCloseBehavior::CloseOnClick,
-            |ui| {
-                ui.selectable_value(&mut minimum, 0, "Any");
-                for count in 1..=maximum {
-                    ui.selectable_value(&mut minimum, count, count.to_string());
-                }
-            },
         );
-        *value = (minimum > 0).then_some(minimum);
+        *value = mask as u8;
     });
 }
 
@@ -4826,6 +5068,113 @@ mod tests {
         texts
     }
 
+    fn rendered_window_geometry(
+        app: &mut App,
+        context: &egui::Context,
+        size: egui::Vec2,
+    ) -> (egui::Rect, Option<egui::Rect>) {
+        let raw = egui::RawInput {
+            screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, size)),
+            ..Default::default()
+        };
+        let mut window_rect = egui::Rect::NOTHING;
+        let mut sidebar_rect = None;
+        let mut output = context.run_ui(raw, |root| {
+            let response = egui::Window::new("Search Probes")
+                .id(egui::Id::new("search_probes_overlay_test"))
+                .default_size([1100.0, 840.0])
+                .min_size([380.0, 240.0])
+                .resizable(true)
+                .collapsible(false)
+                .frame(egui::Frame::window(root.style()).inner_margin(0.0))
+                .show(root.ctx(), |ui| app.window_ui(ui))
+                .expect("overlay window");
+            window_rect = response.response.rect;
+            sidebar_rect = app.finish_window_ui(
+                root.ctx(),
+                response.response.layer_id,
+                window_rect,
+                response.inner.flatten(),
+            );
+        });
+        output.textures_delta.clear();
+        (window_rect, sidebar_rect)
+    }
+
+    #[test]
+    fn settings_sidebar_does_not_resize_the_overlay_window() {
+        let context = egui::Context::default();
+        let controls = Arc::new(Controls::new(State::new(Settings::default())));
+        let mut app = App::new(&context, controls);
+        let viewport = egui::vec2(2560.0, 1440.0);
+        let mut closed = egui::Rect::NOTHING;
+        for _ in 0..3 {
+            (closed, _) = rendered_window_geometry(&mut app, &context, viewport);
+        }
+        app.settings_sidebar = true;
+        let mut open = egui::Rect::NOTHING;
+        let mut sidebar = None;
+        for _ in 0..3 {
+            (open, sidebar) = rendered_window_geometry(&mut app, &context, viewport);
+        }
+        assert!(closed.height() <= 842.0, "closed window grew to {closed:?}");
+        assert_eq!(open, closed);
+        assert_eq!(sidebar.expect("open sidebar").bottom(), open.bottom());
+
+        app.settings_sidebar = false;
+        for _ in 0..2 {
+            rendered_window_geometry(&mut app, &context, viewport);
+        }
+        app.settings_sidebar = true;
+        for _ in 0..2 {
+            (open, sidebar) = rendered_window_geometry(&mut app, &context, viewport);
+        }
+        let sidebar = sidebar.expect("reopened sidebar");
+        assert_eq!(sidebar.bottom(), open.bottom());
+        assert!(sidebar.bottom() < viewport.y);
+    }
+
+    #[test]
+    fn settings_sidebar_stays_above_its_window_when_the_window_is_raised() {
+        let context = egui::Context::default();
+        let controls = Arc::new(Controls::new(State::new(Settings::default())));
+        let mut app = App::new(&context, controls);
+        app.settings_sidebar = true;
+        let raw = egui::RawInput {
+            screen_rect: Some(egui::Rect::from_min_size(
+                egui::Pos2::ZERO,
+                egui::vec2(2560.0, 1440.0),
+            )),
+            ..Default::default()
+        };
+        let mut output = context.run_ui(raw, |root| {
+            let response = egui::Window::new("Search Probes")
+                .id(egui::Id::new("raised_search_probes_overlay_test"))
+                .default_size([1100.0, 840.0])
+                .resizable(true)
+                .show(root.ctx(), |ui| app.window_ui(ui))
+                .expect("overlay window");
+            let window_layer = response.response.layer_id;
+            app.finish_window_ui(
+                root.ctx(),
+                window_layer,
+                response.response.rect,
+                response.inner.flatten(),
+            );
+            let sidebar_layer =
+                egui::LayerId::new(window_layer.order, egui::Id::new(SETTINGS_SIDEBAR_LAYER));
+            assert_eq!(
+                root.ctx()
+                    .memory(|memory| memory.areas().parent_layer(sidebar_layer)),
+                Some(window_layer)
+            );
+            // Window resizing calls this same operation internally. The declared sublayer keeps
+            // the sidebar directly above the window when the new order is applied.
+            root.ctx().move_to_top(window_layer);
+        });
+        output.textures_delta.clear();
+    }
+
     #[test]
     fn settings_sidebar_and_search_history_navigation_render_at_wide_and_narrow_sizes() {
         for width in [380.0, 1100.0] {
@@ -4840,7 +5189,9 @@ mod tests {
                 "Preset Manager",
                 "UI Hotkey",
                 "Notifications",
-                "Screen placement",
+                "Duration:",
+                "seconds",
+                "Screen placement:",
                 "Result cards",
             ] {
                 assert!(
@@ -4854,6 +5205,69 @@ mod tests {
             assert!(texts.iter().any(|text| text == "Search Scope"));
             assert!(!texts.iter().any(|text| text == "Presets"));
         }
+    }
+
+    #[test]
+    fn settings_sidebar_buttons_stay_inside_the_scroll_clip() {
+        fn collect(
+            shape: &egui::Shape,
+            clip: egui::Rect,
+            text: &mut Option<(egui::Rect, egui::Rect)>,
+            rectangles: &mut Vec<(egui::epaint::RectShape, egui::Rect)>,
+        ) {
+            match shape {
+                egui::Shape::Text(shape) if shape.galley.job.text == "Reset to default" => {
+                    *text = Some((shape.visual_bounding_rect(), clip));
+                }
+                egui::Shape::Rect(shape) => rectangles.push((shape.clone(), clip)),
+                egui::Shape::Vec(shapes) => {
+                    for shape in shapes {
+                        collect(shape, clip, text, rectangles);
+                    }
+                }
+                _ => {}
+            }
+        }
+
+        let context = egui::Context::default();
+        let controls = Arc::new(Controls::new(State::new(Settings::default())));
+        let mut app = App::new(&context, controls);
+        app.settings_sidebar = true;
+        let raw = egui::RawInput {
+            screen_rect: Some(egui::Rect::from_min_size(
+                egui::Pos2::ZERO,
+                egui::vec2(1100.0, 840.0),
+            )),
+            ..Default::default()
+        };
+        let mut output = context.run_ui(raw, |ui| app.ui(ui));
+        output.textures_delta.clear();
+        let mut text = None;
+        let mut rectangles = Vec::new();
+        for shape in output.shapes {
+            collect(&shape.shape, shape.clip_rect, &mut text, &mut rectangles);
+        }
+        let (text, clip) = text.expect("Reset to default text");
+        let button = rectangles
+            .iter()
+            .filter(|(shape, shape_clip)| {
+                *shape_clip == clip
+                    && shape.stroke.width > 0.0
+                    && shape.rect.height() >= 30.0
+                    && shape.rect.height() <= 36.0
+                    && shape.rect.contains_rect(text)
+            })
+            .min_by(|(left, _), (right, _)| {
+                left.rect.area().partial_cmp(&right.rect.area()).unwrap()
+            })
+            .map(|(shape, _)| shape)
+            .expect("Reset to default button");
+        assert!(
+            button.rect.right() < clip.right(),
+            "button edge {:?} reaches scroll clip {:?}",
+            button.rect,
+            clip
+        );
     }
 
     #[test]

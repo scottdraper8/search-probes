@@ -214,7 +214,22 @@ pub struct NotificationSettings {
     pub search_completed: bool,
     pub automatic_pause: bool,
     pub automatic_resume: bool,
+    pub duration_seconds: u8,
     pub placement: ToastPlacement,
+}
+
+impl NotificationSettings {
+    pub const MIN_DURATION_SECONDS: u8 = 1;
+    pub const MAX_DURATION_SECONDS: u8 = 30;
+
+    pub fn validate(&self) -> Result<(), &'static str> {
+        if !(Self::MIN_DURATION_SECONDS..=Self::MAX_DURATION_SECONDS)
+            .contains(&self.duration_seconds)
+        {
+            return Err("notification duration must be between 1 and 30 seconds");
+        }
+        Ok(())
+    }
 }
 
 impl Default for NotificationSettings {
@@ -224,6 +239,7 @@ impl Default for NotificationSettings {
             search_completed: true,
             automatic_pause: true,
             automatic_resume: true,
+            duration_seconds: 5,
             placement: ToastPlacement::TopRight,
         }
     }
@@ -286,6 +302,7 @@ impl Settings {
     pub fn validate(&self) -> Result<(), &'static str> {
         self.search.validate()?;
         self.interface.hotkey.validate()?;
+        self.interface.notifications.validate()?;
         self.interface.result_cards.validate()?;
         if self.interface.custom_themes.len() > MAX_CUSTOM_THEMES {
             return Err("at most twenty custom themes can be saved");
@@ -535,6 +552,14 @@ mod tests {
             let mut invalid = encoded.clone();
             invalid["interface"]["notifications"]["unknown"] = true.into();
             assert!(serde_json::from_value::<Settings>(invalid).is_err());
+            let mut invalid = encoded.clone();
+            invalid["interface"]["notifications"]["duration_seconds"] = 0.into();
+            assert_eq!(
+                serde_json::from_value::<Settings>(invalid)
+                    .unwrap()
+                    .validate(),
+                Err("notification duration must be between 1 and 30 seconds")
+            );
             let mut incomplete = encoded;
             incomplete["interface"]["notifications"]
                 .as_object_mut()

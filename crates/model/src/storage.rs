@@ -164,8 +164,8 @@ fn recover_criteria(raw: &Value) -> (Criteria, bool) {
             "planets",
             "systems",
             "resources",
-            "minimum_planets",
-            "minimum_stars",
+            "planet_counts",
+            "star_counts",
             "composition",
             "system_water",
             "planet_water",
@@ -192,11 +192,11 @@ fn recover_criteria(raw: &Value) -> (Criteria, bool) {
     if let Some(selected) = value::<Resources>(map, "resources", &mut bad) {
         criteria.resources = selected;
     }
-    if let Some(selected) = value::<Option<u8>>(map, "minimum_planets", &mut bad) {
-        criteria.minimum_planets = selected;
+    if let Some(selected) = value::<u8>(map, "planet_counts", &mut bad) {
+        criteria.planet_counts = selected;
     }
-    if let Some(selected) = value::<Option<u8>>(map, "minimum_stars", &mut bad) {
-        criteria.minimum_stars = selected;
+    if let Some(selected) = value::<u8>(map, "star_counts", &mut bad) {
+        criteria.star_counts = selected;
     }
     if let Some(selected) = value::<Composition>(map, "composition", &mut bad) {
         criteria.composition = selected;
@@ -265,7 +265,9 @@ fn recover_search(raw: &Value) -> (SearchOptions, bool) {
 }
 
 fn recover_notifications(raw: &Value) -> (NotificationSettings, bool) {
-    if let Ok(settings) = serde_json::from_value(raw.clone()) {
+    if let Ok(settings) = serde_json::from_value::<NotificationSettings>(raw.clone())
+        && settings.validate().is_ok()
+    {
         return (settings, false);
     }
     let Some(map) = object(raw) else {
@@ -278,6 +280,7 @@ fn recover_notifications(raw: &Value) -> (NotificationSettings, bool) {
             "search_completed",
             "automatic_pause",
             "automatic_resume",
+            "duration_seconds",
             "placement",
         ],
     );
@@ -294,8 +297,15 @@ fn recover_notifications(raw: &Value) -> (NotificationSettings, bool) {
     if let Some(selected) = value(map, "automatic_resume", &mut bad) {
         settings.automatic_resume = selected;
     }
+    if let Some(selected) = value(map, "duration_seconds", &mut bad) {
+        settings.duration_seconds = selected;
+    }
     if let Some(selected) = value::<ToastPlacement>(map, "placement", &mut bad) {
         settings.placement = selected;
+    }
+    if settings.validate().is_err() {
+        settings.duration_seconds = NotificationSettings::default().duration_seconds;
+        bad = true;
     }
     (settings, true | bad)
 }
@@ -771,5 +781,43 @@ mod tests {
         assert!(rewritten.get("obsolete_field").is_none());
         let strict: Preset = serde_json::from_value(rewritten).unwrap();
         assert_eq!(strict, loaded.settings.presets[0]);
+    }
+
+    #[test]
+    fn removed_count_fields_are_discarded_without_migration() {
+        let directory = TestDirectory::new("discard-removed-counts");
+        let mut raw = settings_document(&Settings::default()).unwrap();
+        let criteria = raw
+            .get_mut("search")
+            .unwrap()
+            .get_mut("criteria")
+            .unwrap()
+            .as_object_mut()
+            .unwrap();
+        criteria.remove("planet_counts");
+        criteria.remove("star_counts");
+        criteria.insert("minimum_planets".into(), Value::from(4));
+        criteria.insert("minimum_stars".into(), Value::from(3));
+        fs::create_dir_all(&directory.0).unwrap();
+        write_json(&directory.0.join("settings.json"), &raw, MAX_SETTINGS_BYTES).unwrap();
+
+        let loaded = load_settings_with_recovery(&directory.0).unwrap();
+
+        assert_eq!(loaded.settings.search.criteria.planet_counts, 0);
+        assert_eq!(loaded.settings.search.criteria.star_counts, 0);
+        assert_eq!(
+            loaded.recovery,
+            Some(SettingsRecovery {
+                settings: true,
+                preset_files: 0,
+            })
+        );
+        let rewritten: Value =
+            read_json(&directory.0.join("settings.json"), MAX_SETTINGS_BYTES).unwrap();
+        let criteria = &rewritten["search"]["criteria"];
+        assert!(criteria.get("minimum_planets").is_none());
+        assert!(criteria.get("minimum_stars").is_none());
+        assert_eq!(criteria["planet_counts"], Value::from(0));
+        assert_eq!(criteria["star_counts"], Value::from(0));
     }
 }

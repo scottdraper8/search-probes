@@ -271,9 +271,9 @@ fn aggregate_system_exclusions_remove_impossible_target_details() {
 }
 
 #[test]
-fn minimum_stars_uses_the_generated_system_count() {
+fn star_count_selection_uses_the_generated_system_count() {
     let mut criteria = Criteria {
-        minimum_stars: Some(2),
+        star_counts: 0b110,
         ..Criteria::default()
     };
     let plan = criteria.compile().unwrap();
@@ -286,8 +286,27 @@ fn minimum_stars_uses_the_generated_system_count() {
         facts.set_star_count(count);
         assert_eq!(plan.system_match(&facts, &[]), expected);
     }
-    criteria.minimum_stars = Some(4);
+    criteria.star_counts = 0b1000;
     assert!(criteria.compile().is_err());
+}
+
+#[test]
+fn planet_count_selection_accepts_only_selected_exact_counts() {
+    let criteria = Criteria {
+        planet_counts: 0b10_1010,
+        ..Criteria::default()
+    };
+    let plan = criteria.compile().unwrap();
+    for count in 1..=6 {
+        let mut facts = Facts::default();
+        facts.set_planet_count(count);
+        let expected = if [2, 4, 6].contains(&count) {
+            Verdict::Match
+        } else {
+            Verdict::NoMatch
+        };
+        assert_eq!(plan.system_match(&facts, &[]), expected);
+    }
 }
 
 #[test]

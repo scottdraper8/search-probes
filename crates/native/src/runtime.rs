@@ -20,7 +20,11 @@ use search_probes_model::{
     target::Target,
 };
 use std::{
-    sync::{Arc, OnceLock, atomic::Ordering},
+    sync::{
+        Arc, OnceLock,
+        atomic::{AtomicU64, Ordering},
+    },
+    thread,
     time::{Duration, Instant},
 };
 
@@ -29,6 +33,7 @@ static CONTROLS: OnceLock<Arc<Controls>> = OnceLock::new();
 static APPLICATION_TRANSITION: std::sync::Mutex<Option<LifecycleTransition>> =
     std::sync::Mutex::new(None);
 const GAMEPLAY_PUBLICATION_INTERVAL: Duration = Duration::from_millis(100);
+const CURRENT_WORLD_APPEARANCE_LIMIT: Duration = Duration::from_secs(5);
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 struct GameplayPublication {
@@ -71,6 +76,67 @@ struct Runtime {
     navigation_polled: Option<Instant>,
     publication_gate: PublicationGate<GameplayPublication>,
     game_pause: GamePauseControl,
+    inspection: Arc<AtomicU64>,
+}
+
+struct CurrentWorldCompletion {
+    inspection_id: u64,
+    command_id: u64,
+    address: Address,
+    criteria: search_probes_model::criteria::Criteria,
+    plan: search_probes_model::criteria::Plan,
+    outcome: crate::search::Outcome,
+}
+
+fn complete_current_world(
+    controls: &Controls,
+    inspection: &AtomicU64,
+    completion: CurrentWorldCompletion,
+) -> Result<(), &'static str> {
+    let CurrentWorldCompletion {
+        inspection_id,
+        command_id,
+        address,
+        criteria,
+        plan,
+        mut outcome,
+    } = completion;
+    if outcome.pending_flora.is_some() {
+        let stop = crate::search::Stop::new(
+            &controls.cancel,
+            Some(Instant::now() + CURRENT_WORLD_APPEARANCE_LIMIT),
+        );
+        outcome.complete_flora(&stop)?;
+    }
+    let world = CurrentWorld::capture(
+        command_id,
+        address,
+        criteria,
+        &plan,
+        &outcome.snapshot.system,
+        &outcome.snapshot.planets[..outcome.snapshot.count],
+        outcome.planet_observations,
+    )?;
+    let mut candidate = controls.snapshot();
+    candidate.current_world = Some(world);
+    if serde_json::to_vec(&candidate).map_or(true, |bytes| {
+        bytes.len() > search_probes_model::runtime::MAX_STATE_BYTES
+    }) {
+        return Err("planet observation exceeds diagnostics publication budget");
+    }
+    if inspection.load(Ordering::Acquire) != inspection_id {
+        return Ok(());
+    }
+    let world = candidate
+        .current_world
+        .take()
+        .ok_or("current-world inspection disappeared before publication")?;
+    controls.update(|state| {
+        state.current_world = Some(world);
+        state.last_command = state.last_command.max(command_id);
+        state.error = None;
+    });
+    Ok(())
 }
 
 pub fn initialize() -> Result<(), String> {
@@ -124,7 +190,7 @@ pub(crate) fn initialize_at(directory: std::path::PathBuf) -> Result<(), String>
 
 fn attach(image: Image, controls: Arc<Controls>, settings: Settings) -> Result<(), String> {
     let base = image.base();
-    mission_text_hook::set_presets(&settings.presets)
+    mission_text_hook::set_guide(&settings.presets, settings.interface.hotkey)
         .map_err(|error| format!("Cannot name Guide presets: {error}"))?;
     let mut game_pause = GamePauseControl::new(base)
         .map_err(|error| format!("Cannot control NMS pause behavior: {error}"))?;
@@ -145,6 +211,7 @@ fn attach(image: Image, controls: Arc<Controls>, settings: Settings) -> Result<(
         navigation_polled: None,
         publication_gate: PublicationGate::new(GAMEPLAY_PUBLICATION_INTERVAL),
         game_pause,
+        inspection: Arc::new(AtomicU64::new(0)),
     };
     let hooks: Result<(), String> = (|| {
         unsafe { lifecycle_hook::enable(base) }
@@ -457,11 +524,17 @@ impl Runtime {
         while let Some(command) = self.controls.pop() {
             handled_command = true;
             let id = command.id;
-            let result = self.command(command, &snapshot);
-            self.controls.update(|state| {
-                state.last_command = state.last_command.max(id);
-                state.error = result.err().map(str::to_owned);
-            });
+            match self.command(command, &snapshot) {
+                Ok(true) => self.controls.update(|state| {
+                    state.last_command = state.last_command.max(id);
+                    state.error = None;
+                }),
+                Ok(false) => {}
+                Err(error) => self.controls.update(|state| {
+                    state.last_command = state.last_command.max(id);
+                    state.error = Some(error.into());
+                }),
+            }
         }
         if let Err(error) = unsafe { self.update_guide(snapshot.application) } {
             self.controls
@@ -614,7 +687,7 @@ impl Runtime {
         });
         Ok(())
     }
-    fn command(&mut self, command: Command, snapshot: &Snapshot) -> Result<(), &'static str> {
+    fn command(&mut self, command: Command, snapshot: &Snapshot) -> Result<bool, &'static str> {
         {
             let state = self
                 .controls
@@ -623,6 +696,7 @@ impl Runtime {
                 .map_err(|_| "runtime state poisoned")?;
             command.validate(state.generation)?;
         }
+        let inspection_id = self.inspection.fetch_add(1, Ordering::AcqRel) + 1;
         match command.action {
             Action::Start { settings } => {
                 self.scheduler.session.start(
@@ -634,8 +708,10 @@ impl Runtime {
                     self.scheduler.session.fail(error);
                     return Err(error);
                 }
-                if self.settings.presets != settings.presets {
-                    mission_text_hook::set_presets(&settings.presets)?;
+                if self.settings.presets != settings.presets
+                    || self.settings.interface.hotkey != settings.interface.hotkey
+                {
+                    mission_text_hook::set_guide(&settings.presets, settings.interface.hotkey)?;
                 }
                 self.controls.cancel.store(false, Ordering::Release);
                 self.scheduler.reset_statistics();
@@ -680,8 +756,10 @@ impl Runtime {
             }
             Action::Configure { settings } => {
                 self.game_pause.sync(settings.keep_game_running)?;
-                if self.settings.presets != settings.presets {
-                    mission_text_hook::set_presets(&settings.presets)?;
+                if self.settings.presets != settings.presets
+                    || self.settings.interface.hotkey != settings.interface.hotkey
+                {
+                    mission_text_hook::set_guide(&settings.presets, settings.interface.hotkey)?;
                 }
                 self.settings = settings;
                 self.scheduler
@@ -706,40 +784,61 @@ impl Runtime {
                 let criteria = self.settings.search.criteria.clone();
                 let plan = criteria.compile()?;
                 let outcome = unsafe {
-                    self.scheduler.inspect_current(
-                        self.image.base(),
-                        snapshot.planet as *const u8,
-                        snapshot.difficulty,
-                        snapshot.address,
-                        &plan,
-                        &self.controls.cancel,
-                    )
+                    self.scheduler
+                        .inspect_current(crate::scheduler::InspectRequest {
+                            pool: &self.pool,
+                            base: self.image.base(),
+                            live: snapshot.planet as *const u8,
+                            difficulty: snapshot.difficulty,
+                            address: snapshot.address,
+                            plan: &plan,
+                            cancel: &self.controls.cancel,
+                        })
                 }?;
                 if outcome.cancelled {
                     return Err("current-world inspection was cancelled");
                 }
-                let world = CurrentWorld::capture(
-                    command.id,
-                    snapshot.address,
-                    criteria,
-                    &plan,
-                    &outcome.snapshot.system,
-                    &outcome.snapshot.planets[..outcome.snapshot.count],
-                    outcome.planet_observations.clone(),
-                )?;
-                let mut publication_too_large = false;
-                self.controls.update(|state| {
-                    state.current_world = Some(world);
-                    publication_too_large = match serde_json::to_vec(&state) {
-                        Ok(bytes) => bytes.len() > search_probes_model::runtime::MAX_STATE_BYTES,
-                        Err(_) => true,
-                    };
-                    if publication_too_large {
-                        state.current_world = None;
-                    }
-                });
-                if publication_too_large {
-                    return Err("planet observation exceeds diagnostics publication budget");
+                if outcome.pending_flora.is_some() {
+                    let controls = self.controls.clone();
+                    let inspection = self.inspection.clone();
+                    let address = snapshot.address;
+                    thread::Builder::new()
+                        .name("Search Probes appearance".into())
+                        .spawn(move || {
+                            if let Err(error) = complete_current_world(
+                                &controls,
+                                &inspection,
+                                CurrentWorldCompletion {
+                                    inspection_id,
+                                    command_id: command.id,
+                                    address,
+                                    criteria,
+                                    plan,
+                                    outcome,
+                                },
+                            ) && inspection.load(Ordering::Acquire) == inspection_id
+                            {
+                                controls.update(|state| {
+                                    state.last_command = state.last_command.max(command.id);
+                                    state.error = Some(error.into());
+                                });
+                            }
+                        })
+                        .map_err(|_| "current-world appearance worker failed to start")?;
+                    return Ok(false);
+                } else {
+                    complete_current_world(
+                        &self.controls,
+                        &self.inspection,
+                        CurrentWorldCompletion {
+                            inspection_id,
+                            command_id: command.id,
+                            address: snapshot.address,
+                            criteria,
+                            plan,
+                            outcome,
+                        },
+                    )?;
                 }
             }
             Action::Navigate { search_id, target } => {
@@ -753,6 +852,6 @@ impl Runtime {
                 self.navigation_polled = None;
             }
         }
-        Ok(())
+        Ok(true)
     }
 }
