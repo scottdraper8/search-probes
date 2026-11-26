@@ -26,8 +26,8 @@ fn u32_at(bytes: &[u8], offset: usize) -> u32 {
 }
 
 impl Snapshot {
-    pub fn solar(bytes: &[u8], star_count: u8) -> Result<Self, &'static str> {
-        if bytes.len() != QUERY_SIZE || !(1..=3).contains(&star_count) {
+    pub fn solar(bytes: &[u8], star_count: Option<u8>) -> Result<Self, &'static str> {
+        if bytes.len() != QUERY_SIZE || star_count.is_some_and(|count| !(1..=3).contains(&count)) {
             return Err("invalid query snapshot size");
         }
         let count = u32_at(bytes, METADATA_OFFSET + 0x2544) as usize;
@@ -36,7 +36,9 @@ impl Snapshot {
         }
         let mut system = Facts::default();
         system.set_planet_count(count as u8);
-        system.set_star_count(star_count);
+        if let Some(star_count) = star_count {
+            system.set_star_count(star_count);
+        }
         system.set(Field::Anomaly, u32_at(bytes, 0x758));
         for (field, offset) in [
             (Field::Economy, 0x2520),

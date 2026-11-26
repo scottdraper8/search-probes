@@ -10,6 +10,21 @@ use std::{
 };
 
 type Result<T> = std::result::Result<T, &'static str>;
+type Grade = Box<dyn Fn([f64; 3]) -> [f64; 3] + Send + Sync>;
+
+pub struct Prepared {
+    variants: Vec<grass::PrimaryColour<Grade>>,
+}
+
+impl Prepared {
+    pub fn fixed_colour(&self) -> Option<u32> {
+        self.variants
+            .iter()
+            .try_fold(GRASS_COLOUR_SET, |colours, variant| {
+                variant.fixed_colour().map(|colour| colours | colour)
+            })
+    }
+}
 
 pub fn texture_brightness(bytes: &[u8]) -> Result<f64> {
     if bytes.len() < 128 || &bytes[..4] != b"DDS " {
@@ -153,44 +168,62 @@ pub fn from_game(root: &Path, primary: [f64; 4], models: u32, filter: i32) -> Re
     if models == 0 {
         return Ok(GRASS_COLOUR_SET);
     }
-    let lut = colour_lut::from_game(root, filter)?;
-    let primary = grass::PrimaryColour::new(primary, |rgb| lut.sample(rgb))?;
-    classify(&primary, models, |model| {
-        Ok(Arc::new(material_brightness(root, model)?))
-    })
+    let prepared = prepare_with_world(primary, colour_lut::from_game_world_grade(root, filter)?)?;
+    prepared
+        .variants
+        .iter()
+        .try_fold(GRASS_COLOUR_SET, |colours, primary| {
+            classify(primary, models, |model| {
+                Ok(Arc::new(material_brightness(root, model)?))
+            })
+            .map(|classified| colours | classified)
+        })
 }
 
-pub fn prepare(
-    primary: [f64; 4],
-    filter: i32,
-) -> Result<grass::PrimaryColour<impl Fn([f64; 3]) -> [f64; 3]>> {
-    let lut = colour_lut::get(filter)?;
-    grass::PrimaryColour::new(primary, move |rgb| lut.sample(rgb))
+fn prepare_with_world(primary: [f64; 4], world: colour_lut::WorldGrade) -> Result<Prepared> {
+    let variants = world
+        .strengths()
+        .iter()
+        .copied()
+        .map(|strength| {
+            let world = world.clone();
+            let grade: Grade = Box::new(move |rgb| world.sample(rgb, strength));
+            grass::PrimaryColour::new(primary, grade)
+        })
+        .collect::<Result<Vec<_>>>()?;
+    Ok(Prepared { variants })
 }
 
-pub fn get(
-    primary: &grass::PrimaryColour<impl Fn([f64; 3]) -> [f64; 3]>,
-    models: u32,
-) -> Result<u32> {
+pub fn prepare(primary: [f64; 4], filter: i32) -> Result<Prepared> {
+    prepare_with_world(primary, colour_lut::world_grade(filter)?)
+}
+
+pub fn get(primary: &Prepared, models: u32) -> Result<u32> {
     if models == 0 {
         return Ok(GRASS_COLOUR_SET);
     }
     static CACHE: OnceLock<Mutex<BTreeMap<GrassModel, Arc<Vec<f64>>>>> = OnceLock::new();
-    classify(primary, models, |model| {
-        let mut cache = CACHE
-            .get_or_init(Default::default)
-            .lock()
-            .map_err(|_| "grass material cache poisoned")?;
-        if let Some(value) = cache.get(&model) {
-            return Ok(value.clone());
-        }
-        let exe = std::env::current_exe().map_err(|_| "cannot locate NMS executable")?;
-        let root = exe
-            .parent()
-            .and_then(Path::parent)
-            .ok_or("cannot locate NMS game data")?;
-        let value = Arc::new(material_brightness(root, model)?);
-        cache.insert(model, value.clone());
-        Ok(value)
-    })
+    primary
+        .variants
+        .iter()
+        .try_fold(GRASS_COLOUR_SET, |colours, variant| {
+            classify(variant, models, |model| {
+                let mut cache = CACHE
+                    .get_or_init(Default::default)
+                    .lock()
+                    .map_err(|_| "grass material cache poisoned")?;
+                if let Some(value) = cache.get(&model) {
+                    return Ok(value.clone());
+                }
+                let exe = std::env::current_exe().map_err(|_| "cannot locate NMS executable")?;
+                let root = exe
+                    .parent()
+                    .and_then(Path::parent)
+                    .ok_or("cannot locate NMS game data")?;
+                let value = Arc::new(material_brightness(root, model)?);
+                cache.insert(model, value.clone());
+                Ok(value)
+            })
+            .map(|classified| colours | classified)
+        })
 }

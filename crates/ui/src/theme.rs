@@ -5,22 +5,22 @@
 //! the UI. Search Probes Dark retains the colors used before theme support was introduced.
 
 use egui::{self, Color32, Stroke};
-use search_probes_model::theme::UiTheme;
+use search_probes_model::theme::{CustomTheme, ThemeColor, ThemePalette, ThemeSelection, UiTheme};
 
-#[derive(Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Palette {
     pub dark: bool,
     pub background: Color32,
     pub surface: Color32,
     pub surface_container: Color32,
-    pub surface_container_high: Color32,
-    pub on_surface: Color32,
-    pub on_surface_variant: Color32,
+    pub raised_surface: Color32,
+    pub text: Color32,
+    pub secondary_text: Color32,
     pub primary: Color32,
     pub primary_container: Color32,
-    pub on_primary_container: Color32,
+    pub primary_container_text: Color32,
     pub selection: Color32,
-    pub on_selection: Color32,
+    pub selection_text: Color32,
     pub link: Color32,
     pub outline: Color32,
     pub error: Color32,
@@ -44,6 +44,29 @@ pub fn progress_bar(ui: &mut egui::Ui, palette: Palette, fraction: f32) {
         ui.visuals_mut().extreme_bg_color = colors.track;
         ui.add(egui::ProgressBar::new(fraction).fill(colors.fill));
     });
+}
+
+/// Paint text with a visible weight increase. egui's `RichText::strong` changes only the color,
+/// so it cannot express bold key text within an otherwise uniformly colored component.
+pub fn bold_label(
+    ui: &mut egui::Ui,
+    text: impl Into<String>,
+    size: f32,
+    color: Color32,
+) -> egui::Response {
+    const WEIGHT_OFFSET: f32 = 0.7;
+    let galley = ui
+        .painter()
+        .layout_no_wrap(text.into(), egui::FontId::proportional(size), color);
+    let mut desired_size = galley.size();
+    desired_size.x += WEIGHT_OFFSET;
+    let (rect, response) = ui.allocate_exact_size(desired_size, egui::Sense::hover());
+    if ui.is_rect_visible(rect) {
+        ui.painter().galley(rect.min, galley.clone(), color);
+        ui.painter()
+            .galley(rect.min + egui::vec2(WEIGHT_OFFSET, 0.0), galley, color);
+    }
+    response
 }
 
 const fn rgb(red: u8, green: u8, blue: u8) -> Color32 {
@@ -147,12 +170,12 @@ fn editor_palette(
     let surface = resolve_source(surface, background);
     let selection = resolve_source(selection, background);
     let surface_container = mix(background, surface, 0.72);
-    let surface_container_high = selection;
-    let on_surface = ensure_contrast(hex(text), &[background, surface], 4.5);
-    let on_surface_variant = ensure_contrast(hex(muted), &[background, surface], 4.5);
+    let raised_surface = selection;
+    let text = ensure_contrast(hex(text), &[background, surface], 4.5);
+    let secondary_text = ensure_contrast(hex(muted), &[background, surface], 4.5);
     let primary = hex(primary);
-    let on_primary_container = ensure_contrast(on_surface, &[selection], 4.5);
-    let on_selection = ensure_contrast(on_surface, &[selection], 4.5);
+    let primary_container_text = ensure_contrast(text, &[selection], 4.5);
+    let selection_text = ensure_contrast(text, &[selection], 4.5);
     let link = ensure_contrast(hex(link), &[background], 4.5);
     let outline = ensure_contrast(hex(muted), &[background], 3.0);
     let error_container = mix(background, hex(error), 0.12);
@@ -166,14 +189,14 @@ fn editor_palette(
         background,
         surface,
         surface_container,
-        surface_container_high,
-        on_surface,
-        on_surface_variant,
+        raised_surface,
+        text,
+        secondary_text,
         primary,
         primary_container: selection,
-        on_primary_container,
+        primary_container_text,
         selection,
-        on_selection,
+        selection_text,
         link,
         outline,
         error,
@@ -187,11 +210,92 @@ fn editor_palette(
 }
 
 impl Palette {
+    pub fn foreground_on(self, background: Color32) -> Color32 {
+        ensure_contrast(self.text, &[background], 4.5)
+    }
+
+    pub fn error_callout(self) -> (Color32, Color32) {
+        let container = mix(self.background, self.error, 0.12);
+        let foreground = ensure_contrast(self.error, &[container], 4.5);
+        (container, foreground)
+    }
+
+    pub fn for_selection(selection: &ThemeSelection, custom_themes: &[CustomTheme]) -> Self {
+        match selection {
+            ThemeSelection::BuiltIn { theme } => Self::for_theme(*theme),
+            ThemeSelection::Custom { name } => custom_themes
+                .iter()
+                .find(|custom| custom.name == *name)
+                .map_or_else(
+                    || Self::for_theme(UiTheme::default()),
+                    |custom| Self::from_model(&custom.palette),
+                ),
+        }
+    }
+
+    pub fn from_model(palette: &ThemePalette) -> Self {
+        let color = |value: ThemeColor| rgb(value.red, value.green, value.blue);
+        Self {
+            dark: palette.dark,
+            background: color(palette.background),
+            surface: color(palette.surface),
+            surface_container: color(palette.surface_container),
+            raised_surface: color(palette.raised_surface),
+            text: color(palette.text),
+            secondary_text: color(palette.secondary_text),
+            primary: color(palette.primary),
+            primary_container: color(palette.primary_container),
+            primary_container_text: color(palette.primary_container_text),
+            selection: color(palette.selection),
+            selection_text: color(palette.selection_text),
+            link: color(palette.link),
+            outline: color(palette.outline),
+            error: color(palette.error),
+            success: color(palette.success),
+            success_container: color(palette.success_container),
+            success_outline: color(palette.success_outline),
+            warning: color(palette.warning),
+            warning_container: color(palette.warning_container),
+            warning_outline: color(palette.warning_outline),
+        }
+    }
+
+    pub fn to_model(self) -> ThemePalette {
+        let color = |value: Color32| ThemeColor {
+            red: value.r(),
+            green: value.g(),
+            blue: value.b(),
+        };
+        ThemePalette {
+            dark: self.dark,
+            background: color(self.background),
+            surface: color(self.surface),
+            surface_container: color(self.surface_container),
+            raised_surface: color(self.raised_surface),
+            text: color(self.text),
+            secondary_text: color(self.secondary_text),
+            primary: color(self.primary),
+            primary_container: color(self.primary_container),
+            primary_container_text: color(self.primary_container_text),
+            selection: color(self.selection),
+            selection_text: color(self.selection_text),
+            link: color(self.link),
+            outline: color(self.outline),
+            error: color(self.error),
+            success: color(self.success),
+            success_container: color(self.success_container),
+            success_outline: color(self.success_outline),
+            warning: color(self.warning),
+            warning_container: color(self.warning_container),
+            warning_outline: color(self.warning_outline),
+        }
+    }
+
     /// Progress must remain distinct even in palettes whose selection and input fills match.
     pub fn progress(self) -> ProgressColors {
         ProgressColors {
-            track: self.surface_container_high,
-            fill: ensure_contrast(self.primary, &[self.surface_container_high], 3.0),
+            track: self.raised_surface,
+            fill: ensure_contrast(self.primary, &[self.raised_surface], 3.0),
         }
     }
 
@@ -202,14 +306,14 @@ impl Palette {
                 background: rgb(18, 24, 32),
                 surface: rgb(24, 34, 44),
                 surface_container: rgb(31, 41, 51),
-                surface_container_high: rgb(38, 48, 58),
-                on_surface: rgb(241, 244, 246),
-                on_surface_variant: rgb(145, 180, 190),
+                raised_surface: rgb(38, 48, 58),
+                text: rgb(241, 244, 246),
+                secondary_text: rgb(145, 180, 190),
                 primary: rgb(32, 108, 126),
                 primary_container: rgb(38, 48, 58),
-                on_primary_container: rgb(211, 244, 251),
+                primary_container_text: rgb(211, 244, 251),
                 selection: rgb(32, 108, 126),
-                on_selection: rgb(255, 255, 255),
+                selection_text: rgb(255, 255, 255),
                 link: rgb(90, 170, 255),
                 outline: rgb(95, 108, 120),
                 error: rgb(255, 143, 143),
@@ -225,14 +329,14 @@ impl Palette {
                 background: rgb(243, 247, 248),
                 surface: rgb(255, 255, 255),
                 surface_container: rgb(227, 236, 239),
-                surface_container_high: rgb(215, 227, 231),
-                on_surface: rgb(20, 34, 41),
-                on_surface_variant: rgb(66, 94, 104),
+                raised_surface: rgb(215, 227, 231),
+                text: rgb(20, 34, 41),
+                secondary_text: rgb(66, 94, 104),
                 primary: rgb(32, 108, 126),
                 primary_container: rgb(199, 233, 240),
-                on_primary_container: rgb(11, 56, 67),
+                primary_container_text: rgb(11, 56, 67),
                 selection: rgb(32, 108, 126),
-                on_selection: rgb(255, 255, 255),
+                selection_text: rgb(255, 255, 255),
                 link: rgb(20, 91, 146),
                 outline: rgb(94, 116, 124),
                 error: rgb(179, 38, 30),
@@ -292,14 +396,14 @@ impl Palette {
                 background: rgb(28, 27, 31),
                 surface: rgb(33, 31, 38),
                 surface_container: rgb(39, 37, 43),
-                surface_container_high: rgb(43, 41, 48),
-                on_surface: rgb(230, 225, 229),
-                on_surface_variant: rgb(202, 196, 208),
+                raised_surface: rgb(43, 41, 48),
+                text: rgb(230, 225, 229),
+                secondary_text: rgb(202, 196, 208),
                 primary: rgb(208, 188, 255),
                 primary_container: rgb(79, 55, 139),
-                on_primary_container: rgb(234, 221, 255),
+                primary_container_text: rgb(234, 221, 255),
                 selection: rgb(79, 55, 139),
-                on_selection: rgb(234, 221, 255),
+                selection_text: rgb(234, 221, 255),
                 link: rgb(208, 188, 255),
                 outline: rgb(147, 143, 153),
                 error: rgb(242, 184, 181),
@@ -315,14 +419,14 @@ impl Palette {
                 background: rgb(255, 251, 254),
                 surface: rgb(247, 242, 250),
                 surface_container: rgb(243, 237, 247),
-                surface_container_high: rgb(236, 230, 240),
-                on_surface: rgb(28, 27, 31),
-                on_surface_variant: rgb(73, 69, 79),
+                raised_surface: rgb(236, 230, 240),
+                text: rgb(28, 27, 31),
+                secondary_text: rgb(73, 69, 79),
                 primary: rgb(103, 80, 164),
                 primary_container: rgb(234, 221, 255),
-                on_primary_container: rgb(33, 0, 93),
+                primary_container_text: rgb(33, 0, 93),
                 selection: rgb(103, 80, 164),
-                on_selection: rgb(255, 255, 255),
+                selection_text: rgb(255, 255, 255),
                 link: rgb(80, 57, 139),
                 outline: rgb(121, 116, 126),
                 error: rgb(179, 38, 30),
@@ -338,14 +442,14 @@ impl Palette {
                 background: rgb(40, 42, 54),
                 surface: rgb(33, 34, 44),
                 surface_container: rgb(68, 71, 90),
-                surface_container_high: rgb(68, 71, 90),
-                on_surface: rgb(248, 248, 242),
-                on_surface_variant: rgb(158, 168, 199),
+                raised_surface: rgb(68, 71, 90),
+                text: rgb(248, 248, 242),
+                secondary_text: rgb(158, 168, 199),
                 primary: rgb(189, 147, 249),
                 primary_container: rgb(68, 71, 90),
-                on_primary_container: rgb(248, 248, 242),
+                primary_container_text: rgb(248, 248, 242),
                 selection: rgb(68, 71, 90),
-                on_selection: rgb(248, 248, 242),
+                selection_text: rgb(248, 248, 242),
                 link: rgb(139, 233, 253),
                 outline: rgb(98, 114, 164),
                 error: rgb(255, 85, 85),
@@ -381,14 +485,14 @@ impl Palette {
                 background: rgb(46, 52, 64),
                 surface: rgb(59, 66, 82),
                 surface_container: rgb(67, 76, 94),
-                surface_container_high: rgb(76, 86, 106),
-                on_surface: rgb(229, 233, 240),
-                on_surface_variant: rgb(216, 222, 233),
+                raised_surface: rgb(76, 86, 106),
+                text: rgb(229, 233, 240),
+                secondary_text: rgb(216, 222, 233),
                 primary: rgb(136, 192, 208),
                 primary_container: rgb(67, 76, 94),
-                on_primary_container: rgb(236, 239, 244),
+                primary_container_text: rgb(236, 239, 244),
                 selection: rgb(67, 76, 94),
-                on_selection: rgb(236, 239, 244),
+                selection_text: rgb(236, 239, 244),
                 link: rgb(129, 161, 193),
                 outline: rgb(143, 188, 187),
                 error: rgb(209, 138, 146),
@@ -404,14 +508,14 @@ impl Palette {
                 background: rgb(16, 20, 23),
                 surface: rgb(27, 31, 34),
                 surface_container: rgb(37, 42, 46),
-                surface_container_high: rgb(52, 58, 63),
-                on_surface: rgb(244, 247, 248),
-                on_surface_variant: rgb(169, 178, 184),
+                raised_surface: rgb(52, 58, 63),
+                text: rgb(244, 247, 248),
+                secondary_text: rgb(169, 178, 184),
                 primary: rgb(196, 38, 67),
                 primary_container: rgb(74, 24, 33),
-                on_primary_container: rgb(255, 220, 226),
+                primary_container_text: rgb(255, 220, 226),
                 selection: rgb(34, 75, 88),
-                on_selection: rgb(255, 255, 255),
+                selection_text: rgb(255, 255, 255),
                 link: rgb(102, 213, 232),
                 outline: rgb(126, 135, 141),
                 error: rgb(255, 135, 145),
@@ -427,14 +531,14 @@ impl Palette {
                 background: rgb(0, 43, 54),
                 surface: rgb(7, 54, 66),
                 surface_container: rgb(11, 64, 76),
-                surface_container_high: rgb(22, 79, 92),
-                on_surface: rgb(147, 161, 161),
-                on_surface_variant: rgb(147, 161, 161),
+                raised_surface: rgb(22, 79, 92),
+                text: rgb(147, 161, 161),
+                secondary_text: rgb(147, 161, 161),
                 primary: rgb(42, 161, 152),
                 primary_container: rgb(7, 82, 92),
-                on_primary_container: rgb(253, 246, 227),
+                primary_container_text: rgb(253, 246, 227),
                 selection: rgb(88, 110, 117),
-                on_selection: rgb(253, 246, 227),
+                selection_text: rgb(253, 246, 227),
                 link: rgb(42, 161, 152),
                 outline: rgb(101, 123, 131),
                 error: rgb(237, 106, 100),
@@ -450,14 +554,14 @@ impl Palette {
                 background: rgb(253, 246, 227),
                 surface: rgb(238, 232, 213),
                 surface_container: rgb(229, 222, 200),
-                surface_container_high: rgb(221, 213, 189),
-                on_surface: rgb(7, 54, 66),
-                on_surface_variant: rgb(88, 110, 117),
+                raised_surface: rgb(221, 213, 189),
+                text: rgb(7, 54, 66),
+                secondary_text: rgb(88, 110, 117),
                 primary: rgb(28, 102, 149),
                 primary_container: rgb(203, 225, 227),
-                on_primary_container: rgb(0, 43, 54),
+                primary_container_text: rgb(0, 43, 54),
                 selection: rgb(88, 110, 117),
-                on_selection: rgb(253, 246, 227),
+                selection_text: rgb(253, 246, 227),
                 link: rgb(28, 102, 149),
                 outline: rgb(101, 123, 131),
                 error: rgb(181, 39, 36),
@@ -473,14 +577,14 @@ impl Palette {
                 background: rgb(0, 0, 0),
                 surface: rgb(12, 12, 12),
                 surface_container: rgb(20, 20, 20),
-                surface_container_high: rgb(32, 32, 32),
-                on_surface: rgb(255, 255, 255),
-                on_surface_variant: rgb(255, 255, 255),
+                raised_surface: rgb(32, 32, 32),
+                text: rgb(255, 255, 255),
+                secondary_text: rgb(255, 255, 255),
                 primary: rgb(89, 227, 255),
                 primary_container: rgb(0, 59, 71),
-                on_primary_container: rgb(255, 255, 255),
+                primary_container_text: rgb(255, 255, 255),
                 selection: rgb(0, 78, 92),
-                on_selection: rgb(255, 255, 255),
+                selection_text: rgb(255, 255, 255),
                 link: rgb(89, 227, 255),
                 outline: rgb(255, 255, 255),
                 error: rgb(255, 154, 154),
@@ -496,14 +600,14 @@ impl Palette {
                 background: rgb(255, 255, 255),
                 surface: rgb(247, 247, 247),
                 surface_container: rgb(238, 238, 238),
-                surface_container_high: rgb(221, 221, 221),
-                on_surface: rgb(0, 0, 0),
-                on_surface_variant: rgb(17, 17, 17),
+                raised_surface: rgb(221, 221, 221),
+                text: rgb(0, 0, 0),
+                secondary_text: rgb(17, 17, 17),
                 primary: rgb(0, 78, 92),
                 primary_container: rgb(200, 245, 255),
-                on_primary_container: rgb(0, 0, 0),
+                primary_container_text: rgb(0, 0, 0),
                 selection: rgb(0, 78, 92),
-                on_selection: rgb(255, 255, 255),
+                selection_text: rgb(255, 255, 255),
                 link: rgb(0, 65, 122),
                 outline: rgb(0, 0, 0),
                 error: rgb(140, 0, 0),
@@ -580,8 +684,11 @@ fn fonts(theme: UiTheme) -> egui::FontDefinitions {
     fonts
 }
 
-pub fn apply(context: &egui::Context, theme: UiTheme) {
-    let palette = Palette::for_theme(theme);
+pub(crate) fn apply_palette(
+    context: &egui::Context,
+    palette: Palette,
+    font_theme: Option<UiTheme>,
+) {
     let egui_theme = if palette.dark {
         egui::Theme::Dark
     } else {
@@ -592,17 +699,17 @@ pub fn apply(context: &egui::Context, theme: UiTheme) {
     } else {
         egui::Visuals::light()
     };
-    visuals.override_text_color = Some(palette.on_surface);
-    visuals.weak_text_color = Some(palette.on_surface_variant);
+    visuals.override_text_color = Some(palette.text);
+    visuals.weak_text_color = Some(palette.secondary_text);
     visuals.panel_fill = palette.background;
     visuals.window_fill = palette.surface;
     visuals.window_stroke = Stroke::new(1.0, palette.outline);
     visuals.faint_bg_color = palette.surface_container;
-    visuals.extreme_bg_color = palette.surface_container_high;
-    visuals.text_edit_bg_color = Some(palette.surface_container_high);
+    visuals.extreme_bg_color = palette.raised_surface;
+    visuals.text_edit_bg_color = Some(palette.raised_surface);
     visuals.code_bg_color = palette.surface_container;
     visuals.selection.bg_fill = palette.selection;
-    visuals.selection.stroke = Stroke::new(1.0, palette.on_selection);
+    visuals.selection.stroke = Stroke::new(1.0, palette.selection_text);
     visuals.hyperlink_color = palette.link;
     visuals.error_fg_color = palette.error;
     visuals.warn_fg_color = palette.warning;
@@ -610,24 +717,31 @@ pub fn apply(context: &egui::Context, theme: UiTheme) {
     visuals.widgets.noninteractive.bg_fill = palette.surface;
     visuals.widgets.noninteractive.weak_bg_fill = palette.surface;
     visuals.widgets.noninteractive.bg_stroke = Stroke::new(1.0, palette.outline);
-    visuals.widgets.noninteractive.fg_stroke = Stroke::new(1.0, palette.on_surface);
+    visuals.widgets.noninteractive.fg_stroke = Stroke::new(1.0, palette.text);
     visuals.widgets.inactive.bg_fill = palette.surface_container;
     visuals.widgets.inactive.weak_bg_fill = palette.surface_container;
     visuals.widgets.inactive.bg_stroke = Stroke::new(1.0, palette.outline);
-    visuals.widgets.inactive.fg_stroke = Stroke::new(1.0, palette.on_surface);
+    visuals.widgets.inactive.fg_stroke = Stroke::new(1.0, palette.text);
     visuals.widgets.hovered.bg_fill = palette.primary_container;
     visuals.widgets.hovered.weak_bg_fill = palette.primary_container;
     visuals.widgets.hovered.bg_stroke = Stroke::new(1.0, palette.primary);
-    visuals.widgets.hovered.fg_stroke = Stroke::new(1.0, palette.on_primary_container);
+    visuals.widgets.hovered.fg_stroke = Stroke::new(1.0, palette.primary_container_text);
     // Frameless interactive widgets, including collapsing headers, use this foreground without
     // painting `bg_fill`. Keep active/open states on the container state layer so their text also
     // remains legible directly on the surrounding surface.
     visuals.widgets.active = visuals.widgets.hovered;
     visuals.widgets.open = visuals.widgets.hovered;
+    visuals.widgets.open.bg_fill = palette.link;
+    visuals.widgets.open.weak_bg_fill = palette.link;
+    visuals.widgets.open.fg_stroke = Stroke::new(1.0, palette.background);
 
-    context.set_fonts(fonts(theme));
+    context.set_fonts(fonts(font_theme.unwrap_or_default()));
     context.set_theme(egui_theme);
     context.set_visuals_of(egui_theme, visuals);
+}
+
+pub fn apply(context: &egui::Context, theme: UiTheme) {
+    apply_palette(context, Palette::for_theme(theme), Some(theme));
 }
 
 #[cfg(test)]
@@ -661,17 +775,21 @@ mod tests {
     fn all_palette_text_pairs_meet_wcag_aa() {
         for &theme in UiTheme::ALL {
             let palette = Palette::for_theme(theme);
+            let (error_container, error_foreground) = palette.error_callout();
             for (foreground, background) in [
-                (palette.on_surface, palette.background),
-                (palette.on_surface, palette.surface),
-                (palette.on_surface_variant, palette.background),
-                (palette.on_primary_container, palette.primary_container),
-                (palette.on_primary_container, palette.background),
-                (palette.on_selection, palette.selection),
+                (palette.text, palette.background),
+                (palette.text, palette.surface),
+                (palette.secondary_text, palette.background),
+                (palette.primary_container_text, palette.primary_container),
+                (palette.primary_container_text, palette.background),
+                (palette.selection_text, palette.selection),
                 (palette.link, palette.background),
                 (palette.error, palette.background),
                 (palette.success, palette.success_container),
                 (palette.warning, palette.warning_container),
+                (palette.foreground_on(palette.success), palette.success),
+                (palette.foreground_on(palette.warning), palette.warning),
+                (error_foreground, error_container),
             ] {
                 assert!(
                     contrast(foreground, background) >= 4.5,
@@ -687,11 +805,11 @@ mod tests {
         for theme in [UiTheme::HighContrastDark, UiTheme::HighContrastLight] {
             let palette = Palette::for_theme(theme);
             for (foreground, background) in [
-                (palette.on_surface, palette.background),
-                (palette.on_surface, palette.surface),
-                (palette.on_surface_variant, palette.background),
-                (palette.on_primary_container, palette.primary_container),
-                (palette.on_selection, palette.selection),
+                (palette.text, palette.background),
+                (palette.text, palette.surface),
+                (palette.secondary_text, palette.background),
+                (palette.primary_container_text, palette.primary_container),
+                (palette.selection_text, palette.selection),
                 (palette.link, palette.background),
                 (palette.error, palette.background),
                 (palette.success, palette.success_container),
@@ -729,7 +847,7 @@ mod tests {
                 theme.label()
             );
             assert!(
-                contrast(palette.on_surface, palette.surface) >= 4.5,
+                contrast(palette.text, palette.surface) >= 4.5,
                 "{} toast",
                 theme.label()
             );

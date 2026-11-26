@@ -31,7 +31,7 @@ type TextureRecipeKey = (usize, usize, usize);
 type TextureRecipe = Arc<[[f64; 4]]>;
 type PreparedModel = (
     Arc<Model>,
-    Option<Arc<colour_lut::Lut>>,
+    Option<colour_lut::WorldGrade>,
     Vec<u32>,
     Option<Observation>,
 );
@@ -272,7 +272,8 @@ struct Preparation {
 
 struct ObservationRequest<'a> {
     context: &'a Context,
-    lut: &'a colour_lut::Lut,
+    world: &'a colour_lut::WorldGrade,
+    strength: f64,
     spawn: &'a Spawn,
     samples: &'a [VertexSample],
     optional_layers: &'a OptionalLayers,
@@ -333,7 +334,7 @@ impl Model {
 
 pub struct Assets {
     root: PathBuf,
-    luts: BTreeMap<i32, Arc<colour_lut::Lut>>,
+    luts: BTreeMap<i32, colour_lut::WorldGrade>,
     source: Source,
     geometry: Geometry,
     models: BTreeMap<String, Arc<Model>>,
@@ -687,8 +688,10 @@ impl Assets {
             return Ok((model, None, key, Some(colours)));
         }
         if !self.luts.contains_key(&filter) {
-            self.luts
-                .insert(filter, Arc::new(colour_lut::from_game(&self.root, filter)?));
+            self.luts.insert(
+                filter,
+                colour_lut::from_game_world_grade(&self.root, filter)?,
+            );
         }
         let lut = self.luts.get(&filter).unwrap().clone();
         Ok((model, Some(lut), key, None))
@@ -723,7 +726,33 @@ impl Model {
         &self,
         spawn: &Spawn,
         context: &Context,
-        lut: &colour_lut::Lut,
+        world: &colour_lut::WorldGrade,
+        wanted: u32,
+        cancel: &crate::search::Stop<'_>,
+    ) -> Result<Observation> {
+        let mut combined = Observation {
+            colours: GRASS_COLOUR_SET,
+            known: 0x7ff,
+            possible: 0,
+            complete: true,
+        };
+        for &strength in world.strengths() {
+            let observed =
+                self.observe_at_strength(spawn, context, world, strength, wanted, cancel)?;
+            combined.colours |= observed.colours & !GRASS_COLOUR_SET;
+            combined.known &= observed.known;
+            combined.possible |= observed.possible;
+            combined.complete &= observed.complete;
+        }
+        Ok(combined)
+    }
+
+    fn observe_at_strength(
+        &self,
+        spawn: &Spawn,
+        context: &Context,
+        world: &colour_lut::WorldGrade,
+        strength: f64,
         wanted: u32,
         cancel: &crate::search::Stop<'_>,
     ) -> Result<Observation> {
@@ -736,7 +765,8 @@ impl Model {
             let observed = material.observe_prepared(
                 ObservationRequest {
                     context,
-                    lut,
+                    world,
+                    strength,
                     spawn,
                     samples: &self.samples[index],
                     optional_layers: &self.optional_layers,
@@ -1052,7 +1082,8 @@ impl Material {
         check_stop(cancel)?;
         let ObservationRequest {
             context,
-            lut,
+            world,
+            strength,
             spawn,
             samples,
             optional_layers,
@@ -1150,7 +1181,9 @@ impl Material {
                         let colour = if let Some(&colour) = classified.get(&key) {
                             colour
                         } else {
-                            let colour = appearance::linear_colour(linear, |rgb| lut.sample(rgb))?;
+                            let colour = appearance::linear_colour(linear, |rgb| {
+                                world.sample(rgb, strength)
+                            })?;
                             if classified.len() >= 65536 {
                                 classified.clear();
                             }

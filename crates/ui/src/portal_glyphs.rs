@@ -2,6 +2,7 @@ use egui::{self, Color32, ColorImage, TextureHandle, TextureOptions, Ui};
 use std::io::Cursor;
 
 const GLYPH_SIZE: f32 = 24.0;
+const PORTAL_GLYPH_COUNT: usize = 12;
 const GLYPH_IMAGES: [&[u8]; 16] = [
     include_bytes!("../assets/glyphs/nms-portal/0.png"),
     include_bytes!("../assets/glyphs/nms-portal/1.png"),
@@ -62,6 +63,16 @@ impl PortalGlyphs {
             }
         })
         .response
+    }
+
+    pub fn show_centered(&self, ui: &mut Ui, portal_code: &str, tint: Color32) -> egui::Response {
+        let strip_width = GLYPH_SIZE * PORTAL_GLYPH_COUNT as f32;
+        let leading_space = ((ui.available_width() - strip_width) / 2.0).max(0.0);
+        ui.horizontal(|ui| {
+            ui.add_space(leading_space);
+            self.show(ui, portal_code, tint)
+        })
+        .inner
     }
 }
 

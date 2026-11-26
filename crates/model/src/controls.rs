@@ -63,6 +63,7 @@ impl EventJournal {
     fn push(
         &mut self,
         progress: &crate::session::Progress,
+        metrics: &crate::runtime::Metrics,
         kind: LifecycleEventKind,
         published_ms: u64,
     ) {
@@ -76,6 +77,8 @@ impl EventJournal {
             search_id: progress.id,
             elapsed_ms: progress.elapsed_ms,
             systems: progress.systems,
+            planets: metrics.generated_planets,
+            fauna: metrics.generated_fauna,
             results: progress.results.len(),
             kind,
         });
@@ -159,12 +162,18 @@ impl Controls {
         let mut events = self.events.lock().unwrap_or_else(|e| e.into_inner());
         let new_search = before.is_none_or(|(id, _, _, _)| id != progress.id);
         if new_search {
-            events.push(progress, LifecycleEventKind::Started, self.uptime_ms());
+            events.push(
+                progress,
+                &state.metrics,
+                LifecycleEventKind::Started,
+                self.uptime_ms(),
+            );
         } else if let Some((_, _, _, prior_results)) = before
             && progress.results.len() > prior_results
         {
             events.push(
                 progress,
+                &state.metrics,
                 LifecycleEventKind::ResultsFound {
                     count: progress.results.len() - prior_results,
                 },
@@ -177,6 +186,7 @@ impl Controls {
             {
                 events.push(
                     progress,
+                    &state.metrics,
                     LifecycleEventKind::Finished { finish },
                     self.uptime_ms(),
                 );
@@ -193,6 +203,7 @@ impl Controls {
                 (None, Some(cause)) => {
                     events.push(
                         progress,
+                        &state.metrics,
                         LifecycleEventKind::AutomaticPause { cause },
                         self.uptime_ms(),
                     );
@@ -200,6 +211,7 @@ impl Controls {
                 (Some(cause), None) => {
                     events.push(
                         progress,
+                        &state.metrics,
                         LifecycleEventKind::AutomaticResume { cause },
                         self.uptime_ms(),
                     );
@@ -440,7 +452,7 @@ mod tests {
      {
         use crate::{
             address::{Address, Coordinates},
-            runtime::LifecycleEventKind,
+            runtime::{LifecycleEventKind, Metrics},
             session::Session,
             settings::Settings,
         };
@@ -463,6 +475,11 @@ mod tests {
             controls.update(|state| {
                 state.progress = session.progress().cloned().map(std::sync::Arc::new);
                 state.search_pause = pause;
+                state.metrics = Metrics {
+                    generated_planets: 27,
+                    generated_fauna: 93,
+                    ..Metrics::default()
+                };
             })
         };
         publish(&session, None);
@@ -504,6 +521,8 @@ mod tests {
                 finish: crate::session::Finish::Cancelled
             }
         );
+        assert_eq!(events[3].planets, 27);
+        assert_eq!(events[3].fauna, 93);
         assert!(
             events
                 .iter()

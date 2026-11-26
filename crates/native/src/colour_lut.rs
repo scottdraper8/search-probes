@@ -1,7 +1,9 @@
 use std::{
+    cell::RefCell,
     collections::BTreeMap,
+    collections::VecDeque,
     path::Path,
-    sync::{Arc, Mutex, OnceLock},
+    sync::{Arc, Mutex, OnceLock, Weak},
 };
 
 type Result<T> = std::result::Result<T, &'static str>;
@@ -10,6 +12,112 @@ type Result<T> = std::result::Result<T, &'static str>;
 pub struct Lut {
     size: usize,
     rgb: Vec<[f64; 3]>,
+}
+
+#[derive(Clone)]
+pub struct WorldGrade {
+    base: Arc<Lut>,
+    selected: Arc<Lut>,
+    fade_distance: f64,
+}
+
+const SAMPLE_CACHE_CAPACITY: usize = 4096;
+
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+struct SampleKey {
+    base: usize,
+    selected: usize,
+    rgb: [u64; 3],
+    strength: u64,
+}
+
+struct CachedSample {
+    _base: Weak<Lut>,
+    _selected: Weak<Lut>,
+    value: [f64; 3],
+}
+
+#[derive(Default)]
+struct SampleCache {
+    entries: BTreeMap<SampleKey, CachedSample>,
+    order: VecDeque<SampleKey>,
+}
+
+impl SampleCache {
+    fn get(&self, key: SampleKey) -> Option<[f64; 3]> {
+        self.entries.get(&key).map(|sample| sample.value)
+    }
+
+    fn insert(&mut self, key: SampleKey, grade: &WorldGrade, value: [f64; 3]) {
+        if self.entries.contains_key(&key) {
+            return;
+        }
+        while self.entries.len() >= SAMPLE_CACHE_CAPACITY {
+            if let Some(oldest) = self.order.pop_front() {
+                self.entries.remove(&oldest);
+            }
+        }
+        self.entries.insert(
+            key,
+            CachedSample {
+                _base: Arc::downgrade(&grade.base),
+                _selected: Arc::downgrade(&grade.selected),
+                value,
+            },
+        );
+        self.order.push_back(key);
+    }
+}
+
+thread_local! {
+    static SAMPLE_CACHE: RefCell<SampleCache> = RefCell::new(SampleCache::default());
+}
+
+impl WorldGrade {
+    const FULL_STRENGTH: [f64; 1] = [1.0];
+    const DISTANCE_STRENGTHS: [f64; 9] = [0.0, 0.125, 0.25, 0.375, 0.5, 0.625, 0.75, 0.875, 1.0];
+
+    pub fn fade_distance(&self) -> f64 {
+        self.fade_distance
+    }
+
+    pub fn strengths(&self) -> &'static [f64] {
+        if self.fade_distance > 0.0 {
+            &Self::DISTANCE_STRENGTHS
+        } else {
+            &Self::FULL_STRENGTH
+        }
+    }
+
+    pub fn sample(&self, rgb: [f64; 3], strength: f64) -> [f64; 3] {
+        let strength = strength.clamp(0.0, 1.0);
+        let key = SampleKey {
+            base: Arc::as_ptr(&self.base) as usize,
+            selected: Arc::as_ptr(&self.selected) as usize,
+            rgb: rgb.map(f64::to_bits),
+            strength: strength.to_bits(),
+        };
+        if let Some(value) = SAMPLE_CACHE.with(|cache| cache.borrow().get(key)) {
+            return value;
+        }
+        let value = if strength <= 0.0 {
+            self.base.sample(rgb)
+        } else if strength >= 1.0 {
+            self.selected.sample(rgb)
+        } else {
+            let base = self.base.sample(rgb);
+            let selected = self.selected.sample(rgb);
+            std::array::from_fn(|channel| {
+                base[channel] + (selected[channel] - base[channel]) * strength
+            })
+        };
+        SAMPLE_CACHE.with(|cache| cache.borrow_mut().insert(key, self, value));
+        value
+    }
+
+    pub fn full_sample(&self, rgb: [f64; 3]) -> [f64; 3] {
+        self.sample(rgb, 1.0)
+    }
 }
 
 impl Lut {
@@ -94,6 +202,35 @@ pub fn get(filter: i32) -> Result<Arc<Lut>> {
     let lut = Arc::new(from_game(root, filter)?);
     cache.insert(filter, lut.clone());
     Ok(lut)
+}
+
+pub fn from_game_world_grade(root: &Path, filter: i32) -> Result<WorldGrade> {
+    Ok(WorldGrade {
+        base: Arc::new(from_game(root, 0)?),
+        selected: Arc::new(from_game(root, filter)?),
+        fade_distance: fade_distance(filter),
+    })
+}
+
+pub fn world_grade(filter: i32) -> Result<WorldGrade> {
+    Ok(WorldGrade {
+        base: get(0)?,
+        selected: get(filter)?,
+        fade_distance: fade_distance(filter),
+    })
+}
+
+/// Distance at which the generated screen filter reaches full strength. Zero-valued filters are
+/// authored as full-screen grades. These are the generated-world entries in the current game
+/// screen-filter table; non-world/photo-mode values correctly fall back to full strength.
+pub const fn fade_distance(filter: i32) -> f64 {
+    match filter {
+        15 | 60 => 100.0,
+        76..=82 => 150.0,
+        71..=74 => 250.0,
+        18 => 300.0,
+        _ => 0.0,
+    }
 }
 
 fn filename(filter: i32) -> Option<&'static str> {
@@ -187,4 +324,38 @@ fn filename(filter: i32) -> Option<&'static str> {
     usize::try_from(filter)
         .ok()
         .and_then(|i| FILES.get(i).copied())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn constant(rgb: [f64; 3]) -> Arc<Lut> {
+        Arc::new(Lut {
+            size: 2,
+            rgb: vec![rgb; 8],
+        })
+    }
+
+    #[test]
+    fn distance_grade_blends_base_and_selected_luts() {
+        let grade = WorldGrade {
+            base: constant([0.0, 0.0, 0.0]),
+            selected: constant([1.0, 0.5, 0.25]),
+            fade_distance: 250.0,
+        };
+        assert_eq!(grade.strengths().first(), Some(&0.0));
+        assert_eq!(grade.strengths().last(), Some(&1.0));
+        assert_eq!(grade.sample([0.2, 0.4, 0.6], 0.5), [0.5, 0.25, 0.125]);
+        assert_eq!(grade.full_sample([0.2, 0.4, 0.6]), [1.0, 0.5, 0.25]);
+    }
+
+    #[test]
+    fn generated_filter_fade_distances_match_the_game_table() {
+        assert_eq!(fade_distance(73), 250.0);
+        assert_eq!(fade_distance(76), 150.0);
+        assert_eq!(fade_distance(15), 100.0);
+        assert_eq!(fade_distance(18), 300.0);
+        assert_eq!(fade_distance(42), 0.0);
+    }
 }

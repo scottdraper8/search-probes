@@ -5,13 +5,13 @@ use search_probes_model::{
     cache::{CachedMatch, FaunaMatch},
     controls::Controls,
     fauna::{Domain, NameIdentity},
-    runtime::{Action, Availability, Command, MAX_STATE_BYTES, State},
+    runtime::{Action, Availability, Command, MAX_STATE_BYTES, Metrics, State},
     session::{Finish, MAX_SEARCH_HISTORY, Phase, Progress, SearchRecord},
     settings::{MAX_RESULTS, Settings},
     storage,
     target::TargetKind,
 };
-use search_probes_ui::{App, ExportRequest, egui};
+use search_probes_ui::{App, ExportFormat, ExportRequest, egui};
 use std::{
     ffi::OsString,
     fs,
@@ -25,7 +25,6 @@ use std::{
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 
-const SETTINGS_KEY: &str = "preview_settings";
 const MAX_FIXTURES: usize = MAX_RESULTS;
 
 fn unix_ms() -> u64 {
@@ -151,8 +150,13 @@ fn record(settings: &Settings, progress: Arc<Progress>) -> Arc<SearchRecord> {
     })
 }
 
-fn preview_state(settings: Settings, fixtures: usize) -> State {
+fn preview_state(
+    settings: Settings,
+    recovery: Option<search_probes_model::settings::SettingsRecovery>,
+    fixtures: usize,
+) -> State {
     let mut state = State::new(settings);
+    state.settings_recovery = recovery;
     state.availability = Availability::Ready;
     state.player = Some(address(0, 0));
     if fixtures > 0 {
@@ -164,6 +168,13 @@ fn preview_state(settings: Settings, fixtures: usize) -> State {
         );
         state.progress = Some(current.clone());
         state.search_history = vec![record(&state.settings, current)];
+        state.metrics = Metrics {
+            generated_systems: 2_400,
+            generated_planets: 13_842,
+            generated_fauna: 6_125,
+            elapsed_ms: 83_000,
+            ..Metrics::default()
+        };
     }
     state
 }
@@ -226,21 +237,25 @@ fn arguments(values: impl IntoIterator<Item = OsString>) -> Result<Options, Stri
     })
 }
 
+fn export_filter(format: ExportFormat) -> &'static str {
+    match format {
+        ExportFormat::Text => "Text files (*.txt) | *.txt",
+        ExportFormat::Csv => "CSV files (*.csv) | *.csv",
+        ExportFormat::Json => "JSON files (*.json) | *.json",
+    }
+}
+
 fn save_export(request: &ExportRequest) -> Result<Option<String>, String> {
     let suggested = std::env::var_os("HOME")
         .map(PathBuf::from)
         .unwrap_or_else(|| PathBuf::from("."))
         .join(request.suggested_name());
-    let filter = match request.format.extension() {
-        "txt" => "Text files (*.txt) | *.txt",
-        "csv" => "CSV files (*.csv) | *.csv",
-        _ => return Err("unsupported export format".into()),
-    };
+    let filter = export_filter(request.format);
     let output = ProcessCommand::new("zenity")
         .arg("--file-selection")
         .arg("--save")
         .arg("--confirm-overwrite")
-        .arg("--title=Export Search Probes results")
+        .arg(format!("--title={}", request.dialog_title()))
         .arg(format!("--filename={}", suggested.display()))
         .arg(format!("--file-filter={filter}"))
         .output()
@@ -420,12 +435,13 @@ struct Preview {
 
 impl Preview {
     fn new(cc: &eframe::CreationContext<'_>, options: Options) -> Result<Self, String> {
-        let settings = cc
-            .storage
-            .and_then(|storage| eframe::get_value::<Settings>(storage, SETTINGS_KEY))
-            .filter(|settings| settings.validate().is_ok())
-            .unwrap_or_default();
-        let controls = Arc::new(Controls::new(preview_state(settings, options.fixtures)));
+        let loaded = storage::load_settings_with_recovery(&options.settings_directory)
+            .map_err(|error| format!("cannot load preview settings: {error}"))?;
+        let controls = Arc::new(Controls::new(preview_state(
+            loaded.settings,
+            loaded.recovery,
+            options.fixtures,
+        )));
         let worker =
             ControlWorker::start(Arc::clone(&controls), options.settings_directory.clone())?;
         Ok(Self {
@@ -477,10 +493,6 @@ impl eframe::App for Preview {
             self.announced = true;
         }
     }
-
-    fn save(&mut self, storage: &mut dyn eframe::Storage) {
-        eframe::set_value(storage, SETTINGS_KEY, self.app.settings());
-    }
 }
 
 impl Drop for Preview {
@@ -523,6 +535,22 @@ mod tests {
     use super::*;
 
     #[test]
+    fn preview_save_dialog_supports_every_export_format() {
+        assert_eq!(
+            export_filter(ExportFormat::Text),
+            "Text files (*.txt) | *.txt"
+        );
+        assert_eq!(
+            export_filter(ExportFormat::Csv),
+            "CSV files (*.csv) | *.csv"
+        );
+        assert_eq!(
+            export_filter(ExportFormat::Json),
+            "JSON files (*.json) | *.json"
+        );
+    }
+
+    #[test]
     fn arguments_accept_an_explicit_control_directory_and_fixture_count() {
         let options = arguments([
             OsString::from("--settings-dir"),
@@ -539,7 +567,7 @@ mod tests {
 
     #[test]
     fn requested_fixtures_populate_current_progress_and_history() {
-        let state = preview_state(Settings::default(), 23);
+        let state = preview_state(Settings::default(), None, 23);
         assert_eq!(state.progress.as_ref().unwrap().results.len(), 23);
         assert_eq!(state.search_history.len(), 1);
         assert!(
@@ -556,7 +584,7 @@ mod tests {
 
     #[test]
     fn runtime_commands_update_the_state_published_to_the_ui() {
-        let controls = Controls::new(preview_state(Settings::default(), 2));
+        let controls = Controls::new(preview_state(Settings::default(), None, 2));
         apply_runtime_command(
             &controls,
             Command {

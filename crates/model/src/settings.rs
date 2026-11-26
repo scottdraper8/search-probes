@@ -1,7 +1,7 @@
 use crate::{
     binding::InputBinding,
     criteria::{Criteria, Field, Plan, Predicate},
-    theme::UiTheme,
+    theme::{CustomTheme, MAX_CUSTOM_THEMES, ThemeSelection},
 };
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeSet;
@@ -20,6 +20,13 @@ pub const MAX_PRESETS: usize = 9;
 pub const MAX_SETTINGS_BYTES: usize = 1_048_576;
 pub const MAX_WORKERS: usize = 16;
 pub const FLORA_COLOUR_SEARCH_ERROR: &str = "non-grass flora colour search is unavailable until planet-wide occurrence can be established; inspect the current planet for generated recipe observations";
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct SettingsRecovery {
+    pub settings: bool,
+    pub preset_files: usize,
+}
 
 pub fn validate_search_plan(plan: &Plan) -> Result<(), &'static str> {
     if plan.planet.iter().any(|predicate| {
@@ -152,7 +159,8 @@ pub struct Settings {
 #[serde(deny_unknown_fields)]
 pub struct InterfaceSettings {
     pub hotkey: InputBinding,
-    pub theme: UiTheme,
+    pub theme: ThemeSelection,
+    pub custom_themes: Vec<CustomTheme>,
     pub notifications: NotificationSettings,
     pub result_cards: ResultCardSettings,
 }
@@ -206,7 +214,22 @@ pub struct NotificationSettings {
     pub search_completed: bool,
     pub automatic_pause: bool,
     pub automatic_resume: bool,
+    pub duration_seconds: u8,
     pub placement: ToastPlacement,
+}
+
+impl NotificationSettings {
+    pub const MIN_DURATION_SECONDS: u8 = 1;
+    pub const MAX_DURATION_SECONDS: u8 = 30;
+
+    pub fn validate(&self) -> Result<(), &'static str> {
+        if !(Self::MIN_DURATION_SECONDS..=Self::MAX_DURATION_SECONDS)
+            .contains(&self.duration_seconds)
+        {
+            return Err("notification duration must be between 1 and 30 seconds");
+        }
+        Ok(())
+    }
 }
 
 impl Default for NotificationSettings {
@@ -216,6 +239,7 @@ impl Default for NotificationSettings {
             search_completed: true,
             automatic_pause: true,
             automatic_resume: true,
+            duration_seconds: 5,
             placement: ToastPlacement::TopRight,
         }
     }
@@ -278,7 +302,35 @@ impl Settings {
     pub fn validate(&self) -> Result<(), &'static str> {
         self.search.validate()?;
         self.interface.hotkey.validate()?;
+        self.interface.notifications.validate()?;
         self.interface.result_cards.validate()?;
+        if self.interface.custom_themes.len() > MAX_CUSTOM_THEMES {
+            return Err("at most twenty custom themes can be saved");
+        }
+        let mut theme_names = BTreeSet::new();
+        for custom in &self.interface.custom_themes {
+            validate_custom_theme_name(&custom.name)?;
+            custom.validate_palette()?;
+            let normalized = custom.name.to_lowercase();
+            if !theme_names.insert(normalized.clone()) {
+                return Err("custom theme names must be unique");
+            }
+            if crate::theme::UiTheme::ALL
+                .iter()
+                .any(|theme| theme.label().to_lowercase() == normalized)
+            {
+                return Err("custom theme names must not match a built-in theme");
+            }
+        }
+        if let ThemeSelection::Custom { name } = &self.interface.theme
+            && !self
+                .interface
+                .custom_themes
+                .iter()
+                .any(|custom| custom.name == *name)
+        {
+            return Err("selected custom theme does not exist");
+        }
         if self.presets.len() > MAX_PRESETS {
             return Err("at most nine Guide presets can be saved");
         }
@@ -300,15 +352,34 @@ impl Settings {
     }
 }
 
+pub fn validate_custom_theme_name(name: &str) -> Result<(), &'static str> {
+    if name.is_empty() {
+        return Err("enter a custom theme name");
+    }
+    if name.trim() != name {
+        return Err("custom theme names cannot start or end with whitespace");
+    }
+    if name.chars().count() > 80 {
+        return Err("custom theme names can contain at most 80 characters");
+    }
+    if name.chars().any(char::is_control) {
+        return Err("custom theme name contains unsupported characters");
+    }
+    Ok(())
+}
+
 pub fn validate_name(name: &str) -> Result<(), &'static str> {
-    if name.is_empty()
-        || name.trim() != name
-        || name.chars().count() > 80
-        || name.chars().any(char::is_control)
-    {
-        return Err(
-            "preset name must contain 1 to 80 characters without edge whitespace or control characters",
-        );
+    if name.is_empty() {
+        return Err("enter a preset name");
+    }
+    if name.trim() != name {
+        return Err("preset names cannot start or end with whitespace");
+    }
+    if name.chars().count() > 80 {
+        return Err("preset names can contain at most 80 characters");
+    }
+    if name.chars().any(char::is_control) {
+        return Err("preset name contains unsupported characters");
     }
     Ok(())
 }
@@ -323,6 +394,42 @@ pub fn nearest_budget(value: u64) -> u64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn user_supplied_names_have_explicit_boundary_validation() {
+        assert_eq!(validate_name(""), Err("enter a preset name"));
+        assert_eq!(
+            validate_name(" preset "),
+            Err("preset names cannot start or end with whitespace")
+        );
+        assert_eq!(
+            validate_name(&"p".repeat(81)),
+            Err("preset names can contain at most 80 characters")
+        );
+        assert_eq!(
+            validate_name("preset\nname"),
+            Err("preset name contains unsupported characters")
+        );
+        assert!(validate_name("Lush ocean worlds").is_ok());
+
+        assert_eq!(
+            validate_custom_theme_name(""),
+            Err("enter a custom theme name")
+        );
+        assert_eq!(
+            validate_custom_theme_name(" theme "),
+            Err("custom theme names cannot start or end with whitespace")
+        );
+        assert_eq!(
+            validate_custom_theme_name(&"t".repeat(81)),
+            Err("custom theme names can contain at most 80 characters")
+        );
+        assert_eq!(
+            validate_custom_theme_name("theme\ttab"),
+            Err("custom theme name contains unsupported characters")
+        );
+        assert!(validate_custom_theme_name("Ocean dusk").is_ok());
+    }
 
     #[test]
     fn flora_colour_configuration_can_be_inspected_but_cannot_start_a_search() {
@@ -393,7 +500,9 @@ mod tests {
         assert_eq!(encoded["interface"]["hotkey"]["device"], "keyboard");
         assert_eq!(encoded["interface"]["hotkey"]["first"], "control_left");
         assert_eq!(encoded["interface"]["hotkey"]["second"], "comma");
-        assert_eq!(encoded["interface"]["theme"], "search_probes_dark");
+        assert_eq!(encoded["interface"]["theme"]["type"], "built_in");
+        assert_eq!(encoded["interface"]["theme"]["theme"], "search_probes_dark");
+        assert_eq!(encoded["interface"]["custom_themes"], serde_json::json!([]));
         assert_eq!(encoded["interface"]["result_cards"]["portal_glyphs"], true);
         assert_eq!(encoded["frame_budget_ms"], 8);
         assert_eq!(encoded["keep_game_running"], false);
@@ -443,6 +552,14 @@ mod tests {
             let mut invalid = encoded.clone();
             invalid["interface"]["notifications"]["unknown"] = true.into();
             assert!(serde_json::from_value::<Settings>(invalid).is_err());
+            let mut invalid = encoded.clone();
+            invalid["interface"]["notifications"]["duration_seconds"] = 0.into();
+            assert_eq!(
+                serde_json::from_value::<Settings>(invalid)
+                    .unwrap()
+                    .validate(),
+                Err("notification duration must be between 1 and 30 seconds")
+            );
             let mut incomplete = encoded;
             incomplete["interface"]["notifications"]
                 .as_object_mut()

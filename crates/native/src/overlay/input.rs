@@ -33,6 +33,7 @@ use windows_sys::{Win32::Graphics::Gdi::ScreenToClient, core::BOOL};
 
 static INPUT: Mutex<Input> = Mutex::new(Input::new());
 static ACTIVE: AtomicBool = AtomicBool::new(false);
+static CAPTURE_KEYBOARD: AtomicBool = AtomicBool::new(false);
 static WINDOW: AtomicUsize = AtomicUsize::new(0);
 static UI_CURSOR: AtomicUsize = AtomicUsize::new(0);
 static HOTKEY_KEYS: AtomicU32 = AtomicU32::new(0);
@@ -167,6 +168,7 @@ fn modifiers() -> Modifiers {
 }
 fn deactivate_interaction(input: &mut Input) {
     ACTIVE.store(false, Ordering::Release);
+    CAPTURE_KEYBOARD.store(false, Ordering::Release);
     input.buttons = [false; 3];
     input.events.clear();
     input.surrogate = None;
@@ -852,9 +854,12 @@ unsafe extern "system" fn procedure(
             input.procedures.remove(&(hwnd as usize));
             restore(&mut input);
         }
+        let capture_keyboard = CAPTURE_KEYBOARD.load(Ordering::Acquire);
         (
             previous,
-            active && (keyboard || (WM_MOUSEFIRST..=WM_MOUSELAST).contains(&message)),
+            active
+                && ((keyboard && capture_keyboard)
+                    || (WM_MOUSEFIRST..=WM_MOUSELAST).contains(&message)),
         )
     });
     let (previous, consumed) = processed.unwrap_or_default();
@@ -929,7 +934,8 @@ fn copy(hwnd: HWND, text: &str) {
         CloseClipboard();
     }
 }
-pub fn output(hwnd: usize, output: &egui::PlatformOutput) {
+pub fn output(hwnd: usize, output: &egui::PlatformOutput, capture_keyboard: bool) {
+    CAPTURE_KEYBOARD.store(capture_keyboard, Ordering::Release);
     let cursor = match output.cursor_icon {
         egui::CursorIcon::None => std::ptr::null_mut(),
         icon => unsafe {
@@ -986,7 +992,8 @@ fn recovery_hotkey_virtual_key(key: i32) -> bool {
 }
 
 pub unsafe extern "system" fn game_async_key(key: i32) -> i16 {
-    if ACTIVE.load(Ordering::Acquire)
+    if (ACTIVE.load(Ordering::Acquire)
+        && (CAPTURE_KEYBOARD.load(Ordering::Acquire) || mouse_virtual_key(key)))
         || (HOTKEY_DOWN.load(Ordering::Acquire) && hotkey_virtual_key(key))
         || (RECOVERY_HOTKEY_DOWN.load(Ordering::Acquire) && recovery_hotkey_virtual_key(key))
     {
@@ -996,7 +1003,8 @@ pub unsafe extern "system" fn game_async_key(key: i32) -> i16 {
     }
 }
 pub unsafe extern "system" fn game_key(key: i32) -> i16 {
-    if ACTIVE.load(Ordering::Acquire)
+    if (ACTIVE.load(Ordering::Acquire)
+        && (CAPTURE_KEYBOARD.load(Ordering::Acquire) || mouse_virtual_key(key)))
         || (HOTKEY_DOWN.load(Ordering::Acquire) && hotkey_virtual_key(key))
         || (RECOVERY_HOTKEY_DOWN.load(Ordering::Acquire) && recovery_hotkey_virtual_key(key))
     {
@@ -1006,13 +1014,20 @@ pub unsafe extern "system" fn game_key(key: i32) -> i16 {
     }
 }
 pub unsafe extern "system" fn game_keyboard(keys: *mut u8) -> BOOL {
-    if ACTIVE.load(Ordering::Acquire) {
+    if ACTIVE.load(Ordering::Acquire) && CAPTURE_KEYBOARD.load(Ordering::Acquire) {
         unsafe {
             std::ptr::write_bytes(keys, 0, 256);
         }
         return 1;
     }
     let result = unsafe { GetKeyboardState(keys) };
+    if result != 0 && ACTIVE.load(Ordering::Acquire) {
+        unsafe {
+            for key in [VK_LBUTTON, VK_RBUTTON, VK_MBUTTON, VK_XBUTTON1, VK_XBUTTON2] {
+                *keys.add(usize::from(key)) = 0;
+            }
+        }
+    }
     if result != 0 && HOTKEY_DOWN.load(Ordering::Acquire) {
         let hotkeys = HOTKEY_KEYS.load(Ordering::Acquire);
         unsafe {
@@ -1038,6 +1053,13 @@ pub unsafe extern "system" fn game_keyboard(keys: *mut u8) -> BOOL {
         }
     }
     result
+}
+
+fn mouse_virtual_key(key: i32) -> bool {
+    matches!(
+        key as u16,
+        VK_LBUTTON | VK_RBUTTON | VK_MBUTTON | VK_XBUTTON1 | VK_XBUTTON2
+    )
 }
 pub unsafe extern "system" fn game_cursor_pos(x: i32, y: i32) -> BOOL {
     if ACTIVE.load(Ordering::Acquire) {

@@ -11,9 +11,49 @@ use search_probes_model::{
     settings::recommended_workers,
 };
 use std::{
-    sync::atomic::{AtomicBool, Ordering},
+    sync::{
+        OnceLock,
+        atomic::{AtomicBool, Ordering},
+    },
     time::{Duration, Instant},
 };
+
+const CURRENT_WORLD_INSPECTION_LIMIT: Duration = Duration::from_secs(1);
+const INITIAL_SYSTEM_COST_NS: [f64; 4] = [250_000.0, 1_000_000.0, 4_000_000.0, 12_000_000.0];
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum CostClass {
+    System,
+    Planet,
+    Appearance,
+    Fauna,
+}
+
+impl CostClass {
+    fn for_plan(plan: &Plan) -> Self {
+        let requirements = plan.requirements;
+        if requirements.fauna {
+            Self::Fauna
+        } else if requirements.objects || requirements.colours != 0 {
+            Self::Appearance
+        } else if requirements.planet_query
+            || requirements.hints
+            || requirements.metadata
+            || requirements.weather
+            || requirements.terrain
+            || requirements.screen_filter
+            || !plan.planet.is_empty()
+        {
+            Self::Planet
+        } else {
+            Self::System
+        }
+    }
+
+    const fn index(self) -> usize {
+        self as usize
+    }
+}
 
 pub struct TickRequest<'a> {
     pub pool: &'a Workers,
@@ -22,6 +62,16 @@ pub struct TickRequest<'a> {
     pub difficulty: usize,
     pub workers: Option<usize>,
     pub budget: Duration,
+    pub cancel: &'a AtomicBool,
+}
+
+pub struct InspectRequest<'a> {
+    pub pool: &'a Workers,
+    pub base: usize,
+    pub live: *const u8,
+    pub difficulty: usize,
+    pub address: Address,
+    pub plan: &'a Plan,
     pub cancel: &'a AtomicBool,
 }
 
@@ -38,7 +88,7 @@ pub struct Scheduler {
     pub session: Session,
     object_summaries: crate::object_cache::ObjectTableCache,
     statistics: Statistics,
-    per_system_ns: f64,
+    per_system_ns: [f64; 4],
 }
 
 impl Default for Scheduler {
@@ -47,7 +97,7 @@ impl Default for Scheduler {
             session: Session::default(),
             object_summaries: crate::object_cache::ObjectTableCache::default(),
             statistics: Statistics::default(),
-            per_system_ns: 1_000_000.0,
+            per_system_ns: INITIAL_SYSTEM_COST_NS,
         }
     }
 }
@@ -60,17 +110,39 @@ impl Scheduler {
     /// the duration of the native query.
     pub unsafe fn inspect_current(
         &self,
-        base: usize,
-        live: *const u8,
-        difficulty: usize,
-        address: Address,
-        plan: &Plan,
-        cancel: &AtomicBool,
+        request: InspectRequest<'_>,
     ) -> Result<crate::search::Outcome, &'static str> {
-        let stop = crate::search::Stop::new(cancel, None);
-        let mut generator =
-            unsafe { crate::search::Generator::new(base, live, &self.object_summaries)? };
-        unsafe { generator.inspect_current(address, plan, difficulty, &stop) }
+        let InspectRequest {
+            pool,
+            base,
+            live,
+            difficulty,
+            address,
+            plan,
+            cancel,
+        } = request;
+        if live.is_null() {
+            return Err("null live planet generator");
+        }
+        let result = OnceLock::new();
+        let live = live as usize;
+        let deadline = Instant::now() + CURRENT_WORLD_INSPECTION_LIMIT;
+        let dispatched = pool.run_count(1, |_| {
+            let stop = crate::search::Stop::new(cancel, Some(deadline));
+            let outcome = unsafe {
+                crate::search::Generator::new(base, live as *const u8, &self.object_summaries)
+            }
+            .and_then(|mut generator| unsafe {
+                generator.inspect_current(address, plan, difficulty, &stop)
+            });
+            let _ = result.set(outcome);
+        });
+        if dispatched.is_err() {
+            return Err("current-world inspection worker failed");
+        }
+        result
+            .into_inner()
+            .unwrap_or(Err("current-world inspection worker did not complete"))
     }
 
     #[cfg(windows)]
@@ -94,8 +166,8 @@ impl Scheduler {
         }
         Ok(())
     }
-    fn batch_limit(&self, workers: usize, budget: Duration) -> usize {
-        ((budget.as_nanos() as f64 / self.per_system_ns) as usize)
+    fn batch_limit(&self, workers: usize, budget: Duration, class: CostClass) -> usize {
+        ((budget.as_nanos() as f64 / self.per_system_ns[class.index()]) as usize)
             .clamp(workers.clamp(1, batch::MAX_BATCH), batch::MAX_BATCH)
     }
     pub fn object_statistics(&self) -> crate::object_cache::Statistics {
@@ -116,7 +188,7 @@ impl Scheduler {
     pub fn reset_statistics(&mut self) {
         self.statistics = Statistics::default();
         self.object_summaries.reset_statistics();
-        self.per_system_ns = 1_000_000.0;
+        self.per_system_ns = INITIAL_SYSTEM_COST_NS;
     }
     /// # Safety
     /// The gameplay callback must wait for the batch and preserve shared native configuration and
@@ -140,7 +212,12 @@ impl Scheduler {
             .unwrap_or_else(|| recommended_workers(pool.count()))
             .min(pool.count());
         let started = Instant::now();
-        let limit = self.batch_limit(workers, budget);
+        let cost_class = self
+            .session
+            .plan()
+            .map(CostClass::for_plan)
+            .unwrap_or(CostClass::System);
+        let limit = self.batch_limit(workers, budget, cost_class);
         let pending = self.session.next(limit)?;
         match pending {
             Pending::Idle => return Ok(()),
@@ -219,8 +296,8 @@ impl Scheduler {
                 }
                 let elapsed = started.elapsed().as_nanos() as f64;
                 if native_systems > 0 {
-                    self.per_system_ns =
-                        self.per_system_ns * 0.5 + elapsed / native_systems as f64 * 0.5;
+                    let estimate = &mut self.per_system_ns[cost_class.index()];
+                    *estimate = *estimate * 0.5 + elapsed / native_systems as f64 * 0.5;
                 }
                 if cancel.load(Ordering::Acquire) {
                     self.session.cancel();
@@ -240,5 +317,48 @@ impl Scheduler {
         self.statistics.active_ns = self.statistics.active_ns.saturating_add(elapsed);
         self.statistics.longest_batch_ns = self.statistics.longest_batch_ns.max(elapsed);
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use search_probes_model::criteria::Requirements;
+
+    fn plan(requirements: Requirements) -> Plan {
+        Plan {
+            system: Vec::new(),
+            planet: Vec::new(),
+            requirements,
+        }
+    }
+
+    #[test]
+    fn scheduler_keeps_independent_cost_estimates_for_search_shapes() {
+        assert_eq!(
+            CostClass::for_plan(&plan(Requirements::default())),
+            CostClass::System
+        );
+        assert_eq!(
+            CostClass::for_plan(&plan(Requirements {
+                planet_query: true,
+                ..Requirements::default()
+            })),
+            CostClass::Planet
+        );
+        assert_eq!(
+            CostClass::for_plan(&plan(Requirements {
+                colours: 1,
+                ..Requirements::default()
+            })),
+            CostClass::Appearance
+        );
+        assert_eq!(
+            CostClass::for_plan(&plan(Requirements {
+                fauna: true,
+                ..Requirements::default()
+            })),
+            CostClass::Fauna
+        );
     }
 }

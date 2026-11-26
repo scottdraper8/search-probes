@@ -6,14 +6,13 @@ use crate::{
     },
     fauna::{Domain, FaunaField},
     settings::{NotificationSettings, ResultCardSettings, SearchOptions, Settings, TimeLimit},
-    theme::UiTheme,
+    theme::{CustomTheme, ThemePalette, ThemeSelection},
 };
 use serde::{Deserialize, Serialize};
 
 pub const UI_ACTIONS: &[(&str, &[&str])] = &[
     ("set_overlay_visible", &["visible"]),
     ("set_settings_sidebar", &["open"]),
-    ("set_page", &["page"]),
     ("set_draft_settings", &["settings"]),
     ("set_draft_search", &["search"]),
     ("set_criteria", &["criteria"]),
@@ -21,8 +20,8 @@ pub const UI_ACTIONS: &[(&str, &[&str])] = &[
     ("set_planet_requirement", &["flag", "value"]),
     ("set_system_requirement", &["flag", "value"]),
     ("set_resource_filter", &["selected"]),
-    ("set_minimum_planets", &["minimum"]),
-    ("set_minimum_stars", &["minimum"]),
+    ("set_planet_counts", &["selected"]),
+    ("set_star_counts", &["selected"]),
     ("set_water_filter", &["scope", "value"]),
     ("set_composition_filter", &["field", "side", "selected"]),
     ("set_fauna_choices", &["domain", "field", "selected"]),
@@ -37,16 +36,22 @@ pub const UI_ACTIONS: &[(&str, &[&str])] = &[
     ("set_frame_budget", &["frame_budget_ms"]),
     ("set_keep_game_running", &["keep_game_running"]),
     ("set_theme", &["theme"]),
+    ("set_theme_editor", &["draft", "original_name"]),
+    ("save_custom_theme", &[]),
+    ("remove_custom_theme", &["name"]),
     ("set_hotkey", &["hotkey"]),
     ("set_notifications", &["notifications"]),
     ("set_result_cards", &["result_cards"]),
-    ("set_hotkey_dialog", &["open"]),
     ("set_hotkey_capture", &["device"]),
     ("select_preset", &["index"]),
     ("clear_preset_selection", &[]),
+    ("set_preset_dialog", &["open"]),
+    ("set_rename_preset_dialog", &["index"]),
     ("set_preset_name", &["name"]),
+    ("select_managed_preset", &["index"]),
     ("save_preset", &[]),
-    ("remove_preset", &[]),
+    ("rename_preset", &["index", "name"]),
+    ("remove_preset", &["index"]),
     ("clear_criteria", &[]),
     ("apply_settings", &[]),
     ("start_search", &[]),
@@ -57,17 +62,10 @@ pub const UI_ACTIONS: &[(&str, &[&str])] = &[
     ("navigate_result", &["search_id", "result_index"]),
     ("copy_result", &["search_id", "result_index", "value"]),
     ("export", &["source", "format"]),
-    ("show_toast", &["toast"]),
+    ("show_toast", &["id", "toast"]),
+    ("dismiss_toast", &["id"]),
     ("clear_toasts", &[]),
 ];
-
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum UiPage {
-    #[default]
-    Search,
-    History,
-}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -110,11 +108,35 @@ pub enum UiExportFormat {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case", deny_unknown_fields)]
 pub enum TestToast {
-    ResultFound { count: usize },
-    SearchCompleted { message: String },
-    AutomaticPause { reason: String },
-    AutomaticResume {},
-    ExportCompleted { subject: String, path: String },
+    ResultFound {
+        search_id: u64,
+        result_index: usize,
+    },
+    SearchCompleted {
+        systems: u64,
+        system_limit: u64,
+        planets: Option<u64>,
+        fauna: Option<u64>,
+        results: usize,
+        result_limit: usize,
+        elapsed_ms: u64,
+    },
+    AutomaticPause {
+        keep_game_running: bool,
+    },
+    AutomaticResume {
+        systems: u64,
+        system_limit: u64,
+        planets: Option<u64>,
+        fauna: Option<u64>,
+        results: usize,
+        result_limit: usize,
+        elapsed_ms: u64,
+    },
+    ExportCompleted {
+        subject: String,
+        path: String,
+    },
 }
 
 /// Semantic operations exposed by the rendered Search Probes interface. These are intentionally
@@ -128,9 +150,6 @@ pub enum UiAction {
     },
     SetSettingsSidebar {
         open: bool,
-    },
-    SetPage {
-        page: UiPage,
     },
     SetDraftSettings {
         settings: Settings,
@@ -156,11 +175,11 @@ pub enum UiAction {
     SetResourceFilter {
         selected: Vec<String>,
     },
-    SetMinimumPlanets {
-        minimum: Option<u8>,
+    SetPlanetCounts {
+        selected: Vec<u8>,
     },
-    SetMinimumStars {
-        minimum: Option<u8>,
+    SetStarCounts {
+        selected: Vec<u8>,
     },
     SetWaterFilter {
         scope: WaterScope,
@@ -211,7 +230,15 @@ pub enum UiAction {
         keep_game_running: bool,
     },
     SetTheme {
-        theme: UiTheme,
+        theme: ThemeSelection,
+    },
+    SetThemeEditor {
+        draft: Option<CustomTheme>,
+        original_name: Option<String>,
+    },
+    SaveCustomTheme {},
+    RemoveCustomTheme {
+        name: String,
     },
     SetHotkey {
         hotkey: InputBinding,
@@ -222,9 +249,6 @@ pub enum UiAction {
     SetResultCards {
         result_cards: ResultCardSettings,
     },
-    SetHotkeyDialog {
-        open: bool,
-    },
     SetHotkeyCapture {
         device: Option<BindingDevice>,
     },
@@ -232,11 +256,26 @@ pub enum UiAction {
         index: usize,
     },
     ClearPresetSelection {},
+    SetPresetDialog {
+        open: bool,
+    },
+    SetRenamePresetDialog {
+        index: Option<usize>,
+    },
     SetPresetName {
         name: String,
     },
+    SelectManagedPreset {
+        index: Option<usize>,
+    },
     SavePreset {},
-    RemovePreset {},
+    RenamePreset {
+        index: usize,
+        name: String,
+    },
+    RemovePreset {
+        index: usize,
+    },
     ClearCriteria {},
     ApplySettings {},
     StartSearch {},
@@ -264,7 +303,11 @@ pub enum UiAction {
         format: UiExportFormat,
     },
     ShowToast {
+        id: String,
         toast: TestToast,
+    },
+    DismissToast {
+        id: String,
     },
     ClearToasts {},
 }
@@ -291,48 +334,34 @@ pub enum UiOutput {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ToastSnapshot {
+    pub id: Option<String>,
     pub title: String,
     pub message: String,
     pub created_ms: u64,
-    pub expires_ms: u64,
+    pub expires_ms: Option<u64>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct UiState {
     pub overlay_visible: bool,
-    pub page: UiPage,
     pub settings_sidebar: bool,
-    pub hotkey_dialog: bool,
     pub hotkey_capture: Option<BindingDevice>,
     pub selected_preset: Option<usize>,
     pub preset_name: String,
+    pub preset_dialog_open: bool,
+    pub renaming_preset: Option<usize>,
+    pub managed_preset: Option<usize>,
+    pub managed_preset_name: String,
+    pub theme_editor: Option<CustomTheme>,
+    pub theme_editor_original_name: Option<String>,
+    pub selected_theme_palette: Option<ThemePalette>,
     pub viewed_search: Option<u64>,
     pub draft_settings: Settings,
     pub toasts: Vec<ToastSnapshot>,
     pub last_command: u64,
     pub error: Option<String>,
     pub output: Option<UiOutput>,
-}
-
-impl Default for UiState {
-    fn default() -> Self {
-        Self {
-            overlay_visible: false,
-            page: UiPage::Search,
-            settings_sidebar: false,
-            hotkey_dialog: false,
-            hotkey_capture: None,
-            selected_preset: None,
-            preset_name: String::new(),
-            viewed_search: None,
-            draft_settings: Settings::default(),
-            toasts: Vec::new(),
-            last_command: 0,
-            error: None,
-            output: None,
-        }
-    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -362,12 +391,13 @@ mod tests {
     fn action_payloads_reject_unknown_fields() {
         assert!(
             serde_json::from_str::<UiAction>(
-                r#"{"type":"set_page","page":"history","unexpected":true}"#
+                r#"{"type":"set_settings_sidebar","open":true,"unexpected":true}"#
             )
             .is_err()
         );
         assert!(
-            serde_json::from_str::<UiAction>(r#"{"type":"set_page","page":"history"}"#).is_ok()
+            serde_json::from_str::<UiAction>(r#"{"type":"set_settings_sidebar","open":true}"#)
+                .is_ok()
         );
     }
 }

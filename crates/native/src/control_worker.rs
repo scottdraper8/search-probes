@@ -24,6 +24,8 @@ pub fn start(controls: Arc<Controls>, directory: PathBuf) -> Result<(), String> 
         .spawn(move || {
             let mut agent_polled = Instant::now();
             let mut published = Instant::now();
+            let mut overlay_published = Instant::now();
+            let mut published_revision = 0;
             loop {
                 if controls.availability() == Availability::Stopped {
                     break;
@@ -53,15 +55,26 @@ pub fn start(controls: Arc<Controls>, directory: PathBuf) -> Result<(), String> 
                 }
                 controls.prepare(&directory);
                 if published.elapsed() >= Duration::from_millis(250) {
-                    if let Err(error) = storage::write_json(
-                        &directory.join("current.json"),
-                        &controls.snapshot(),
-                        MAX_STATE_BYTES,
-                    ) {
-                        controls.update(|state| {
-                            state.error = Some(format!("Cannot publish diagnostics: {error}"))
-                        });
+                    if let Some((revision, snapshot)) =
+                        controls.snapshot_if_changed(published_revision)
+                    {
+                        match storage::write_json(
+                            &directory.join("current.json"),
+                            &snapshot,
+                            MAX_STATE_BYTES,
+                        ) {
+                            Ok(()) => {
+                                published_revision = revision;
+                                let _ = agent.publish();
+                            }
+                            Err(error) => controls.update(|state| {
+                                state.error = Some(format!("Cannot publish diagnostics: {error}"))
+                            }),
+                        }
                     }
+                    published = Instant::now();
+                }
+                if overlay_published.elapsed() >= Duration::from_secs(1) {
                     if let Some(diagnostics) = crate::overlay::diagnostics() {
                         let _ = storage::write_json(
                             &directory.join("overlay.json"),
@@ -69,8 +82,7 @@ pub fn start(controls: Arc<Controls>, directory: PathBuf) -> Result<(), String> 
                             16384,
                         );
                     }
-                    let _ = agent.publish();
-                    published = Instant::now();
+                    overlay_published = Instant::now();
                 }
                 if controls.availability() == Availability::Stopped {
                     break;

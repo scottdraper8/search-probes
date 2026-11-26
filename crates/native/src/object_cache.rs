@@ -1,7 +1,7 @@
 use std::{
     collections::{BTreeMap, VecDeque},
     sync::{
-        Arc, RwLock,
+        Arc, Condvar, Mutex, RwLock,
         atomic::{AtomicU64, Ordering},
     },
 };
@@ -49,9 +49,18 @@ struct Cache {
     owned_bytes: usize,
 }
 
+type LoadResult = Result<Option<TableFacts>, &'static str>;
+
+#[derive(Default)]
+struct InFlight {
+    result: Mutex<Option<LoadResult>>,
+    ready: Condvar,
+}
+
 #[derive(Default)]
 pub struct ObjectTableCache {
     cache: RwLock<Cache>,
+    in_flight: Mutex<BTreeMap<Vec<u8>, Arc<InFlight>>>,
     hits: AtomicU64,
 }
 
@@ -80,23 +89,80 @@ impl ObjectTableCache {
                 return Ok(Some(facts));
             }
         }
+        let (flight, leader) = {
+            let mut flights = self
+                .in_flight
+                .lock()
+                .map_err(|_| "object-table cache coordinator poisoned")?;
+            if let Some(flight) = flights.get(filename) {
+                (flight.clone(), false)
+            } else {
+                let flight = Arc::new(InFlight::default());
+                flights.insert(filename.to_vec(), flight.clone());
+                (flight, true)
+            }
+        };
+        if !leader {
+            let mut result = flight
+                .result
+                .lock()
+                .map_err(|_| "object-table cache load poisoned")?;
+            while result.is_none() {
+                result = flight
+                    .ready
+                    .wait(result)
+                    .map_err(|_| "object-table cache load poisoned")?;
+            }
+            let loaded = result
+                .clone()
+                .ok_or("object-table cache load did not finish")?;
+            match &loaded {
+                Ok(Some(facts)) if facts.glow_known & need_glow == need_glow => {
+                    self.hits.fetch_add(1, Ordering::Relaxed);
+                    return loaded;
+                }
+                Ok(Some(_)) => {}
+                Ok(None) | Err(_) => return loaded,
+            }
+            // The leading request may have asked for fewer optional facts. Resolve the upgrade
+            // after it publishes instead of racing two native loads of the same table.
+            drop(result);
+            return self.resolve(filename, need_glow, load);
+        }
+        {
+            let mut cache = self
+                .cache
+                .write()
+                .map_err(|_| "object-table cache poisoned")?;
+            cache.statistics.loads = cache.statistics.loads.saturating_add(1);
+        }
+        let loaded = load();
+        let result = match loaded {
+            Ok(Some(facts)) => self.insert(filename, facts).map(Some),
+            Ok(None) => Ok(None),
+            Err(error) => Err(error),
+        };
+        {
+            let mut published = flight
+                .result
+                .lock()
+                .map_err(|_| "object-table cache load poisoned")?;
+            *published = Some(result.clone());
+        }
+        let mut flights = self
+            .in_flight
+            .lock()
+            .map_err(|_| "object-table cache coordinator poisoned")?;
+        flights.remove(filename);
+        flight.ready.notify_all();
+        result
+    }
+
+    fn insert(&self, filename: &[u8], mut facts: TableFacts) -> Result<TableFacts, &'static str> {
         let mut cache = self
             .cache
             .write()
             .map_err(|_| "object-table cache poisoned")?;
-        if let Some(facts) = cache
-            .entries
-            .get(filename)
-            .cloned()
-            .filter(|facts| facts.glow_known & need_glow == need_glow)
-        {
-            self.hits.fetch_add(1, Ordering::Relaxed);
-            return Ok(Some(facts));
-        }
-        cache.statistics.loads = cache.statistics.loads.saturating_add(1);
-        let Some(mut facts) = load()? else {
-            return Ok(None);
-        };
         if let Some(old) = cache.entries.get(filename) {
             if old.glow_known & 1 != 0 && facts.glow_known & 1 == 0 {
                 facts.glowing_grass = old.glowing_grass;
@@ -132,7 +198,7 @@ impl ObjectTableCache {
         cache.order.push_back(filename.to_vec());
         cache.owned_bytes += bytes;
         cache.statistics.retained = cache.entries.len();
-        Ok(Some(facts))
+        Ok(facts)
     }
 
     pub fn statistics(&self) -> Statistics {
@@ -163,5 +229,82 @@ impl ObjectTableCache {
             .cache
             .get_mut()
             .unwrap_or_else(|error| error.into_inner()) = Cache::default();
+        self.in_flight
+            .get_mut()
+            .unwrap_or_else(|error| error.into_inner())
+            .clear();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::{
+        sync::{Barrier, atomic::AtomicUsize},
+        thread,
+        time::Duration,
+    };
+
+    fn facts(mask: u8) -> TableFacts {
+        TableFacts {
+            glow_known: mask,
+            ..TableFacts::default()
+        }
+    }
+
+    #[test]
+    fn identical_misses_share_one_load() {
+        let cache = Arc::new(ObjectTableCache::default());
+        let loads = Arc::new(AtomicUsize::new(0));
+        let barrier = Arc::new(Barrier::new(3));
+        let threads: Vec<_> = (0..2)
+            .map(|_| {
+                let cache = cache.clone();
+                let loads = loads.clone();
+                let barrier = barrier.clone();
+                thread::spawn(move || {
+                    barrier.wait();
+                    cache
+                        .resolve(b"shared", 1, || {
+                            loads.fetch_add(1, Ordering::SeqCst);
+                            thread::sleep(Duration::from_millis(20));
+                            Ok(Some(facts(1)))
+                        })
+                        .unwrap()
+                        .unwrap()
+                })
+            })
+            .collect();
+        barrier.wait();
+        for thread in threads {
+            assert_eq!(thread.join().unwrap().glow_known, 1);
+        }
+        assert_eq!(loads.load(Ordering::SeqCst), 1);
+        assert_eq!(cache.statistics().hits, 1);
+    }
+
+    #[test]
+    fn independent_misses_load_concurrently() {
+        let cache = Arc::new(ObjectTableCache::default());
+        let inside = Arc::new(Barrier::new(2));
+        let threads: Vec<_> = [b"first".as_slice(), b"second".as_slice()]
+            .into_iter()
+            .map(|name| {
+                let cache = cache.clone();
+                let inside = inside.clone();
+                thread::spawn(move || {
+                    cache
+                        .resolve(name, 0, || {
+                            inside.wait();
+                            Ok(Some(facts(0)))
+                        })
+                        .unwrap()
+                })
+            })
+            .collect();
+        for thread in threads {
+            assert!(thread.join().unwrap().is_some());
+        }
+        assert_eq!(cache.statistics().loads, 2);
     }
 }
