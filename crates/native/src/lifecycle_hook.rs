@@ -10,17 +10,11 @@ static ORIGINAL: AtomicUsize = AtomicUsize::new(0);
 static APPLICATION: AtomicUsize = AtomicUsize::new(0);
 static EPOCH: AtomicU64 = AtomicU64::new(1);
 static SESSION: AtomicU64 = AtomicU64::new(1);
-static BASE: AtomicUsize = AtomicUsize::new(0);
 static STATE: AtomicU8 = AtomicU8::new(0);
 static HOOK: Mutex<Option<ResidentHook>> = Mutex::new(None);
 const PREFIX: [u8; 15] = [
     0x48, 0x89, 0x6c, 0x24, 0x10, 0x48, 0x89, 0x74, 0x24, 0x18, 0x57, 0x48, 0x83, 0xec, 0x20,
 ];
-const SIMULATION_VTABLE: usize = 0x4b1d768;
-const GALACTIC_MAP_VTABLE: usize = 0x4b1d6b0;
-const SAVE_SELECTION_VTABLE: usize = 0x4b1d888;
-const TITLE_SCREEN_VTABLE: usize = 0x4b1d910;
-const SHUTDOWN_VTABLE: usize = 0x4b1d660;
 
 thread_local! {
     static TRANSITION_DEPTH: Cell<u32> = const { Cell::new(0) };
@@ -44,7 +38,7 @@ impl Drop for TransitionDepth {
     }
 }
 
-#[derive(Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(u8)]
 enum ApplicationState {
     Loading,
@@ -76,14 +70,7 @@ pub fn menu() -> bool {
 /// callback is the authoritative point at which that deferred transition has completed.
 pub(crate) fn reconcile_gameplay() {
     let application = APPLICATION.load(Ordering::Acquire);
-    let base = BASE.load(Ordering::Acquire);
-    if application == 0
-        || base == 0
-        || !matches!(
-            application_state(application, base),
-            ApplicationState::Gameplay
-        )
-    {
+    if application == 0 || !matches!(application_state(application), ApplicationState::Gameplay) {
         return;
     }
     if STATE.swap(ApplicationState::Gameplay as u8, Ordering::AcqRel)
@@ -94,16 +81,27 @@ pub(crate) fn reconcile_gameplay() {
     }
 }
 
-fn application_state(machine: usize, base: usize) -> ApplicationState {
-    let vtable = crate::platform::pointer(machine + 0x10)
-        .and_then(crate::platform::pointer)
-        .ok();
-    match vtable.and_then(|vtable| vtable.checked_sub(base)) {
-        Some(SIMULATION_VTABLE | GALACTIC_MAP_VTABLE) => ApplicationState::Gameplay,
-        Some(SHUTDOWN_VTABLE) => ApplicationState::Shutdown,
-        Some(SAVE_SELECTION_VTABLE | TITLE_SCREEN_VTABLE) => ApplicationState::NewSession,
-        _ => ApplicationState::Loading,
+fn fixed_state(actual: &[u8; 16], expected: &[u8]) -> bool {
+    actual.get(..expected.len()) == Some(expected)
+        && actual[expected.len()..].iter().all(|byte| *byte == 0)
+}
+
+fn classify_state(identity: [u8; 16]) -> ApplicationState {
+    if fixed_state(&identity, b"APPVIEW") || fixed_state(&identity, b"GALAXYMAP") {
+        ApplicationState::Gameplay
+    } else if fixed_state(&identity, b"APPSHUTDOWN") {
+        ApplicationState::Shutdown
+    } else if fixed_state(&identity, b"MODESELECTOR") || fixed_state(&identity, b"TITLESCREEN") {
+        ApplicationState::NewSession
+    } else {
+        ApplicationState::Loading
     }
+}
+
+fn application_state(machine: usize) -> ApplicationState {
+    crate::platform::pointer(machine + 0x10)
+        .and_then(|current| crate::platform::read::<16>(current + 8))
+        .map_or(ApplicationState::Loading, classify_state)
 }
 
 unsafe extern "system" fn detour(this: *mut u8, key: *const u8, data: *mut u8, restart: bool) {
@@ -134,7 +132,7 @@ unsafe extern "system" fn detour(this: *mut u8, key: *const u8, data: *mut u8, r
         original(this, key, data, restart);
     }
     if transition.0 {
-        let state = application_state(this as usize, BASE.load(Ordering::Acquire));
+        let state = application_state(this as usize);
         if matches!(state, ApplicationState::NewSession) {
             SESSION.fetch_add(1, Ordering::AcqRel);
         }
@@ -160,25 +158,68 @@ unsafe extern "system" fn detour(this: *mut u8, key: *const u8, data: *mut u8, r
 pub unsafe fn enable(base: usize) -> Result<(), HookError> {
     let mut state = HOOK.lock().map_err(|_| HookError::StatePoisoned)?;
     if state.is_none() {
-        BASE.store(base, Ordering::Release);
         let hook = unsafe {
-            ResidentHook::prepare(base + 0x2c53c90, detour as *const () as usize, &PREFIX)
+            ResidentHook::prepare(base + 0x2c57670, detour as *const () as usize, &PREFIX)
         }?;
         ORIGINAL.store(hook.trampoline(), Ordering::Release);
-        APPLICATION.store(base + 0x6f6c250, Ordering::Release);
-        STATE.store(
-            application_state(base + 0x6f6c250, base) as u8,
-            Ordering::Release,
-        );
+        APPLICATION.store(base + 0x6f71730, Ordering::Release);
+        STATE.store(application_state(base + 0x6f71730) as u8, Ordering::Release);
         *state = Some(hook);
     }
-    if APPLICATION.load(Ordering::Acquire) != base + 0x6f6c250 {
+    if APPLICATION.load(Ordering::Acquire) != base + 0x6f71730 {
         return Err(HookError::PrefixChanged);
     }
     if let Some(hook) = state.as_mut() {
         unsafe { hook.set_enabled(true) }?;
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{ApplicationState, classify_state};
+
+    fn identity(value: &[u8]) -> [u8; 16] {
+        let mut result = [0; 16];
+        result[..value.len()].copy_from_slice(value);
+        result
+    }
+
+    #[test]
+    fn classifies_stable_application_state_ids() {
+        assert_eq!(
+            classify_state(identity(b"APPVIEW")),
+            ApplicationState::Gameplay
+        );
+        assert_eq!(
+            classify_state(identity(b"GALAXYMAP")),
+            ApplicationState::Gameplay
+        );
+        assert_eq!(
+            classify_state(identity(b"APPSHUTDOWN")),
+            ApplicationState::Shutdown
+        );
+        assert_eq!(
+            classify_state(identity(b"MODESELECTOR")),
+            ApplicationState::NewSession
+        );
+        assert_eq!(
+            classify_state(identity(b"TITLESCREEN")),
+            ApplicationState::NewSession
+        );
+        assert_eq!(
+            classify_state(identity(b"APPLOCALLOAD")),
+            ApplicationState::Loading
+        );
+    }
+
+    #[test]
+    fn rejects_non_fixed_state_ids() {
+        assert_eq!(
+            classify_state(*b"APPVIEW-NOTZERO!"),
+            ApplicationState::Loading
+        );
+    }
 }
 
 /// # Safety

@@ -57,7 +57,7 @@ jobs:
           cargo build --locked --release --target x86_64-pc-windows-gnu \
             -p search-probes-bootstrap -p search-probes-runtime -p search-probes-control
           version="$(cargo run --locked --quiet -p search-probes-package -- game-version)"
-          if [[ ! "$version" =~ ^[0-9]+\.[0-9]+$ ]]; then
+          if [[ ! "$version" =~ ^[0-9]+\.[0-9]+(\.[0-9]+)?$ ]]; then
             echo "Invalid NMS release version: $version" >&2
             exit 1
           fi
@@ -105,8 +105,8 @@ jobs:
           SHA256: ${{ needs.build.outputs.sha256 }}
         run: |
           set -euo pipefail
-          [[ "$VERSION" =~ ^[0-9]+\.[0-9]+$ ]]
-          [[ "$ASSET" =~ ^SearchProbes[0-9]+\.[0-9]+-[0-9]{8}\.zip$ ]]
+          [[ "$VERSION" =~ ^[0-9]+\.[0-9]+(\.[0-9]+)?$ ]]
+          [[ "$ASSET" =~ ^SearchProbes[0-9]+\.[0-9]+(\.[0-9]+)?-[0-9]{8}\.zip$ ]]
           [[ "$SHA256" =~ ^[0-9a-f]{64}$ ]]
           printf '%s  %s\n' "$SHA256" "$RUNNER_TEMP/release/$ASSET" | sha256sum --check
           # Do not let an older queued run replace a newer main-branch build.
@@ -128,7 +128,7 @@ jobs:
             gh release edit "$tag" --title "Search Probes $VERSION" \
               --notes "Compatible with No Man's Sky $VERSION. SHA-256 ($ASSET): $SHA256"
             gh release view "$tag" --json assets --jq '.assets[].name' | while IFS= read -r old; do
-              if [[ "$old" != "$ASSET" && "$old" =~ ^SearchProbes[0-9]+\.[0-9]+-[0-9]{8}\.zip$ ]]; then
+              if [[ "$old" != "$ASSET" && "$old" =~ ^SearchProbes[0-9]+\.[0-9]+(\.[0-9]+)?-[0-9]{8}\.zip$ ]]; then
                 gh release delete-asset "$tag" "$old" --yes
               fi
             done

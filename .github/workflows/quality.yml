@@ -45,7 +45,7 @@ jobs:
       - name: Build and verify the release package
         run: |
           version="$(cargo run --locked --quiet -p search-probes-package -- game-version)"
-          [[ "$version" =~ ^[0-9]+\.[0-9]+$ ]]
+          [[ "$version" =~ ^[0-9]+\.[0-9]+(\.[0-9]+)?$ ]]
           cargo build --locked --release --target x86_64-pc-windows-gnu \
             -p search-probes-bootstrap -p search-probes-runtime -p search-probes-control
           cargo run --locked --quiet -p search-probes-package -- package "$RUNNER_TEMP/SearchProbes"

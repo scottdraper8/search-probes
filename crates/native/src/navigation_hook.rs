@@ -34,7 +34,7 @@ type ResolveScanEvent = unsafe extern "system" fn(
 ) -> usize;
 type PlanetFilter = unsafe extern "system" fn(usize, usize, bool, u8) -> bool;
 type PlanetAddress = unsafe extern "system" fn(usize) -> u64;
-const PLANET_ADDRESS_OFFSET: usize = 0x16ae380;
+const PLANET_ADDRESS_OFFSET: usize = 0x16b0070;
 const PLANET_ADDRESS_PREFIX: [u8; 12] = [
     0x48, 0x83, 0xec, 0x38, 0x4c, 0x8b, 0xd1, 0x48, 0x8d, 0x4c, 0x24, 0x20,
 ];
@@ -281,7 +281,7 @@ pub unsafe fn enable(base: usize) -> Result<(), HookError> {
         }
         let definitions: [(usize, usize, &[u8], &AtomicUsize); 3] = [
             (
-                0x1305fa0,
+                0x1307e70,
                 resolve_detour as *const () as usize,
                 &[
                     0x44, 0x89, 0x44, 0x24, 0x18, 0x48, 0x89, 0x4c, 0x24, 0x08, 0x55, 0x53, 0x56,
@@ -290,7 +290,7 @@ pub unsafe fn enable(base: usize) -> Result<(), HookError> {
                 &ORIGINAL_RESOLVE,
             ),
             (
-                0x130d760,
+                0x130f600,
                 building_detour as *const () as usize,
                 &[
                     0x44, 0x88, 0x4c, 0x24, 0x20, 0x4c, 0x89, 0x44, 0x24, 0x18, 0x48, 0x89, 0x54,
@@ -299,7 +299,7 @@ pub unsafe fn enable(base: usize) -> Result<(), HookError> {
                 &ORIGINAL_BUILDING,
             ),
             (
-                0x1310a30,
+                0x1313100,
                 filter_detour as *const () as usize,
                 &[
                     0x48, 0x89, 0x5c, 0x24, 0x08, 0x48, 0x89, 0x6c, 0x24, 0x10, 0x48, 0x89, 0x74,
