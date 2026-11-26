@@ -29,12 +29,12 @@ const SIGNAL_MISSION: &[u8] = b"SQN_SP_SIGNAL";
 const MAX_RETAINED_DISCOVERIES: usize = 64;
 const DESTINATION_START_TIMEOUT: Duration = Duration::from_secs(30);
 const REPLACEMENT_CLEAN_POLLS: u8 = 2;
-const SELECT_MISSION_RVA: usize = 0x9d7c90;
+const SELECT_MISSION_RVA: usize = 0x9d9010;
 const SELECT_MISSION_PREFIX: [u8; 26] = [
     0x48, 0x8b, 0xc4, 0x44, 0x88, 0x40, 0x18, 0x53, 0x56, 0x57, 0x41, 0x54, 0x48, 0x81, 0xec, 0x58,
     0x01, 0x00, 0x00, 0x45, 0x33, 0xe4, 0x41, 0x0f, 0xb6, 0xf8,
 ];
-const FINISH_MISSION_RVA: usize = 0xa3d410;
+const FINISH_MISSION_RVA: usize = 0xa3e8f0;
 const FINISH_MISSION_PREFIX: [u8; 32] = [
     0x48, 0x89, 0x5c, 0x24, 0x08, 0x48, 0x89, 0x74, 0x24, 0x18, 0x48, 0x89, 0x7c, 0x24, 0x20, 0x55,
     0x41, 0x54, 0x41, 0x55, 0x41, 0x56, 0x41, 0x57, 0x48, 0x8d, 0x6c, 0x24, 0xc0, 0x48, 0x81, 0xec,
@@ -246,7 +246,7 @@ fn pending(manager: usize) -> Result<bool, &'static str> {
 }
 
 fn route(application: usize) -> Result<Option<Target>, &'static str> {
-    let manager = platform::pointer(application + 0x4deab0)?;
+    let manager = platform::pointer(application + 0x4deb50)?;
     let count = platform::u32_at(manager + 0xd4)? as usize;
     if count > 1024 {
         return Err("unsupported active scan-event collection");
@@ -417,7 +417,7 @@ impl Navigation {
         if address.coordinates().galaxy != snapshot.address.coordinates().galaxy {
             return Err("navigation requires a destination in the current galaxy");
         }
-        let manager = snapshot.application + 0x86e3d0;
+        let manager = snapshot.application + 0x86e470;
         if self.requested.is_some() || self.queued.is_some() || pending(manager)? {
             return Err("a Search Probes destination is still starting");
         }
@@ -470,7 +470,7 @@ impl Navigation {
         self.description = Some(result);
         let mission = target.mission()?;
         type Start = unsafe extern "system" fn(usize, *const u8, *const Seed, bool, bool) -> bool;
-        let start = unsafe { std::mem::transmute::<usize, Start>(image.base() + 0x9cebb0) };
+        let start = unsafe { std::mem::transmute::<usize, Start>(image.base() + 0x9cff30) };
         let accepted = unsafe {
             start(
                 manager,
@@ -642,7 +642,7 @@ impl Navigation {
             return Ok(());
         }
         type Start = unsafe extern "system" fn(usize, *const u8, *const Seed, bool, bool) -> bool;
-        let start = unsafe { std::mem::transmute::<usize, Start>(image.base() + 0x9cebb0) };
+        let start = unsafe { std::mem::transmute::<usize, Start>(image.base() + 0x9cff30) };
         let accepted = unsafe {
             start(
                 manager,
@@ -669,7 +669,7 @@ impl Navigation {
         image: &Image,
         snapshot: &Snapshot,
     ) -> Result<(), &'static str> {
-        let manager = snapshot.application + 0x86e3d0;
+        let manager = snapshot.application + 0x86e470;
         if let Err(error) = navigation_hook::published() {
             self.requested = None;
             self.queued = None;

@@ -2,9 +2,9 @@ const ROLE_TABLE: usize = 0x3180;
 const ROLE_STRIDE: usize = 0x5d8;
 const MAX_ROLES: i32 = search_probes_model::fauna::MAX_SPECIES as i32;
 const PLAYER_PREDATOR: u32 = 2;
-const APPLICATION_RVA: usize = 0x6f6c288;
-const NAME_CONTEXT: usize = 0xcd0;
-const NAME_RVA: usize = 0xeb43c0;
+const APPLICATION_RVA: usize = 0x6f71768;
+const NAME_CONTEXT: usize = 0xd10;
+const NAME_RVA: usize = 0xeb5b90;
 const NAME_PREFIX: [u8; 20] = [
     0x48, 0x89, 0x5c, 0x24, 0x20, 0x55, 0x56, 0x57, 0x41, 0x54, 0x41, 0x55, 0x41, 0x56, 0x41, 0x57,
     0x48, 0x8d, 0xac, 0x24,
@@ -19,7 +19,7 @@ pub struct Context {
 
 impl Context {
     /// # Safety
-    /// `base` is the verified NMS 7.14 image and remains loaded while the context is used.
+    /// `base` is the verified NMS 7.15.1 image and remains loaded while the context is used.
     pub unsafe fn from_verified_image(base: usize) -> Result<Self, &'static str> {
         let address = base + NAME_RVA;
         if unsafe { std::slice::from_raw_parts(address as *const u8, NAME_PREFIX.len()) }

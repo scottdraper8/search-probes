@@ -1,5 +1,5 @@
-pub const GAME_VERSION: &str = "7.14 (Forsaken)";
-pub const STEAM_BUILD: u64 = 26_540_391;
-pub const EXECUTABLE_BYTES: u64 = 89_540_680;
+pub const GAME_VERSION: &str = "7.15.1 (Holiday Expeditions 2026)";
+pub const STEAM_BUILD: u64 = 26_924_890;
+pub const EXECUTABLE_BYTES: u64 = 89_563_720;
 pub const EXECUTABLE_SHA256: &str =
-    "092236962ee050e419424699b5c343a0173f7773d5ad0866b7ec366d334c07d4";
+    "966bad4d8a665dd65a593c5e55f0a8e8b5029ffaae176f016c4b283a46630075";
